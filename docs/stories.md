@@ -11,16 +11,66 @@ Story points are rough (1/2/3/5/8, Fibonacci-ish) for relative sizing only.
 
 Foundation epic — nothing that filters by `user_id` can be built before this lands.
 
+### Dependencies (must be in place before Epic 1 work starts)
+
+1. **Neon Postgres project provisioned** — connection string (host, db, user, password) available as an env var. External service, so this is the earliest possible blocker; request access/create the project on Day 1 (Epic 8.2 smoke test).
+2. **Backend scaffolding exists** — a runnable FastAPI app (Epic 8.1) with an `auth` module directory to build into.
+3. **Python package dependencies installed**, e.g.:
+   - `fastapi`, `uvicorn` — API framework + dev server
+   - `sqlalchemy` + `asyncpg` (or `psycopg2-binary` for sync) — Postgres access
+   - `alembic` — schema migrations (or a plain SQL init script if skipping migrations for v1)
+   - `passlib[bcrypt]` (or `bcrypt` directly) — password hashing
+   - `python-jose[cryptography]` (or `pyjwt`) — JWT issuance/validation
+   - `pydantic` / `pydantic-settings` — request validation + env config
+   - `python-dotenv` — local env var loading
+4. **`users` table schema defined and migrated** — must exist before 1.1 can write a signup row.
+5. **JWT signing secret configured** (env var, not hardcoded) — must exist before 1.2 can issue tokens.
+6. **A FastAPI dependency (`Depends(...)`) for "current user from JWT"** — the mechanism 1.3/1.4 hang off of; build it once, reuse across all protected routers (documents, chat, kg).
+
+Dependency order: (1) Neon project → (4) schema → (3) packages installed → (1.1 signup) → (5) JWT secret → (1.2 login) → (6) auth dependency → (1.3, 1.4).
+
 - **1.1** As a new user, I can sign up with an email and password so that I have an account.
   - Acceptance: password stored as bcrypt hash in Neon Postgres, never in plaintext or logs; duplicate email rejected with a clear error. (3)
+  - **Sub-tasks:**
+    1. Define `User` model/table: `id`, `email` (unique, indexed), `password_hash`, `created_at`.
+    2. Write the migration (Alembic revision, or init SQL) and apply it to the Neon database.
+    3. Define the Pydantic request schema for signup: `email: EmailStr`, `password: str` with a minimum-length validator.
+    4. Implement password hashing on write (bcrypt via passlib) — never store or log the raw password.
+    5. Implement `POST /auth/signup`: validate input → check for existing email → hash password → insert row.
+    6. Return 409 (or 400) with a clear message on duplicate email, without confirming *which* field collided beyond "email already registered."
+    7. Return a minimal success response (e.g. `user_id`, `email`) — no password hash in the response body, ever.
+    8. Tests: successful signup persists a hashed (not plaintext) password; duplicate email is rejected; invalid email format / too-short password are rejected with 422.
 - **1.2** As a registered user, I can log in and receive a JWT so that I can make authenticated requests.
   - Acceptance: valid credentials return a signed JWT with `user_id` claim; invalid credentials return 401 without leaking whether the email exists. (3)
+  - **Sub-tasks:**
+    1. Define the Pydantic request schema for login: `email: EmailStr`, `password: str`.
+    2. Implement `POST /auth/login`: look up user by email, verify password against the bcrypt hash (constant-time compare via passlib, not manual `==`).
+    3. On mismatch (email not found *or* password wrong), return the same generic 401 + message in both cases — don't let response shape/timing reveal whether the email exists.
+    4. Decide and configure JWT parameters: signing algorithm (e.g. HS256), expiry (e.g. 24h), claims (`user_id`, `exp`, `iat`).
+    5. Implement token issuance using the JWT secret from Epic 1 dependency #5 (env var, never hardcoded).
+    6. Return the token in the response body (e.g. `{"access_token": ..., "token_type": "bearer"}`).
+    7. Tests: correct credentials issue a decodable token containing the right `user_id`; wrong password, unknown email, and malformed request all return the same 401 shape.
 - **1.3** As the backend, I reject any request to a protected endpoint that lacks a valid JWT so that unauthenticated access is impossible.
   - Acceptance: missing/expired/malformed token → 401; middleware applied uniformly across documents, chat, and kg routers. (2)
+  - **Sub-tasks:**
+    1. Implement a `get_current_user` FastAPI dependency: extract the `Authorization: Bearer <token>` header, decode/verify the JWT signature and expiry.
+    2. Raise 401 (with `WWW-Authenticate: Bearer` header) on: missing header, malformed header, invalid signature, expired token.
+    3. Wire this dependency into every route in the documents, chat, and kg routers (Epic 2/3/6) — no protected route should be reachable without it.
+    4. Add a router-level (not per-route) dependency where possible so a new endpoint is protected by default rather than by remembering to add it.
+    5. Tests: request with no header → 401; expired token → 401; tampered/invalid-signature token → 401; valid token → request proceeds.
 - **1.4** As the system, I derive `user_id` from the JWT server-side (never from a client-supplied field) so that isolation cannot be bypassed by a malicious request body.
   - Acceptance: any `user_id` present in a request payload is ignored in favor of the token's claim. (2)
+  - **Sub-tasks:**
+    1. Have `get_current_user` (1.3) return a `user_id` value (or a `User` object) — this becomes the single source of truth for the rest of the request.
+    2. Audit request/query Pydantic schemas across documents, chat, and kg modules to confirm none of them accept a client-supplied `user_id` field; remove any that do.
+    3. Thread the dependency-derived `user_id` explicitly into every ChromaDB filter and Cypher query parameter (used later by Epics 2/3/6) rather than reading it off the request body.
+    4. Test/document the attack case explicitly: a request body containing a spoofed `user_id` for a different account is ignored, and the response is scoped to the token's real owner.
 - **1.5** As a developer, I have a minimal schema with no password reset or email verification so that auth doesn't overrun its time allocation.
   - Acceptance: explicitly out of scope per BR risk mitigation; documented as a v1 limitation. (1)
+  - **Sub-tasks:**
+    1. Confirm the `users` table has no columns for reset tokens, verification tokens, or verification status — keep the schema to `id`, `email`, `password_hash`, `created_at`.
+    2. Do not implement `/auth/forgot-password`, `/auth/reset-password`, or `/auth/verify-email` routes.
+    3. Add a short note (README or this doc) stating these are intentionally deferred, so it reads as a scoping decision rather than an oversight during review/demo.
 
 ---
 
