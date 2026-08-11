@@ -26,141 +26,151 @@ This document provides the complete epic and story breakdown for GraphMind-Intel
 
 ### Functional Requirements
 
-FR-1: Account creation and login — a visitor can create an account and log in; passwords stored hashed (bcrypt_sha256); session represented as a JWT sent with every request. No password reset/email verification in v1.
-FR-2: Server-side tenancy filtering — every read/write to the vector index and Knowledge Graph is filtered by `user_id` at the query layer, independent of any client-supplied value. Launch blocker, not best-effort.
-FR-3: Upload and parse supported formats — a user can upload PDF, Markdown, or HTML files; unsupported formats rejected before processing; a parsed document produces Passages tagged with `document_id`, `chapter`, `chunk_index`.
-FR-4: Ingestion status visibility — each document shows one of Uploaded / Extracting / Graphing / Ready / Failed; Failed includes a human-readable reason and is not dropped from the list.
-FR-5: Entity/relationship extraction into the unified graph — extracted entities/relationships merge into the user's single Knowledge Graph; matching entities merge rather than duplicate; extraction scoped to a fixed entity/relationship type set.
-FR-6: Ingestion dedupe — re-uploading a byte-identical file (content hash) does not re-run extraction or re-call the LLM/embedding API.
-FR-7: List and inspect documents — a user views their document list (status, upload date) and can open one to see metadata/chapters; never sees another user's documents.
-FR-8: Delete a document — deletes the document and its Passages/embeddings from the vector index immediately; Knowledge Graph entities/relationships derived from it are NOT retroactively pruned; UI states this boundary at delete time.
-FR-9: Answer with structured citations — retrieves relevant Passages and/or traverses the Knowledge Graph, returns an answer with citations to specific supporting Passage(s); every claim-bearing sentence is traceable to ≥1 citation.
-FR-10: Explicit refusal below evidence threshold — below a defined relevance threshold, the system short-circuits before the generation call and returns an explicit refusal.
-FR-11: Document scoping for a question — a user can ask across all documents or a chosen subset; default scope is all documents; passages outside scope never appear as citations.
-FR-12: Graph visualization — a user can view an interactive node-link visualization of their own Knowledge Graph, scoped to their `user_id`.
-FR-13: Run the evaluation set and report metrics — a single command runs the Evaluation Set (15-20 Q/A pairs) against the live system via the service layer directly, reporting accuracy and refusal-rate numerically.
-FR-14: Drag-and-drop upload with progress — files can be dropped onto the upload area or picked via file browser; each queued file shows independent progress; files upload independently rather than blocking as one batch.
-FR-15: Light/dark theme preference — a user can switch between light and dark appearance from User Settings (manual toggle, no OS auto-detection); the choice persists across sessions; all screens render correctly in both themes.
-FR-16: Account deletion — a user can permanently delete their own account via an explicit confirmation (danger-zone pattern); on confirmed deletion, documents, vector index entries, Knowledge Graph data, and the account record are removed and the user is logged out.
+| ID | Requirement | Must be true |
+|---|---|---|
+| FR-1 | Account creation and login | bcrypt_sha256 hashing; JWT sent with every request; no password reset or email verification in v1 |
+| FR-2 | Server-side tenancy filtering | `user_id` applied at the query layer on every read/write, never client-supplied. Launch blocker |
+| FR-3 | Upload and parse PDF / MD / HTML | Unsupported formats rejected before processing; output is passages tagged `document_id`, `chapter`, `chunk_index` |
+| FR-4 | Ingestion status visibility | Exactly five states: Uploaded / Extracting / Graphing / Ready / Failed. Failed shows a reason and stays in the list |
+| FR-5 | Entity extraction into the unified graph | One graph per user; matching entities merge rather than duplicate; fixed type set |
+| FR-6 | Ingestion dedupe | Byte-identical re-upload (content hash) triggers no re-parse, no embedding call, no LLM call |
+| FR-7 | List and inspect documents | Own documents only; detail view shows metadata and chapters |
+| FR-8 | Delete a document | Passages leave the vector index immediately; graph entities deliberately not pruned; UI states this at delete time |
+| FR-9 | Answer with structured citations | Every claim-bearing sentence traceable to ≥1 citation; citations name a specific document *and* passage |
+| FR-10 | Explicit refusal below threshold | Short-circuits before the generation call and returns an explicit refusal |
+| FR-11 | Document scoping | All documents or a chosen subset; default is all; out-of-scope passages never appear as citations |
+| FR-12 | Graph visualization | Interactive node-link view, scoped to own `user_id` |
+| FR-13 | Evaluation harness | One command, service layer directly, 15–20 pairs; reports accuracy and refusal rate as numbers |
+| FR-14 | Drag-and-drop upload with progress | Drop or browse; each file progresses independently, not as one blocking batch |
+| FR-15 | Light/dark theme | Manual toggle, no OS detection; persists across sessions; every screen works in both |
+| FR-16 | Account deletion | Explicit confirmation; removes documents, vector entries, graph data and account record; logs the user out |
 
 ### NonFunctional Requirements
 
-NFR-1 (Performance): Answer latency target p95 < 8s end-to-end (retrieval + generation), given free-tier LLM/hosting constraints.
-NFR-2 (Capacity): Support documents up to 20MB; no hard cap on document count per user for v1.
-NFR-3 (Browser support): Latest two versions of evergreen browsers (Chrome, Firefox, Edge, Safari); no legacy browser support.
-NFR-4 (Reliability): All three managed services (Weaviate, Neo4j AuraDB, Neon Postgres) are external dependencies; a demo-time network outage risk exists with a fallback plan (offline-validated graph queries / local export).
-NFR-5 (Security, binds FR-2/SM-3): Cross-tenant data leakage is a launch blocker, verified with two test accounts — not a bug to triage later.
-NFR-6 (Evaluation quality): The Evaluation Set contains 15-20 question/expected-answer pairs, authored incrementally as ingestion becomes functional rather than all at once.
-NFR-7 (Cost): All managed services run on free tiers by design (Weaviate, Neo4j AuraDB, OpenRouter, Neon) — zero-cost reproducibility is a constraint, not just a preference.
-NFR-8 (Accessibility, from UX Accessibility Floor): WCAG 2.2 AA as the floor across the web surface; status/color must never be the sole signal; focus rings visible in both themes; tab order follows visual reading order.
+| ID | Area | Target |
+|---|---|---|
+| NFR-1 | Performance | p95 < 8s end-to-end (retrieval + generation) |
+| NFR-2 | Capacity | Documents up to 20MB; no cap on document count per user |
+| NFR-3 | Browsers | Latest two of Chrome, Firefox, Edge, Safari; no legacy support |
+| NFR-4 | Reliability | Three managed services are external dependencies; demo fallback is offline-validated graph queries plus a local export |
+| NFR-5 | Security | Cross-tenant leakage is a launch blocker, verified with two test accounts — not a bug to triage later |
+| NFR-6 | Evaluation quality | 15–20 question/answer pairs, authored incrementally as ingestion becomes functional |
+| NFR-7 | Cost | All services on free tiers; zero-cost reproducibility is a constraint, not a preference |
+| NFR-8 | Accessibility | WCAG 2.2 AA floor; never colour alone; focus rings visible in both themes; tab order follows reading order |
 
-**Success Metrics (acceptance targets — these are what the Evaluation Harness epic must actually prove):**
+**Success Metrics** — what the Evaluation Harness epic must actually prove:
 
-SM-1: Answerable-question accuracy on the Evaluation Set — target ≥80% [ASSUMPTION: placeholder pending a real baseline run]. Validates FR-9, FR-10, FR-13.
-SM-2: Refusal correctness — the system refuses 100% of genuinely unanswerable questions in the Evaluation Set, with no confident fabrication. Validates FR-10, FR-13.
-SM-3: Zero cross-tenant data leakage, verified with two test accounts. Validates FR-2. Tiered Primary (not Secondary) because tenancy isolation is a launch blocker.
-SM-C1 (counter-metric, do not optimize): refusal rate on *answerable* questions must not rise as a side effect of chasing SM-2 — over-refusing is as much a failure as fabricating.
+| ID | Target | Validates |
+|---|---|---|
+| SM-1 | ≥80% accuracy on answerable questions *(placeholder pending a baseline run)* | FR-9, FR-10, FR-13 |
+| SM-2 | 100% refusal on genuinely unanswerable questions, no fabrication | FR-10, FR-13 |
+| SM-3 | Zero cross-tenant leakage, verified with two test accounts | FR-2 |
+| SM-C1 | Counter-metric: refusal rate on *answerable* questions must not rise while chasing SM-2 | Guards SM-2 |
 
-[Cross-check from the brainstorm reconciliation: SM-3's test must cover leakage *through the generated answer* — i.e. that the LLM's answer never blends another user's retrieved context — not only that a raw unauthorized query is blocked. These are subtly different failure modes and the PRD only names the second.]
+SM-3's test must cover leakage *through the generated answer* — that the LLM never blends another user's retrieved context — not only that a raw unauthorized query is blocked. The PRD names only the second; these are different failure modes.
 
 ### Additional Requirements
 
-- No starter/greenfield template is specified by Architecture — Epic 1 Story 1 begins from scratch scaffolding for both `backend/` and `frontend/`. Per the addendum's risk register, Day 1 is scaffolding only, with no exploratory work scheduled that day.
-- Feature-based (vertical-slice) modular monolith: four backend modules — `auth`, `documents`, `chat`, `kg` — each owning `routes.py` / `service.py` / `repository.py`; shared infra centralized in `shared/data_access/` and `shared/llm_client/`. Hexagonal/ports-and-adapters explicitly rejected (AD architecture spine, Design Paradigm).
-- AD-1 — Ingestion consistency via compensating rollback (saga-lite): fixed write order (Weaviate then Neo4j); on Neo4j-write failure, the handler deletes the just-written Weaviate objects before marking the document `Failed`; the document's status row also acts as a retry lock (retry only permitted from `Failed`, never during `Extracting`/`Graphing`). **Ownership rule:** the `documents` module is the sole writer of a document's ingestion-status field — AD-9's cascade-delete path only ever performs a full cascade delete, never a partial or concurrent status mutation, so ingestion and account-deletion cannot race on that field.
-- AD-2 — Tenancy enforcement via mandatory shared data-access layer: every Weaviate/Neo4j read/write goes through `shared/data_access/`; no module hand-writes raw queries. Fixed shape contracts: Weaviate passages (`chunk_id, document_id, user_id, chapter, chunk_index, text, embedding`, no nested metadata dict); Neo4j entities (`name` + `type`, typed relationships between entity references). **Cypher-injection guardrail:** any future natural-language-to-Cypher querying (out of v1 scope) must have `user_id` injected server-side into the generated query and must never trust LLM-generated output for the tenancy filter — recorded now, before that feature is built.
-- AD-3 — API contract: every FastAPI route declares a Pydantic `response_model`; all errors use `HTTPException(status_code, detail)` → single `{"detail": ...}` shape, no custom error envelope.
-- AD-4 — Entity identity resolution is exact-string-match only in v1 (no fuzzy/LLM-assisted merge).
-- AD-5 — Frontend shared state (auth/user, theme, chat document-scope) lives in React Context, not Redux.
-- AD-6 — One shared LLM-client wrapper (`shared/llm_client/`) is the sole path to OpenRouter for both entity extraction (documents module) and answer generation (chat module); the refusal short-circuit (FR-10) happens before this wrapper is ever called; the `kg` module never calls it. **Single refusal source:** the `chat` module checks the retrieval relevance score *before* invoking the wrapper and returns the refusal directly if below threshold. The wrapper's own internal failures (timeout, retry exhaustion, OpenRouter error) are a categorically distinct failure mode, surfaced as a normal service error per AD-3 (e.g. `503`) — never dressed up as, or conflated with, the product's "I don't know" refusal.
-- AD-7 — Deployment topology: frontend on Vercel Hobby (free); backend on Render free web service (750 instance-hrs/mo, 15-min idle spin-down, ~1 min cold start).
-- AD-8 — Single deployed environment (local dev + one prod, no staging tier); secrets are environment variables only, never committed, managed via each host's native dashboard.
-- AD-9 — Account deletion (FR-16) is a full cascade hard-delete through the same shared data-access layer as every other path, following the same compensating-rollback discipline as ingestion (AD-1) if a partial failure occurs across stores.
-- Stack (pinned versions, verified Aug 2026): Python 3.12+, FastAPI 0.141.1, Pydantic v2, SQLAlchemy 2.0.51, Alembic 1.19.0 (Postgres/Neon migrations), weaviate-client 4.22.0, neo4j driver 6.2, React 19.2.x, Vite 8.2.1, Tailwind CSS, react-force-graph 1.48.2, JWT + bcrypt, OpenRouter (free tier).
-- Definition of Done (addendum): all in-scope PRD §6.1 items function end-to-end and are demonstrable; every chat answer displays ≥1 concrete source reference; unanswerable questions produce an explicit refusal verified by the Evaluation Set; cross-tenant isolation verified with two test accounts; the evaluation script runs with a single command and reports a numeric accuracy figure.
-- Risk-driven sequencing (addendum risk register): a short Cypher reference/query-pattern primer should be prepared early (team is unfamiliar with Cypher) before graph-write stories begin; entity-extraction scope must stay constrained to a small fixed type set to bound LLM extraction latency/imprecision; graph queries used in any live demo should be validated offline in advance with a local-export fallback.
+**Architecture decisions.** Each is a rule stories must satisfy, not advice.
 
-**Out-of-scope guardrails (PRD §6.2 — what stories must NOT build):**
+| ID | Rule |
+|---|---|
+| AD-1 | **Saga-lite ingestion.** Fixed write order Weaviate → Neo4j. On Neo4j failure, delete the just-written Weaviate objects, then mark the document `Failed` with a reason. The status row is also the retry lock: retry only from `Failed`, never during `Extracting`/`Graphing`. The `documents` module is the **sole writer** of the status field, so ingestion and account-deletion cannot race on it |
+| AD-2 | **Tenancy via mandatory shared DAL.** All Weaviate/Neo4j access goes through `shared/data_access/`; no module hand-writes raw queries. Weaviate shape is flat: `chunk_id, document_id, user_id, chapter, chunk_index, text, embedding` — no nested metadata dict. Neo4j shape: entity `name` + `type`, typed relationships. Any future NL-to-Cypher must inject `user_id` server-side, never trusting LLM output |
+| AD-3 | Every route declares a Pydantic `response_model`; all errors are `HTTPException` → `{"detail": ...}`. No custom error envelope |
+| AD-4 | Entity merge is **exact string match only** — no fuzzy or LLM-assisted merge in v1 |
+| AD-5 | Frontend shared state (auth, theme, chat scope) lives in React Context, not Redux |
+| AD-6 | **`shared/llm_client/` is the only path to OpenRouter.** The refusal short-circuit happens before it is ever called. Wrapper failures (timeout, retry exhaustion, OpenRouter error) surface as ordinary service errors per AD-3 (e.g. `503`) — **never** as the product's "I don't know". `kg` never calls it |
+| AD-7 | Frontend on Vercel Hobby; backend on Render free (15-min idle spin-down, ~1 min cold start) |
+| AD-8 | Local dev plus one prod environment, no staging. Secrets via environment variables only, never committed |
+| AD-9 | Account deletion is a full cascade hard-delete through the same shared DAL, with AD-1's rollback discipline if one store fails partway |
 
-- Chapter-level filtered search — v1 document scoping is document-level only (FR-11); chapters stay as read-only metadata (citation chip text, Document Detail chapter list) and are never a user-facing filter control in Chat.
-- Query history — no surface for past questions/answers/citation snapshots in v1 (deferred to v2 during UX design).
-- Clickable citations that jump to or highlight the source passage — citation chips are non-interactive in v1.
-- Answer confidence badge/score — explicitly rejected during brainstorming convergence, not merely deferred.
-- Opt-in "explain this answer" reasoning trace; live entity/relationship preview post-ingestion; user-editable graph corrections; natural-language querying over the graph; reference-counted/provenance-aware graph deletion.
-- Password reset / email verification (FR-1 assumption); account recovery or undo window after account deletion (FR-16).
-- Document search/filtering across the library, and project/category grouping beyond chapters. **See Open Decision OD-5 — this collides with a UX component that is specified.**
-- Hybrid BM25+vector search; raw-context inspection panel; conversation export; staging environment.
+**Also binding:**
 
-**Open decisions that block specific stories (must be resolved before or inside the story that needs them):**
+- **No starter template exists** — Epic 1 Story 1 scaffolds `backend/` and `frontend/` from scratch. Day 1 is scaffolding only, no exploratory work.
+- **Module layout:** vertical-slice modular monolith — `auth`, `documents`, `chat`, `kg`, each owning `routes.py` / `service.py` / `repository.py`. Hexagonal/ports-and-adapters explicitly rejected.
+- **Stack (pinned, verified Aug 2026):** Python 3.12+, FastAPI 0.141.1, Pydantic v2, SQLAlchemy 2.0.51, Alembic 1.19.0, weaviate-client 4.22.0, neo4j 6.2, React 19.2.x, Vite 8.2.1, Tailwind, react-force-graph 1.48.2, JWT + bcrypt, OpenRouter.
+- **Definition of Done:** every §6.1 item demonstrable end-to-end; every answer shows ≥1 source; unanswerable questions refuse, verified by the Evaluation Set; cross-tenant isolation verified with two accounts; evaluation runs in one command and reports a number.
+- **Sequencing risks:** prepare a short Cypher primer before graph-write stories (team is unfamiliar with it); keep the extraction type set small; validate demo graph queries offline with a local-export fallback.
 
-- OD-1 — **Exact entity/relationship type list for extraction (FR-5).** Genuinely undecided (PRD §8 item 1, carried into the architecture spine's Deferred). Extraction prompts cannot be written until this fixed type set exists. Blocks the ingestion/extraction story.
-- OD-2 — **FR-10 relevance threshold value.** The short-circuit *mechanism* is fixed by AD-6, but the numeric cutoff is an empirically-tuned config value living in the shared LLM-client wrapper, to be set during implementation/evaluation. Blocks refusal-behavior acceptance criteria.
-- OD-3 — **Numeric accuracy target for SM-1.** Currently an 80% placeholder; confirm once the Evaluation Set exists and a baseline run is possible.
-- OD-4 — **Whether the FR-8 delete/graph-persistence tension needs a stronger v1 mitigation** than the plain-language warning already specified. PM-level question, explicitly not architecture's to resolve.
-- OD-5 — **RESOLVED (2026-08-11).** The Chat document search control is scoped down to a **filter over the documents-in-scope panel only** — it narrows the selectable list, it does not search the document library. This removes the conflict with PRD §6.2, which continues to hold library-wide document search/filtering out of v1 scope. UX-DR10 is amended accordingly.
-- OD-6 — **RESOLVED (2026-08-11).** The documents-in-scope panel is **not pre-checked on load** — no document is selected by default. FR-11's stated default (all of the user's documents) still governs the *retrieval* behaviour: an empty selection means the question runs against all of the user's documents, it does not mean "no scope". **Consequence for the Epic 3 story:** an all-unchecked panel must be visibly legible as "asking across everything", otherwise it reads as "nothing selected" and the user cannot tell which is in effect.
-- OD-7 — **RESOLVED (2026-08-11).** On a content-hash match the upload modal shows an explicit "already uploaded" message on that file's row and surfaces the existing document, rather than creating a second row. Nothing is reprocessed, no LLM or embedding call is made (FR-6). Note that dedupe is keyed on content hash, not filename: a byte-identical file under a different name is still a duplicate, and an edited file under the same name is a genuinely new document that dedupe never touches. Replacing a document by filename was considered and rejected as new scope beyond FR-6.
+**Out of scope — what stories must NOT build (PRD §6.2):**
 
-**Stale cross-references in source documents (documentation hazard — do not propagate into stories):**
+Chapter-level filtered search (chapters stay read-only metadata) · query history · clickable citations · answer confidence badge *(rejected outright, not deferred)* · "explain this answer" trace · live entity preview · user-editable graph corrections · NL querying over the graph · reference-counted graph deletion · password reset / email verification · account recovery after deletion · library-wide document search and category grouping *(see OD-5)* · hybrid BM25+vector · raw-context panel · conversation export · staging environment.
 
-- `addendum.md` references a non-existent "FR-18" for the account-deletion undo window; the final PRD's account deletion is FR-16.
-- `addendum.md`'s risk mitigation "Two pages, utility-class styling, no visual polish in v1" (echoed in the architecture stack table's Tailwind row) predates and contradicts the finalized UX design, which specifies 8 screens and a full design-token system. The UX spines are later and authoritative.
-- The `.memlog.md` files and `reconcile-prd.md` use an earlier FR numbering (drag-and-drop/theme/account-deletion as FR-16/17/18, graph viz as FR-14, eval harness as FR-15). Only the final `prd.md` numbering (FR-1…FR-16) is authoritative.
+**Open decisions.** Each is tied to the story it blocks.
+
+| ID | Status | Decision or blocker |
+|---|---|---|
+| OD-1 | 🔴 OPEN | **Entity/relationship type list (FR-5).** Blocks Story 2.4 — extraction prompts cannot be written without it |
+| OD-2 | 🔴 OPEN | **FR-10 threshold value.** Mechanism fixed by AD-6; the number is resolved inside Story 3.2 and lives as config in the LLM wrapper |
+| OD-3 | 🔴 OPEN | **SM-1 numeric target.** 80% is a placeholder; confirmed in Story 6.1 after a baseline run |
+| OD-4 | 🔴 OPEN | Whether FR-8's delete/graph warning needs a stronger v1 mitigation. PM call, not architecture's |
+| OD-5 | ✅ RESOLVED | Chat document search is a **filter over the scope panel only**, not library search. Removes the §6.2 conflict; UX-DR10 amended |
+| OD-6 | ✅ RESOLVED | Scope panel **not pre-checked**. Empty selection still means all documents (FR-11 default) — and must visibly read that way, or it looks like "nothing selected" |
+| OD-7 | ✅ RESOLVED | Hash match shows "already uploaded" and surfaces the existing document. No second row, no reprocessing. Keyed on content hash, not filename. Replace-by-filename rejected as scope beyond FR-6 |
+
+**Stale references in source docs — do not propagate:** `addendum.md` cited a non-existent "FR-18" (account deletion is FR-16) and carried a "two pages, no visual polish" mitigation predating the UX design — both now corrected. The `.memlog.md` files and `reconcile-prd.md` still use an older FR numbering; only `prd.md`'s FR-1…FR-16 is authoritative.
 
 ### UX Design Requirements
 
-UX-DR1: Authenticated shell — fixed 220px left sidebar + fluid content area; sidebar item order top-to-bottom is User Settings, Documents, Chat, Graph Preview, with Exit bottom-anchored and visually separated (`margin-top:auto`); exactly one nav item shows the active state at a time.
-UX-DR2: Light/dark theme tokens implemented app-wide per DESIGN.md's full color spec (light "softened baby-blue" + dark "Soft Dark" dimmed-charcoal variant, not near-black); every screen including auth pages renders correctly in both themes (realizes FR-15).
-UX-DR3: Citation chip component — `{colors.citation}` background / `{colors.citation-text}` foreground, its own locked color identity (never restyled as a generic badge); renders inline in assistant chat bubbles as `Ch. {chapter}, {document_filename}`; also reused as the file-type icon tile in upload rows; must be programmatically distinguishable from surrounding text for screen readers, not just visually (realizes FR-9).
-UX-DR4: Status pill component — exactly five states per FR-4's vocabulary verbatim (Uploaded/Extracting/Graphing/Ready/Failed); color+text pairing, never color alone; reused across Documents table, Document Detail, and Chat's document-scope panel.
-UX-DR5: Chat bubble components — user bubble right-aligned `{colors.primary}` fill with a sharp trailing corner; bot bubble left-aligned `{colors.surface}` fill with a sharp leading corner (mirrored asymmetric radius as the sender cue); robot mascot rendered from CSS shapes, small, left-aligned, 5px overlap onto the chat input's top edge, `aria-hidden` (decorative, non-interactive).
-UX-DR6: Upload modal — dropzone supporting both drag-and-drop and click-to-browse; each queued file shows filename, size/"Queued", and independent progress; modal closes only on explicit Cancel or once all queued files resolve (success or reject); closing never cancels in-flight uploads; Documents list refreshes to show new "Uploaded" rows on close (realizes FR-3, FR-14).
-UX-DR7: Document table component — columns Title, Type, Status, Uploaded, trash-icon; row click (outside the trash icon) opens Document Detail; the trash icon is a separate hit target that does not navigate and instead opens the inline delete-confirm.
-UX-DR8: Document Detail panel — title, status, upload date, file type/size, chapter count, passages-indexed count, and full chapter list; metadata fields show as pending/unavailable (not fabricated zeros) until ingestion reaches Ready; Delete opens an inline confirm box, not a separate modal.
-UX-DR9: Chat layout — two-column grid: flexible (`1fr`) chat window + fixed 260px documents-in-scope panel with 20px gap; composer row is a single row (text input + "Ask" button at identical, vertically centered height, not stacked); documents-in-scope panel lists checkboxes per document, unchecking removes it from the next question's retrieval scope, and non-Ready documents render checkbox-disabled with the status noted inline and exposed via `aria-label` (realizes FR-11).
-UX-DR10: Document search/"Select all" affordance above the Chat window — searches the library to add documents to session scope; "Select all" scopes the session to every Ready document at once, the explicit UI equivalent of FR-11's "default is all documents."
-UX-DR11: Graph canvas component — read-only node-link diagram; nodes are absolutely positioned circles sized by entity prominence with a soft drop shadow and centered white label text; no click-to-query, drag-to-rearrange, or editing in v1; scoped strictly to the authenticated user's graph (realizes FR-12).
-UX-DR12: Settings page — four independent cards (Profile, Change Password, Appearance/theme toggle, Delete Account) in a two-column grid; each card saves independently; the Delete Account card uses the `{colors.danger}`-tinted danger-zone border/background (realizes FR-15, FR-16).
-UX-DR13: Toggle switch component — 40×22px pill track, border color off / primary color on, white thumb; used for the theme toggle on Settings.
-UX-DR14: Delete confirmation pattern (documents and account) — always an explicit inline confirm step, never a single-click destroy; plain-language copy stating the deletion boundary (e.g. graph entities persisting after document delete, per the Voice & Tone table); Cancel/Confirm Delete both reachable and clearly labeled via keyboard and screen reader (realizes FR-8, FR-16).
-UX-DR15: Refusal ("I don't know") chat bubble — OPEN GAP, no existing mock. Must be built as visually and semantically distinct from a grounded-answer bubble (not just a bubble with zero citation chips) and announced distinctly to assistive tech; needs a design decision at implementation time (realizes FR-10).
-UX-DR16: Failed ingestion state — OPEN GAP, no existing mock. Must show a human-readable failure reason without dropping the row from the Documents list; exact placement (inline in row vs. Document Detail only) is undecided and needs a decision during implementation (realizes FR-4).
-UX-DR17: Empty document library state — OPEN GAP, no existing mock. Assumed default: a single-column "No documents yet." message with the Upload button remaining primary-actionable; not to be over-designed beyond this assumption without a dedicated pass.
-UX-DR18: Accessibility floor applied app-wide — WCAG 2.2 AA target; status pills and any status signal always pair color with a text label; focus rings visible against both theme backgrounds; tab order follows visual reading order (sidebar → heading → primary content → secondary panels).
-UX-DR19: Microcopy/voice — plain, declarative, specific-about-why tone per the Voice & Tone Do/Don't table; FR-4's status vocabulary (Uploaded/Extracting/Graphing/Ready/Failed) used verbatim; no hedging, apology filler, or decorative emoji (sidebar icons are the one accepted exception).
-UX-DR20: Modal pattern — centered, 520px max-width container on a dimmed diagonal-hatched backdrop (not a flat scrim); header/body/footer three-part structure with footer-right-aligned actions; modal stacks never go more than one level deep (no modal-on-modal).
+| ID | Requirement |
+|---|---|
+| UX-DR1 | **Authenticated shell** — fixed 220px sidebar + fluid content. Order: User Settings, Documents, Chat, Graph Preview; Exit bottom-anchored and separated. Exactly one active item |
+| UX-DR2 | **Theme tokens app-wide** — light "softened baby-blue" + dark "Soft Dark" (dimmed charcoal, not near-black). Every screen including auth pages works in both |
+| UX-DR3 | **Citation chip** — own locked colour identity, never a generic badge. Renders `Ch. {chapter}, {document_filename}` inline in assistant bubbles; reused as the file-type tile in upload rows. Must be programmatically distinguishable, not just visually |
+| UX-DR4 | **Status pill** — exactly the five FR-4 states verbatim. Colour + text always paired, never colour alone. Used in Documents table, Detail, and Chat scope panel |
+| UX-DR5 | **Chat bubbles** — user right-aligned primary fill, sharp trailing corner; bot left-aligned surface fill, sharp leading corner. Robot mascot in CSS shapes, small, left-aligned, 5px overlap on the composer, `aria-hidden` |
+| UX-DR6 | **Upload modal** — dropzone takes drag-and-drop *and* click-to-browse. Per-file name, size/"Queued", independent progress. Closes only on Cancel or once all files resolve; closing never cancels in-flight uploads; list refreshes on close |
+| UX-DR7 | **Document table** — Title, Type, Status, Uploaded, trash icon. Row click opens Detail; the trash icon is a separate target that does not navigate |
+| UX-DR8 | **Document Detail** — title, status, date, type/size, chapter count, passage count, chapter list. Fields show pending/unavailable until Ready, never fabricated zeros. Delete opens an inline confirm, not a modal |
+| UX-DR9 | **Chat layout** — `1fr` chat window + fixed 260px scope panel, 20px gap. Composer is one row, input and Ask at equal height. Scope panel has per-document checkboxes; non-Ready ones disabled with status inline and in `aria-label` |
+| UX-DR10 | **Scope filter + "Select all"** above the chat window. "Select all" scopes every Ready document at once. *(Amended by OD-5: filters the scope panel only, not the library)* |
+| UX-DR11 | **Graph canvas** — read-only node-link diagram. Circles sized by entity prominence, soft shadow, centered white labels. No click-to-query, drag, or editing. Strictly own graph |
+| UX-DR12 | **Settings page** — four independent cards (Profile, Change Password, Appearance, Delete Account) in a two-column grid. Each saves on its own. Delete Account uses the danger-tinted treatment |
+| UX-DR13 | **Toggle switch** — 40×22px pill track, border off / primary on, white thumb. Used for the theme toggle |
+| UX-DR14 | **Delete confirmation** (documents and account) — always an explicit inline confirm, never single-click destroy. Plain-language deletion boundary. Cancel/Confirm reachable by keyboard and screen reader |
+| UX-DR15 | 🔴 **Refusal bubble — OPEN GAP, no mock.** Must be visually *and* semantically distinct from a grounded answer, not just a bubble with zero citations. Needs a design decision at implementation |
+| UX-DR16 | 🔴 **Failed ingestion state — OPEN GAP, no mock.** Must show a readable reason without dropping the row. Placement (row-inline vs Detail-only) undecided |
+| UX-DR17 | 🔴 **Empty library — OPEN GAP, no mock.** Assumed: "No documents yet." with Upload still primary-actionable. Do not over-design beyond this |
+| UX-DR18 | **Accessibility floor** — WCAG 2.2 AA. Status never colour-only; focus rings visible in both themes; tab order = sidebar → heading → content → secondary panels |
+| UX-DR19 | **Voice** — plain, declarative, specific about why. FR-4's status words verbatim. No hedging, apology filler, or decorative emoji (sidebar icons excepted) |
+| UX-DR20 | **Modal pattern** — centered, 520px max-width, dimmed diagonal-hatched backdrop, header/body/footer with right-aligned actions. Never modal-on-modal |
 
-**From the WCAG 2.2 AA accessibility review (`review-accessibility.md`). Three of its four light-mode contrast failures were fixed in the final DESIGN.md — primary darkened to `#3861A8` (6.10:1, verified), sidebar link text to `#E4ECFA`, status-pill text to `#0C7A47`/`#8A5200`. The items below are what remained unresolved or unspecified. Team decisions of 2026-08-11: UX-DR21 is an accepted deviation and ships as-is; UX-DR22 and UX-DR23 are to be fixed; UX-DR24 through UX-DR28 are all confirmed in v1 scope and each needs story coverage.**
+**Accessibility review findings** (`review-accessibility.md`). Three of four light-mode contrast failures were already fixed in DESIGN.md — primary → `#3861A8` (6.10:1), sidebar text → `#E4ECFA`, pill text → `#0C7A47`/`#8A5200`. These remained:
 
-UX-DR21: **Citation-chip contrast — ACCEPTED DEVIATION (2026-08-11), not to be fixed in v1.** `citation-text` `#4A7FE0` on `citation` background `#D1EEFE` computes to 3.22:1 against a 4.5:1 requirement (the chip renders at 11.5px/700, below the large-text exemption threshold). The team has decided to ship the light-mode citation pair as specified in DESIGN.md rather than re-tune it. **Recorded consequence:** NFR-8 declares WCAG 2.2 AA the floor for the product, and this is a knowing exception to that floor, on the component DESIGN.md itself calls "the single most important visual token in the product". It affects light mode only — dark mode's re-tuned pair (`#8FB0FF` on `#2A3557`, 5.63:1) already passes. No Definition-of-Done check tests accessibility, so nothing downstream will surface this again. Revisit if the product moves beyond portfolio stage.
-UX-DR22: **Status-pill background tint tokens (BLOCKING, unspecified).** DESIGN.md specifies pill text colors for only two of the five FR-4 states and never gives the pill *background* tint any token value at all ("success tint background" is prose, not a value). All five states (Uploaded/Extracting/Graphing/Ready/Failed) need an explicit tint+text pair, each verified to clear 4.5:1.
-UX-DR23: **Focus-ring token (BLOCKING, missing).** EXPERIENCE.md mandates focus rings visible and themeable across both palettes, but no `focus-ring`/`outline` token exists in DESIGN.md's colors or components, and neither mockup defines any `:focus`/`:focus-visible` rule. Needs a dedicated token distinct from `border`, clearing 3:1 non-text contrast against `bg`, `surface`, and `surface-dark`.
-UX-DR24: Chat thread live region — the message list needs `aria-live="polite"` (or `role="log"`) so screen-reader users are announced when an assistant answer arrives; currently absent from both spines and the mocks. Each turn needs enough semantic structure to distinguish user from assistant beyond alignment and bubble shape.
-UX-DR25: Modal accessibility contract — `role="dialog"` + `aria-modal="true"` + `aria-labelledby` pointing at the modal heading, an explicit focus trap, defined initial focus placement, and focus return to the triggering control on close (Cancel, Escape, or completion). None of these are currently stated as requirements.
-UX-DR26: Inline delete-confirm accessibility — the confirm box is inline rather than modal, so it needs its own treatment: an announcement on appearance, programmatic association between the plain-language deletion-boundary text and the Confirm/Cancel buttons (so the warning is read *before* the action), defined focus movement on open, defined Escape behavior (currently undefined for the inline pattern), and focus return on close.
-UX-DR27: Disabled-checkbox labeling — the Chat scope panel's non-Ready document checkboxes must carry their status programmatically (e.g. `aria-label="NDA_Draft_Rev2.pdf, processing, not yet selectable"` or a proper `<label>` association). The reference mock directly violates EXPERIENCE.md's own stated requirement here, rendering "(processing)" as an unassociated sibling `<span>`.
-UX-DR28: Remaining accessibility items — citation chips need a semantic inline element (`<cite>` or a labelled span), not a bare styled `<span class="cite">`; status-pill text must be real DOM text, never a pseudo-element or icon-font glyph; graph canvas needs a stated keyboard-access position (node detail on hover requires a keyboard equivalent, or nodes must carry no interaction at all) and must not encode entity type by color alone; `prefers-reduced-motion` handling for progress/modal/theme transitions is unaddressed; the fixed 220px sidebar + fixed 260px chat panel layout needs a 200% zoom reflow check (WCAG 1.4.4), since nothing currently guards against horizontal scroll or clipping.
+| ID | Status | Requirement |
+|---|---|---|
+| UX-DR21 | ⚠️ **ACCEPTED DEVIATION** | **Citation-chip contrast ships as-is.** `#4A7FE0` on `#D1EEFE` = 3.22:1 against a 4.5:1 requirement (11.5px/700, no large-text exemption). Team decision 2026-08-11: do not re-tune. **Consequence:** a knowing exception to NFR-8's AA floor, on the token DESIGN.md calls the most important in the product. Light mode only — dark mode passes at 5.63:1. No DoD check tests accessibility, so nothing will surface this again |
+| UX-DR22 | 🔴 BLOCKING | **Status-pill tint tokens unspecified.** Text colours exist for only 2 of 5 states; the background tint has no token value at all. All five need an explicit tint+text pair clearing 4.5:1 |
+| UX-DR23 | 🔴 BLOCKING | **No focus-ring token.** EXPERIENCE.md mandates visible themeable focus rings, but no token exists and no mock defines any `:focus` rule. Needs a token distinct from `border`, clearing 3:1 against `bg`, `surface`, `surface-dark` |
+| UX-DR24 | In scope | **Chat live region** — `aria-live="polite"` or `role="log"`, so an arriving answer is announced. Turns need semantic structure beyond alignment and bubble shape |
+| UX-DR25 | In scope | **Modal a11y** — `role="dialog"`, `aria-modal`, `aria-labelledby`, focus trap, defined initial focus, focus return to the trigger on close |
+| UX-DR26 | In scope | **Inline confirm a11y** — announced on appearance; boundary text programmatically tied to Confirm/Cancel so it is read *before* acting; defined focus movement, Escape behaviour, and focus return |
+| UX-DR27 | In scope | **Disabled-checkbox labelling** — non-Ready documents must carry status programmatically. The mock violates EXPERIENCE.md's own rule, leaving "(processing)" in an unassociated sibling span |
+| UX-DR28 | In scope | **Remaining items** — semantic element for citations, not a bare styled span; pill text as real DOM text; graph needs a stated keyboard position and must not encode type by colour alone; `prefers-reduced-motion`; 200% zoom reflow check on the fixed-width columns |
 
 ### FR Coverage Map
 
-FR-1: Epic 1 — Account creation and login (bcrypt_sha256 hashing, JWT session).
-FR-2: Epic 1 — Server-side `user_id` tenancy filtering, enforced structurally via the shared data-access layer (AD-2).
-FR-3: Epic 2 — Upload and parse PDF/Markdown/HTML into tagged Passages.
-FR-4: Epic 2 — Ingestion status ledger and its five-state vocabulary, surfaced across three UI surfaces.
-FR-5: Epic 2 — Entity/relationship extraction merged into the unified per-user Knowledge Graph (exact-match merge, AD-4).
-FR-6: Epic 2 — Content-hash dedupe preventing reprocessing of unchanged documents.
-FR-7: Epic 2 — Document list and detail inspection.
-FR-8: Epic 2 — Document deletion with the vector-removed / graph-persists boundary stated at delete time.
-FR-9: Epic 3 — Grounded answers with structured citations to specific Passages.
-FR-10: Epic 3 — Explicit refusal below the evidence threshold, short-circuited before the LLM call (AD-6).
-FR-11: Epic 3 — Document scoping for a question (all documents by default, or a chosen subset).
-FR-12: Epic 4 — Per-user Knowledge Graph node-link visualization.
-FR-13: Epic 6 — Evaluation harness run by a single command, reporting accuracy and refusal-rate numerically.
-FR-14: Epic 2 — Drag-and-drop upload with independent per-file progress.
-FR-15: Epic 1 (primary) — design-token system, both palettes, ThemeContext and cross-session persistence, so every screen is built theme-aware from the start; **Epic 5 completes its UI surface** with the Appearance toggle control on Settings.
-FR-16: Epic 5 — Account deletion as a full cascade hard-delete across Postgres, Weaviate, and Neo4j (AD-9).
+| FR | Epic | Where it lands |
+|---|---|---|
+| FR-1 | 1 | Registration and login — bcrypt_sha256, JWT session |
+| FR-2 | 1 | Server-side `user_id` filtering, enforced structurally via the shared DAL |
+| FR-3 | 2 | Upload and parse PDF/MD/HTML into tagged passages |
+| FR-4 | 2 | Status ledger and its five-state vocabulary across three surfaces |
+| FR-5 | 2 | Entity extraction merged into the unified graph, exact-match |
+| FR-6 | 2 | Content-hash dedupe |
+| FR-7 | 2 | Document list and detail |
+| FR-8 | 2 | Deletion with the vector-removed / graph-persists boundary |
+| FR-9 | 3 | Grounded answers with structured citations |
+| FR-10 | 3 | Refusal below threshold, short-circuited before the LLM call |
+| FR-11 | 3 | Document scoping |
+| FR-12 | 4 | Node-link graph visualization |
+| FR-13 | 6 | One-command evaluation harness |
+| FR-14 | 2 | Drag-and-drop upload with per-file progress |
+| FR-15 | **1 + 5** | Tokens, palettes, ThemeContext and persistence in Epic 1 so screens are built theme-aware; the Settings toggle completes it in Epic 5 |
+| FR-16 | 5 | Account deletion as a full cascade across all three stores |
 
-All 16 FRs are mapped. FR-15 is the one requirement deliberately split across two epics, to avoid retrofitting theming onto every previously-built screen.
+All 16 mapped. FR-15 is the only one split across epics — deliberately, to avoid retrofitting theming onto every screen at the end.
 
 ## Epic List
 
