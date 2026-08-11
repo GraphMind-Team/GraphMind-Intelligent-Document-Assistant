@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>GraphMind — Key Screens (Theme 2: Clinical Precision, Light)</title>
+<style>
+:root{
+  --bg:#FAFBFC; --surface:#EEF1F5; --border:#D2D9E2;
+  --text:#1A1F27; --text2:#626C7A;
+  --primary:#0A2E63; --accent:#1768C7;
+  --success:#147A52; --warning:#9C6A00; --danger:#A32E22;
+  --citation:#E6EDF7;
+}
+*{box-sizing:border-box;}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);}
+nav{position:sticky;top:0;z-index:100;background:var(--primary);color:#fff;padding:12px 24px;display:flex;gap:18px;flex-wrap:wrap;align-items:center;box-shadow:0 2px 6px rgba(0,0,0,.15);}
+nav .brand{font-weight:700;margin-right:12px;}
+nav a{color:#DCE6F5;text-decoration:none;font-size:13px;padding:4px 8px;border-radius:6px;}
+nav a:hover{background:rgba(255,255,255,.12);color:#fff;}
+section{min-height:100vh;padding:48px 5vw;border-bottom:1px solid var(--border);}
+section h2{margin:0 0 6px;font-size:22px;color:var(--primary);}
+section .desc{color:var(--text2);font-size:13px;margin:0 0 28px;}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;}
+button{font-family:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--border);}
+.btn-primary{background:var(--primary);color:#fff;border:none;padding:10px 20px;font-size:14px;font-weight:600;}
+.btn-secondary{background:#fff;color:var(--primary);border:1px solid var(--border);padding:10px 18px;font-size:14px;}
+.btn-danger{background:#fff;color:var(--danger);border:1px solid var(--border);}
+label{font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bottom:6px;}
+input[type=text],input[type=email],input[type=password]{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;color:var(--text);margin-bottom:16px;}
+
+/* ---- Auth pages ---- */
+.auth-wrap{max-width:400px;margin:40px auto;background:#fff;border:1px solid var(--border);border-radius:14px;padding:36px;box-shadow:0 1px 3px rgba(0,0,0,.06);}
+.auth-wrap h1{font-size:20px;margin:0 0 4px;color:var(--primary);}
+.auth-wrap p.sub{color:var(--text2);font-size:13px;margin:0 0 24px;}
+.auth-wrap .switch{font-size:13px;color:var(--text2);text-align:center;margin-top:12px;}
+.auth-wrap .switch a{color:var(--accent);text-decoration:none;font-weight:600;}
+.logo-mark{width:38px;height:38px;border-radius:9px;background:linear-gradient(135deg,var(--primary),var(--accent));margin-bottom:14px;position:relative;}
+.logo-mark::after{content:"";position:absolute;inset:10px;border-radius:50%;border:2px solid #fff;}
+
+/* ---- App shell ---- */
+.shell{display:flex;min-height:100vh;background:var(--bg);}
+.sidebar{width:220px;flex-shrink:0;background:var(--primary);color:#fff;padding:22px 14px;display:flex;flex-direction:column;gap:2px;}
+.sidebar .logo{display:flex;align-items:center;gap:10px;margin-bottom:26px;padding:0 8px;}
+.sidebar .logo .mark{width:26px;height:26px;border-radius:7px;background:#fff;position:relative;flex-shrink:0;}
+.sidebar .logo .mark::after{content:"";position:absolute;inset:6px;border-radius:50%;border:2px solid var(--primary);}
+.sidebar .logo span{font-weight:700;font-size:15px;}
+.sidebar a{color:#C9D8EE;text-decoration:none;font-size:13.5px;padding:10px 12px;border-radius:8px;display:flex;align-items:center;gap:10px;}
+.sidebar a:hover{background:rgba(255,255,255,.08);color:#fff;}
+.sidebar a.active{background:rgba(255,255,255,.14);color:#fff;font-weight:600;}
+.sidebar .exit{margin-top:auto;}
+.main{flex:1;padding:32px 40px;}
+.page-head{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:22px;flex-wrap:wrap;gap:12px;}
+.page-head h1{margin:0 0 4px;font-size:21px;color:var(--primary);}
+.page-head p{margin:0;color:var(--text2);font-size:13px;}
+
+/* ---- Documents table ---- */
+.toolbar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center;}
+.toolbar select,.toolbar input[type=search]{padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:#fff;color:var(--text);}
+table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--border);border-radius:10px;overflow:hidden;}
+th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text2);background:var(--surface);padding:12px 16px;border-bottom:1px solid var(--border);}
+td{padding:13px 16px;border-bottom:1px solid var(--border);font-size:13.5px;}
+tr:last-child td{border-bottom:none;}
+.status{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;}
+.status.ready{background:#E1F1EA;color:var(--success);}
+.status.uploaded{background:#FBEFD6;color:var(--warning);}
+.trash{background:none;border:none;color:var(--text2);font-size:16px;cursor:pointer;padding:4px;border-radius:6px;}
+.trash:hover{color:var(--danger);background:#F7E9E7;}
+
+/* ---- Modal overlay ---- */
+.modal-overlay{position:relative;background:repeating-linear-gradient(135deg,var(--surface),var(--surface) 10px,#e4e8ee 10px,#e4e8ee 20px);padding:60px 5vw;}
+.modal{max-width:520px;margin:0 auto;background:#fff;border:1px solid var(--border);border-radius:14px;box-shadow:0 12px 40px rgba(10,20,40,.25);overflow:hidden;}
+.modal-head{padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
+.modal-head h3{margin:0;font-size:16px;color:var(--primary);}
+.modal-body{padding:22px;}
+.dropzone{border:2px dashed var(--border);border-radius:10px;padding:34px 20px;text-align:center;color:var(--text2);font-size:13px;background:var(--surface);margin-bottom:18px;}
+.dropzone strong{color:var(--accent);}
+.file-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:#fff;}
+.file-icon{width:30px;height:30px;border-radius:6px;background:var(--citation);color:var(--primary);font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.file-row .fname{flex:1;font-size:13px;}
+.file-row .fsize{font-size:11px;color:var(--text2);}
+.progress{height:5px;border-radius:4px;background:var(--border);overflow:hidden;margin-top:5px;}
+.progress > div{height:100%;background:var(--accent);}
+.modal-foot{padding:16px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;}
+
+/* ---- Doc detail panel ---- */
+.detail-panel{max-width:640px;margin:0 auto;background:#fff;border:1px solid var(--border);border-radius:14px;padding:26px;}
+.detail-panel h3{margin:0 0 2px;color:var(--primary);font-size:18px;}
+.meta-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:18px 0;}
+.meta-item{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px;}
+.meta-item .k{font-size:10.5px;text-transform:uppercase;color:var(--text2);letter-spacing:.04em;}
+.meta-item .v{font-size:14px;margin-top:2px;}
+.chapter-list{list-style:none;margin:0;padding:0;}
+.chapter-list li{display:flex;justify-content:space-between;padding:9px 12px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;font-size:13px;background:var(--surface);}
+.confirm-box{margin-top:18px;background:#FBEFEC;border:1px solid #E7C2BA;border-radius:10px;padding:14px 16px;color:var(--danger);font-size:13px;}
+.confirm-box .actions{margin-top:10px;display:flex;gap:8px;}
+
+/* ---- Chat page ---- */
+.chat-layout{display:grid;grid-template-columns:1fr 260px;gap:20px;}
+.chat-window{background:#fff;border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;height:560px;overflow:hidden;}
+.chat-search{display:flex;gap:8px;margin-bottom:14px;align-items:center;}
+.chat-search input[type=search]{flex:1;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;}
+.chat-msgs{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:12px;}
+.msg-user{align-self:flex-end;background:var(--primary);color:#fff;padding:10px 14px;border-radius:12px 12px 2px 12px;max-width:70%;font-size:13.5px;}
+.msg-bot{align-self:flex-start;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:12px 14px;border-radius:12px 12px 12px 2px;max-width:78%;font-size:13.5px;line-height:1.55;}
+.cite{display:inline-block;background:var(--citation);color:var(--primary);font-weight:700;font-size:11.5px;padding:2px 8px;border-radius:6px;margin-left:4px;white-space:nowrap;}
+.chat-input-bar{border-top:1px solid var(--border);padding:14px 20px;display:flex;flex-direction:column;align-items:center;gap:10px;}
+.robot{width:34px;height:34px;border-radius:9px;background:linear-gradient(160deg,var(--accent),var(--primary));position:relative;}
+.robot::before{content:"";position:absolute;left:7px;top:11px;width:6px;height:6px;background:#fff;border-radius:50%;box-shadow:14px 0 0 #fff;}
+.robot::after{content:"";position:absolute;left:14px;top:-5px;width:6px;height:6px;background:var(--accent);border-radius:50%;}
+.input-row{display:flex;gap:8px;width:100%;}
+.input-row input{flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:20px;font-size:13.5px;}
+.input-row button{background:var(--primary);color:#fff;border:none;padding:10px 18px;border-radius:20px;font-size:13px;font-weight:600;}
+.docs-panel{background:#fff;border:1px solid var(--border);border-radius:12px;padding:16px;}
+.docs-panel h4{margin:0 0 4px;font-size:13px;color:var(--primary);}
+.docs-panel .selall{font-size:12px;color:var(--accent);cursor:pointer;margin-bottom:10px;display:inline-block;}
+.doc-chip{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;font-size:12.5px;background:var(--surface);}
+.doc-chip input{margin:0;}
+
+/* ---- Graph preview ---- */
+.graph-canvas{position:relative;height:480px;background:#fff;border:1px solid var(--border);border-radius:14px;overflow:hidden;}
+.gnode{position:absolute;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:10.5px;font-weight:700;text-align:center;box-shadow:0 2px 6px rgba(10,46,99,.25);}
+.gedge{position:absolute;background:var(--border);height:2px;transform-origin:0 0;}
+
+/* ---- Settings ---- */
+.settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:900px;}
+.settings-card{background:#fff;border:1px solid var(--border);border-radius:12px;padding:22px;}
+.settings-card h3{margin:0 0 14px;font-size:15px;color:var(--primary);}
+.toggle-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);}
+.toggle-row:last-child{border-bottom:none;}
+.switch-ui{width:40px;height:22px;border-radius:20px;background:var(--border);position:relative;display:inline-block;}
+.switch-ui.on{background:var(--primary);}
+.switch-ui::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;}
+.switch-ui.on::after{left:20px;}
+.danger-zone{border-color:#E7C2BA;background:#FBEFEC;}
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="brand">GraphMind — Theme 2 · Clinical Precision (Light)</span>
+  <a href="#login">Login</a>
+  <a href="#register">Register</a>
+  <a href="#documents">Documents</a>
+  <a href="#upload-modal">Upload Modal</a>
+  <a href="#doc-detail">Doc Detail</a>
+  <a href="#chat">Chat</a>
+  <a href="#graph">Graph Preview</a>
+  <a href="#settings">Settings</a>
+</nav>
+
+<!-- 1. LOGIN -->
+<section id="login">
+  <h2>1. Login</h2>
+  <p class="desc">Entry point — email/password, link to register.</p>
+  <div class="auth-wrap">
+    <div class="logo-mark"></div>
+    <h1>Welcome back</h1>
+    <p class="sub">Log in to your GraphMind workspace.</p>
+    <label for="li-email">Email</label>
+    <input type="email" id="li-email" value="maria@sirma-academy.example">
+    <label for="li-pass">Password</label>
+    <input type="password" id="li-pass" value="••••••••••">
+    <button class="btn-primary" style="width:100%;">Log In</button>
+    <p class="switch">Don't have an account? <a href="#register">Register</a></p>
+  </div>
+</section>
+
+<!-- 2. REGISTER -->
+<section id="register">
+  <h2>2. Registration</h2>
+  <p class="desc">Matching style to login.</p>
+  <div class="auth-wrap">
+    <div class="logo-mark"></div>
+    <h1>Create your account</h1>
+    <p class="sub">Start asking grounded questions of your documents.</p>
+    <label for="re-name">Full name</label>
+    <input type="text" id="re-name" value="Maria Ivanova">
+    <label for="re-email">Email</label>
+    <input type="email" id="re-email" value="maria@sirma-academy.example">
+    <label for="re-pass">Password</label>
+    <input type="password" id="re-pass" value="••••••••••">
+    <button class="btn-primary" style="width:100%;">Create Account</button>
+    <p class="switch">Already have an account? <a href="#login">Log in</a></p>
+  </div>
+</section>
+
+<!-- 3. DOCUMENTS -->
+<section id="documents">
+  <h2>3. Authenticated Shell — Documents</h2>
+  <p class="desc">Left sidebar nav (Documents active); sortable/filterable document list; Upload button; delete icons.</p>
+  <div class="shell" style="border:1px solid var(--border);border-radius:14px;overflow:hidden;">
+    <div class="sidebar">
+      <div class="logo"><div class="mark"></div><span>GraphMind</span></div>
+      <a href="#settings">⚙ User Settings</a>
+      <a href="#documents" class="active">📄 Documents</a>
+      <a href="#chat">💬 Chat</a>
+      <a href="#graph">🕸 Graph Preview</a>
+      <a href="#login" class="exit">↩ Exit</a>
+    </div>
+    <div class="main">
+      <div class="page-head">
+        <div>
+          <h1>Documents</h1>
+          <p>5 documents · 4 ready, 1 processing</p>
+        </div>
+        <button class="btn-primary">＋ Upload</button>
+      </div>
+      <div class="toolbar">
+        <select><option>Sort: Most recent</option><option>Sort: Title A–Z</option><option>Sort: Status</option></select>
+        <select><option>Filter: All types</option><option>PDF</option><option>Markdown</option><option>HTML</option></select>
+        <input type="search" placeholder="Search documents…">
+      </div>
+      <table>
+        <thead><tr><th>Title</th><th>Type</th><th>Status</th><th>Uploaded</th><th></th></tr></thead>
+        <tbody>
+          <tr><td>Vendor_Agreement_2026.pdf</td><td>PDF</td><td><span class="status ready">Ready</span></td><td>Aug 10, 2026</td><td><button class="trash">🗑</button></td></tr>
+          <tr><td>Q2_Product_Spec_v3.pdf</td><td>PDF</td><td><span class="status ready">Ready</span></td><td>Aug 9, 2026</td><td><button class="trash">🗑</button></td></tr>
+          <tr><td>Sprint_Planning_Notes.md</td><td>Markdown</td><td><span class="status ready">Ready</span></td><td>Aug 8, 2026</td><td><button class="trash">🗑</button></td></tr>
+          <tr><td>Client_Onboarding_Checklist.html</td><td>HTML</td><td><span class="status ready">Ready</span></td><td>Aug 6, 2026</td><td><button class="trash">🗑</button></td></tr>
+          <tr><td>NDA_Draft_Rev2.pdf</td><td>PDF</td><td><span class="status uploaded">Uploaded</span></td><td>Aug 11, 2026</td><td><button class="trash">🗑</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- 4. UPLOAD MODAL -->
+<section id="upload-modal">
+  <h2>4. Upload Modal</h2>
+  <p class="desc">Overlay on top of Documents page; drag/drop area; 3 files queued.</p>
+  <div class="modal-overlay">
+    <div class="modal">
+      <div class="modal-head">
+        <h3>Upload Documents</h3>
+        <span style="color:var(--text2);cursor:pointer;">✕</span>
+      </div>
+      <div class="modal-body">
+        <div class="dropzone">Drag &amp; drop files here, or <strong>browse</strong><br>PDF, Markdown, HTML · up to 20MB each</div>
+        <div class="file-row">
+          <div class="file-icon">PDF</div>
+          <div style="flex:1;">
+            <div class="fname">Contract_Renewal_TechCorp.pdf</div>
+            <div class="progress"><div style="width:100%;"></div></div>
+          </div>
+          <span class="fsize">Queued</span>
+        </div>
+        <div class="file-row">
+          <div class="file-icon">MD</div>
+          <div style="flex:1;">
+            <div class="fname">Meeting_Notes_2026-08-11.md</div>
+            <div class="progress"><div style="width:60%;"></div></div>
+          </div>
+          <span class="fsize">1.2 MB</span>
+        </div>
+        <div class="file-row">
+          <div class="file-icon">PDF</div>
+          <div style="flex:1;">
+            <div class="fname">Architecture_Spec_Draft.pdf</div>
+            <div class="progress"><div style="width:20%;"></div></div>
+          </div>
+          <span class="fsize">4.8 MB</span>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn-secondary">Cancel</button>
+        <button class="btn-primary">Upload 3 Files</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 5. DOC DETAIL -->
+<section id="doc-detail">
+  <h2>5. Document Detail</h2>
+  <p class="desc">Metadata once extracted, chapter breakdown, delete option with confirmation state shown.</p>
+  <div class="detail-panel">
+    <h3>Vendor_Agreement_2026.pdf</h3>
+    <p style="color:var(--text2);font-size:13px;margin:2px 0 0;">Uploaded Aug 10, 2026 · <span class="status ready">Ready</span></p>
+    <div class="meta-grid">
+      <div class="meta-item"><div class="k">Uploaded</div><div class="v">Aug 10, 2026</div></div>
+      <div class="meta-item"><div class="k">File type</div><div class="v">PDF · 3.4 MB</div></div>
+      <div class="meta-item"><div class="k">Chapters</div><div class="v">6</div></div>
+      <div class="meta-item"><div class="k">Passages indexed</div><div class="v">142</div></div>
+    </div>
+    <ul class="chapter-list">
+      <li><span>Ch. 1 — Parties &amp; Definitions</span><span style="color:var(--text2);">18 passages</span></li>
+      <li><span>Ch. 2 — Scope of Supply</span><span style="color:var(--text2);">31 passages</span></li>
+      <li><span>Ch. 3 — Payment Terms</span><span style="color:var(--text2);">22 passages</span></li>
+      <li><span>Ch. 4 — Refunds &amp; Returns</span><span style="color:var(--text2);">19 passages</span></li>
+      <li><span>Ch. 5 — Liability &amp; Indemnity</span><span style="color:var(--text2);">27 passages</span></li>
+      <li><span>Ch. 6 — Termination</span><span style="color:var(--text2);">25 passages</span></li>
+    </ul>
+    <button class="btn-danger" style="padding:9px 16px;font-size:13px;">🗑 Delete Document</button>
+    <div class="confirm-box">
+      <strong>Delete this document?</strong> Its passages will be removed from search immediately. Entities already merged into your Knowledge Graph from this document will remain and may still influence future answers.
+      <div class="actions">
+        <button class="btn-secondary" style="padding:7px 14px;font-size:12.5px;">Cancel</button>
+        <button style="background:var(--danger);color:#fff;border:none;padding:7px 14px;font-size:12.5px;border-radius:8px;">Confirm Delete</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 6. CHAT -->
+<section id="chat">
+  <h2>6. Chat</h2>
+  <p class="desc">Message thread with grounded citation; robot avatar above input; document search/select panel on the right.</p>
+  <div class="shell" style="border:1px solid var(--border);border-radius:14px;overflow:hidden;">
+    <div class="sidebar">
+      <div class="logo"><div class="mark"></div><span>GraphMind</span></div>
+      <a href="#settings">⚙ User Settings</a>
+      <a href="#documents">📄 Documents</a>
+      <a href="#chat" class="active">💬 Chat</a>
+      <a href="#graph">🕸 Graph Preview</a>
+      <a href="#login" class="exit">↩ Exit</a>
+    </div>
+    <div class="main">
+      <div class="page-head">
+        <div><h1>Chat</h1><p>Ask a question across your selected documents.</p></div>
+      </div>
+      <div class="chat-search">
+        <input type="search" placeholder="Search documents to add to this session…">
+        <button class="btn-secondary">＋ Add</button>
+      </div>
+      <div class="chat-layout">
+        <div class="chat-window">
+          <div class="chat-msgs">
+            <div class="msg-user">Which vendors are mentioned across these documents, and what's the refund window in the vendor contract?</div>
+            <div class="msg-bot">
+              Three vendors are referenced: TechCorp Supplies, Northbridge Logistics, and Halden Components.
+              For TechCorp Supplies, the refund window is 30 days from delivery
+              <span class="cite">Ch. 4, Vendor_Agreement_2026.pdf</span>.
+              Northbridge Logistics is linked to the Q2 rollout via the "supplies" relationship in your knowledge graph
+              <span class="cite">Q2_Product_Spec_v3.pdf</span>.
+            </div>
+          </div>
+          <div class="chat-input-bar">
+            <div class="robot"></div>
+            <div class="input-row">
+              <input type="text" value="What are the termination conditions in the vendor agreement?">
+              <button>Ask</button>
+            </div>
+          </div>
+        </div>
+        <div class="docs-panel">
+          <h4>Documents in scope</h4>
+          <span class="selall">Select all</span>
+          <div class="doc-chip"><input type="checkbox" checked><span>Vendor_Agreement_2026.pdf</span></div>
+          <div class="doc-chip"><input type="checkbox" checked><span>Q2_Product_Spec_v3.pdf</span></div>
+          <div class="doc-chip"><input type="checkbox"><span>Sprint_Planning_Notes.md</span></div>
+          <div class="doc-chip"><input type="checkbox"><span>Client_Onboarding_Checklist.html</span></div>
+          <div class="doc-chip" style="opacity:.5;"><input type="checkbox" disabled><span>NDA_Draft_Rev2.pdf (processing)</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 7. GRAPH PREVIEW -->
+<section id="graph">
+  <h2>7. Graph Preview</h2>
+  <p class="desc">Read-only node-link diagram (stylized static illustration), shell still visible.</p>
+  <div class="shell" style="border:1px solid var(--border);border-radius:14px;overflow:hidden;">
+    <div class="sidebar">
+      <div class="logo"><div class="mark"></div><span>GraphMind</span></div>
+      <a href="#settings">⚙ User Settings</a>
+      <a href="#documents">📄 Documents</a>
+      <a href="#chat">💬 Chat</a>
+      <a href="#graph" class="active">🕸 Graph Preview</a>
+      <a href="#login" class="exit">↩ Exit</a>
+    </div>
+    <div class="main">
+      <div class="page-head">
+        <div><h1>Knowledge Graph</h1><p>Entities and relationships extracted from your documents (read-only).</p></div>
+      </div>
+      <div class="graph-canvas">
+        <div class="gedge" style="left:120px;top:100px;width:150px;transform:rotate(18deg);"></div>
+        <div class="gedge" style="left:120px;top:100px;width:170px;transform:rotate(70deg);"></div>
+        <div class="gedge" style="left:270px;top:150px;width:160px;transform:rotate(-10deg);"></div>
+        <div class="gedge" style="left:270px;top:150px;width:140px;transform:rotate(120deg);"></div>
+        <div class="gedge" style="left:410px;top:260px;width:150px;transform:rotate(30deg);"></div>
+        <div class="gedge" style="left:120px;top:280px;width:180px;transform:rotate(-25deg);"></div>
+        <div class="gedge" style="left:120px;top:280px;width:130px;transform:rotate(2deg);"></div>
+        <div class="gedge" style="left:550px;top:220px;width:120px;transform:rotate(150deg);"></div>
+
+        <div class="gnode" style="left:100px;top:80px;width:78px;height:78px;background:var(--primary);">TechCorp<br>Supplies</div>
+        <div class="gnode" style="left:250px;top:130px;width:64px;height:64px;background:var(--accent);">Q2<br>Rollout</div>
+        <div class="gnode" style="left:390px;top:240px;width:70px;height:70px;background:var(--primary);">Northbridge<br>Logistics</div>
+        <div class="gnode" style="left:100px;top:260px;width:56px;height:56px;background:var(--success);">Maria<br>Ivanova</div>
+        <div class="gnode" style="left:230px;top:340px;width:58px;height:58px;background:var(--accent);">Vendor<br>Contract</div>
+        <div class="gnode" style="left:530px;top:200px;width:60px;height:60px;background:var(--success);">Halden<br>Components</div>
+        <div class="gnode" style="left:600px;top:340px;width:52px;height:52px;background:var(--primary);">Sprint<br>Backlog</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 8. SETTINGS -->
+<section id="settings">
+  <h2>8. User Settings</h2>
+  <p class="desc">Profile info, password change, theme toggle, account deletion.</p>
+  <div class="shell" style="border:1px solid var(--border);border-radius:14px;overflow:hidden;">
+    <div class="sidebar">
+      <div class="logo"><div class="mark"></div><span>GraphMind</span></div>
+      <a href="#settings" class="active">⚙ User Settings</a>
+      <a href="#documents">📄 Documents</a>
+      <a href="#chat">💬 Chat</a>
+      <a href="#graph">🕸 Graph Preview</a>
+      <a href="#login" class="exit">↩ Exit</a>
+    </div>
+    <div class="main">
+      <div class="page-head"><div><h1>User Settings</h1><p>Manage your profile, security, and preferences.</p></div></div>
+      <div class="settings-grid">
+        <div class="settings-card">
+          <h3>Profile</h3>
+          <label>Full name</label>
+          <input type="text" value="Maria Ivanova">
+          <label>Email</label>
+          <input type="email" value="maria@sirma-academy.example">
+          <button class="btn-primary">Save Changes</button>
+        </div>
+        <div class="settings-card">
+          <h3>Change Password</h3>
+          <label>Current password</label>
+          <input type="password" value="••••••••••">
+          <label>New password</label>
+          <input type="password" value="••••••••••">
+          <button class="btn-primary">Update Password</button>
+        </div>
+        <div class="settings-card">
+          <h3>Appearance</h3>
+          <div class="toggle-row"><span>Theme</span><span style="font-size:12.5px;color:var(--text2);">Light</span></div>
+          <div class="toggle-row"><span>Light mode</span><span class="switch-ui on"></span></div>
+          <div class="toggle-row"><span>Dark mode</span><span class="switch-ui"></span></div>
+        </div>
+        <div class="settings-card danger-zone">
+          <h3 style="color:var(--danger);">Delete Account</h3>
+          <p style="font-size:12.5px;color:var(--text2);margin:0 0 14px;">Permanently deletes your account, documents, and knowledge graph. This cannot be undone.</p>
+          <button style="background:var(--danger);color:#fff;border:none;padding:9px 16px;font-size:13px;border-radius:8px;">Delete My Account</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>

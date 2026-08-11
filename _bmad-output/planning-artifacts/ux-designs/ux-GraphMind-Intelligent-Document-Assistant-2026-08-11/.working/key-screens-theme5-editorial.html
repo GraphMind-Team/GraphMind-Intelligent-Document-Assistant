@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>GraphMind — Key Screens (Theme 5: Quiet Editorial)</title>
+<style>
+:root{
+  --bg:#FAF9F7; --surface:#F0EEE9; --border:#DAD6CD;
+  --text:#24261F; --text2:#66695E;
+  --primary:#1F3A5F; --accent:#3E6EA5;
+  --success:#3E7A5A; --warning:#A87A30; --danger:#A8402F;
+  --citation:#E7E9DE;
+  --robot-a:#5B8DEF; --robot-b:#D1EEFE;
+}
+*{box-sizing:border-box;}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);}
+a{color:var(--accent);}
+nav.topnav{position:sticky;top:0;z-index:50;background:var(--bg);border-bottom:1px solid var(--border);padding:10px 24px;display:flex;gap:18px;align-items:center;flex-wrap:wrap;}
+nav.topnav .brand{font-weight:700;color:var(--primary);margin-right:12px;}
+nav.topnav a{color:var(--text2);text-decoration:none;font-size:13px;padding:6px 10px;border-radius:6px;}
+nav.topnav a:hover{background:var(--surface);color:var(--primary);}
+section.screen{min-height:100vh;padding:56px 0 40px;border-bottom:1px dashed var(--border);}
+section.screen h2.screen-label{max-width:1200px;margin:0 auto 20px;padding:0 24px;font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--text2);font-weight:700;}
+.center-card{max-width:420px;margin:20px auto;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:36px;}
+.center-card h1{margin:0 0 4px;font-size:22px;color:var(--primary);}
+.center-card p.tag{margin:0 0 24px;color:var(--text2);font-size:13px;}
+label{display:block;font-size:12px;color:var(--text2);margin:14px 0 4px;}
+input[type=text],input[type=email],input[type=password]{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:14px;}
+.btn{display:inline-block;background:var(--primary);color:#fff;border:none;border-radius:8px;padding:10px 18px;font-size:14px;font-weight:600;cursor:pointer;text-decoration:none;}
+.btn.secondary{background:transparent;color:var(--primary);border:1px solid var(--primary);}
+.btn.danger{background:var(--danger);}
+.btn-row{margin-top:22px;display:flex;flex-direction:column;gap:10px;}
+.foot-link{margin-top:16px;font-size:13px;color:var(--text2);text-align:center;}
+
+/* App shell */
+.app-shell{display:flex;max-width:1200px;margin:0 auto;border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--surface);}
+.sidebar{width:190px;background:var(--bg);border-right:1px solid var(--border);padding:20px 0;flex-shrink:0;}
+.sidebar .logo{font-weight:700;color:var(--primary);padding:0 20px 18px;font-size:15px;border-bottom:1px solid var(--border);margin-bottom:10px;}
+.sidebar a{display:block;padding:10px 20px;font-size:13px;color:var(--text2);text-decoration:none;border-left:3px solid transparent;}
+.sidebar a.active{color:var(--primary);font-weight:700;border-left-color:var(--primary);background:var(--surface);}
+.sidebar a:hover{color:var(--primary);}
+.main{flex:1;padding:28px;min-height:560px;position:relative;}
+.main h2{margin:0 0 4px;font-size:19px;color:var(--primary);}
+.main p.desc{color:var(--text2);font-size:13px;margin:0 0 18px;}
+
+.toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;}
+.filters{display:flex;gap:8px;}
+select,.pill-input{padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:12px;}
+
+table.doclist{width:100%;border-collapse:collapse;font-size:13px;}
+table.doclist th{text-align:left;color:var(--text2);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:8px 10px;border-bottom:1px solid var(--border);}
+table.doclist td{padding:12px 10px;border-bottom:1px solid var(--border);}
+table.doclist tr:last-child td{border-bottom:none;}
+.status{display:inline-block;padding:3px 9px;border-radius:12px;font-size:11px;font-weight:600;}
+.status.ready{background:#DCEEE2;color:var(--success);}
+.status.uploaded{background:#F3E6CE;color:var(--warning);}
+.trash{cursor:pointer;color:var(--text2);border:none;background:none;font-size:15px;}
+.trash:hover{color:var(--danger);}
+
+/* modal overlay */
+.modal-overlay{position:absolute;inset:0;background:rgba(36,38,31,.45);display:flex;align-items:center;justify-content:center;border-radius:14px;}
+.modal{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:26px;width:460px;max-width:90%;}
+.modal h3{margin:0 0 4px;color:var(--primary);font-size:17px;}
+.modal p.desc{margin:0 0 16px;}
+.dropzone{border:2px dashed var(--border);border-radius:10px;padding:28px;text-align:center;color:var(--text2);font-size:13px;margin-bottom:16px;background:var(--surface);}
+.dropzone .icon{font-size:26px;margin-bottom:8px;}
+.queue-item{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:8px;font-size:12px;}
+.queue-item .fname{font-weight:600;}
+.progress{width:80px;height:6px;background:var(--border);border-radius:3px;overflow:hidden;}
+.progress span{display:block;height:100%;background:var(--accent);}
+
+/* detail panel */
+.detail-card{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:22px;max-width:520px;}
+.detail-card h3{margin:0 0 2px;color:var(--primary);}
+.meta-row{display:flex;gap:24px;margin:14px 0;font-size:12px;color:var(--text2);}
+.chapter-list{list-style:none;padding:0;margin:14px 0;font-size:13px;}
+.chapter-list li{padding:8px 10px;border-bottom:1px solid var(--border);}
+.confirm-box{margin-top:16px;padding:12px 14px;border:1px solid var(--danger);background:#F5E4E0;border-radius:8px;font-size:12px;color:var(--danger);}
+
+/* chat */
+.chat-layout{display:flex;gap:18px;}
+.chat-window{flex:1;display:flex;flex-direction:column;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:18px;min-height:420px;}
+.search-row{display:flex;gap:8px;margin-bottom:12px;}
+.search-row input{flex:1;}
+.msg-thread{flex:1;display:flex;flex-direction:column;gap:12px;margin-bottom:14px;}
+.msg-user{align-self:flex-end;background:var(--primary);color:#fff;padding:10px 14px;border-radius:10px 10px 2px 10px;max-width:75%;font-size:13px;}
+.msg-bot{align-self:flex-start;background:var(--surface);border:1px solid var(--border);padding:12px 14px;border-radius:10px 10px 10px 2px;max-width:80%;font-size:13px;line-height:1.6;}
+.cite{display:inline-block;background:var(--citation);color:var(--primary);font-weight:700;font-size:11px;padding:2px 8px;border-radius:6px;margin-left:4px;}
+.input-row-wrap{position:relative;margin-top:24px;}
+.robot-char{position:absolute;left:14px;bottom:100%;margin-bottom:-5px;width:26px;z-index:2;pointer-events:none;}
+.robot-antenna{position:relative;width:2px;height:5px;background:var(--robot-a);margin:0 auto;border-radius:1px;}
+.robot-antenna::after{content:"";position:absolute;top:-5px;left:-2px;width:6px;height:6px;border-radius:50%;background:var(--robot-a);}
+.robot-head{width:22px;height:18px;margin:1px auto 0;border-radius:8px 8px 6px 6px;background:linear-gradient(160deg,var(--robot-a),var(--robot-b));position:relative;box-shadow:0 2px 4px rgba(10,46,99,.18);}
+.robot-head::before{content:"";position:absolute;left:5.5px;top:7px;width:2.5px;height:2.5px;background:#fff;border-radius:50%;box-shadow:8px 0 0 #fff;}
+.robot-head::after{content:"";position:absolute;right:-3px;top:3px;width:4px;height:7px;background:var(--robot-b);border-radius:0 5px 5px 0;}
+.robot-body{width:18px;height:13px;margin:-2px auto 0;border-radius:6px 6px 8px 8px;background:linear-gradient(160deg,var(--robot-b),var(--robot-a));position:relative;box-shadow:0 3px 4px rgba(10,46,99,.15);}
+.robot-body::before{content:"";position:absolute;left:-4px;top:2px;width:4px;height:8px;background:var(--robot-a);border-radius:4px;transform:rotate(20deg);}
+.robot-body::after{content:"";position:absolute;right:-4px;top:2px;width:4px;height:8px;background:var(--robot-a);border-radius:4px;transform:rotate(-20deg);}
+.input-row{display:flex;align-items:center;gap:10px;width:100%;}
+.input-row input{
+  flex:1;
+  height:40px;
+  padding:0 14px;
+  border:1px solid var(--border);
+  border-radius:20px;
+  font-size:13.5px;
+  font-family:inherit;
+  line-height:38px;
+  box-sizing:border-box;
+  background:var(--bg);
+  color:var(--text);
+}
+.input-row input:focus{outline:2px solid var(--accent);outline-offset:1px;}
+.input-row button{
+  height:40px;
+  padding:0 20px;
+  border:none;
+  border-radius:20px;
+  background:var(--primary);
+  color:#fff;
+  font-size:13px;
+  font-weight:600;
+  font-family:inherit;
+  line-height:38px;
+  box-sizing:border-box;
+  cursor:pointer;
+  flex-shrink:0;
+}
+.doc-panel{width:220px;flex-shrink:0;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;font-size:12px;}
+.doc-panel h4{margin:0 0 10px;font-size:11px;text-transform:uppercase;color:var(--text2);letter-spacing:.05em;}
+.doc-chip{display:flex;align-items:center;gap:6px;padding:6px 0;border-bottom:1px solid var(--border);}
+.doc-chip:last-child{border-bottom:none;}
+.selectall{font-size:11px;color:var(--accent);cursor:pointer;margin-bottom:10px;display:inline-block;}
+
+/* graph */
+.graph-canvas{position:relative;height:420px;background:var(--bg);border:1px solid var(--border);border-radius:10px;overflow:hidden;}
+.node{position:absolute;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;text-align:center;padding:4px;}
+.edge{position:absolute;height:2px;background:var(--border);transform-origin:0 0;}
+.n1{background:var(--primary);width:70px;height:70px;top:170px;left:60px;}
+.n2{background:var(--accent);width:56px;height:56px;top:60px;left:230px;}
+.n3{background:var(--accent);width:56px;height:56px;top:280px;left:230px;}
+.n4{background:var(--success);width:50px;height:50px;top:160px;left:420px;}
+.n5{background:var(--warning);width:46px;height:46px;top:60px;left:560px;}
+.n6{background:var(--danger);width:46px;height:46px;top:290px;left:560px;}
+
+/* settings */
+.settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px;max-width:700px;}
+.settings-block{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:18px;}
+.settings-block h4{margin:0 0 12px;color:var(--primary);font-size:13px;text-transform:uppercase;letter-spacing:.04em;}
+.toggle-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;font-size:13px;}
+.toggle{width:40px;height:22px;border-radius:12px;background:var(--border);position:relative;display:inline-block;}
+.toggle.on{background:var(--primary);}
+.toggle .knob{width:18px;height:18px;background:#fff;border-radius:50%;position:absolute;top:2px;left:2px;}
+.toggle.on .knob{left:20px;}
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <span class="brand">GraphMind</span>
+  <a href="#login">Login</a>
+  <a href="#register">Register</a>
+  <a href="#documents">Documents</a>
+  <a href="#upload-modal">Upload Modal</a>
+  <a href="#doc-detail">Document Detail</a>
+  <a href="#chat">Chat</a>
+  <a href="#graph">Graph Preview</a>
+  <a href="#settings">User Settings</a>
+</nav>
+
+<!-- 1. LOGIN -->
+<section class="screen" id="login">
+  <h2 class="screen-label">1 · Login</h2>
+  <div class="center-card">
+    <h1>Welcome back</h1>
+    <p class="tag">Sign in to your document workspace.</p>
+    <label>Email</label>
+    <input type="email" placeholder="you@company.com" value="swetli_ib2@abv.bg">
+    <label>Password</label>
+    <input type="password" placeholder="••••••••">
+    <div class="btn-row">
+      <a class="btn" href="#documents">Log In</a>
+    </div>
+    <p class="foot-link">New to GraphMind? <a href="#register">Create an account</a></p>
+  </div>
+</section>
+
+<!-- 2. REGISTER -->
+<section class="screen" id="register">
+  <h2 class="screen-label">2 · Registration</h2>
+  <div class="center-card">
+    <h1>Create your account</h1>
+    <p class="tag">Your documents stay private to you, always.</p>
+    <label>Full name</label>
+    <input type="text" placeholder="Elena Petrova">
+    <label>Email</label>
+    <input type="email" placeholder="you@company.com">
+    <label>Password</label>
+    <input type="password" placeholder="Choose a password">
+    <label>Confirm password</label>
+    <input type="password" placeholder="Repeat password">
+    <div class="btn-row">
+      <a class="btn" href="#documents">Create Account</a>
+    </div>
+    <p class="foot-link">Already have an account? <a href="#login">Log in</a></p>
+  </div>
+</section>
+
+<!-- 3. DOCUMENTS -->
+<section class="screen" id="documents">
+  <h2 class="screen-label">3 · Authenticated Shell + Documents</h2>
+  <div class="app-shell">
+    <div class="sidebar">
+      <div class="logo">GraphMind</div>
+      <a href="#settings">User Settings</a>
+      <a href="#documents" class="active">Documents</a>
+      <a href="#chat">Chat</a>
+      <a href="#graph">Graph Preview</a>
+      <a href="#login">Exit</a>
+    </div>
+    <div class="main">
+      <h2>Documents</h2>
+      <p class="desc">All files ingested into your private corpus.</p>
+      <div class="toolbar">
+        <div class="filters">
+          <select><option>Type: All</option><option>PDF</option><option>Markdown</option><option>HTML</option></select>
+          <select><option>Sort: Most recent</option><option>Oldest</option><option>Name A–Z</option></select>
+        </div>
+        <a class="btn" href="#upload-modal">Upload</a>
+      </div>
+      <table class="doclist">
+        <tr><th>Title</th><th>Status</th><th>Uploaded</th><th></th></tr>
+        <tr>
+          <td><a href="#doc-detail">Vendor_Agreement_2026.pdf</a></td>
+          <td><span class="status ready">Ready</span></td>
+          <td>Aug 9, 2026</td>
+          <td><button class="trash" title="Delete">🗑</button></td>
+        </tr>
+        <tr>
+          <td><a href="#doc-detail">Q3_Product_Spec.md</a></td>
+          <td><span class="status ready">Ready</span></td>
+          <td>Aug 8, 2026</td>
+          <td><button class="trash" title="Delete">🗑</button></td>
+        </tr>
+        <tr>
+          <td><a href="#doc-detail">Client_Kickoff_MeetingNotes.pdf</a></td>
+          <td><span class="status ready">Ready</span></td>
+          <td>Aug 6, 2026</td>
+          <td><button class="trash" title="Delete">🗑</button></td>
+        </tr>
+        <tr>
+          <td><a href="#doc-detail">NDA_TechPartner.html</a></td>
+          <td><span class="status ready">Ready</span></td>
+          <td>Aug 3, 2026</td>
+          <td><button class="trash" title="Delete">🗑</button></td>
+        </tr>
+        <tr>
+          <td><a href="#doc-detail">Infrastructure_Migration_Plan.pdf</a></td>
+          <td><span class="status uploaded">Uploaded</span></td>
+          <td>Aug 11, 2026</td>
+          <td><button class="trash" title="Delete">🗑</button></td>
+        </tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- 4. UPLOAD MODAL -->
+<section class="screen" id="upload-modal">
+  <h2 class="screen-label">4 · Upload Modal (overlay on Documents)</h2>
+  <div class="app-shell">
+    <div class="sidebar">
+      <div class="logo">GraphMind</div>
+      <a href="#settings">User Settings</a>
+      <a href="#documents" class="active">Documents</a>
+      <a href="#chat">Chat</a>
+      <a href="#graph">Graph Preview</a>
+      <a href="#login">Exit</a>
+    </div>
+    <div class="main">
+      <h2>Documents</h2>
+      <p class="desc">All files ingested into your private corpus.</p>
+      <table class="doclist">
+        <tr><th>Title</th><th>Status</th><th>Uploaded</th><th></th></tr>
+        <tr><td>Vendor_Agreement_2026.pdf</td><td><span class="status ready">Ready</span></td><td>Aug 9, 2026</td><td>🗑</td></tr>
+        <tr><td>Q3_Product_Spec.md</td><td><span class="status ready">Ready</span></td><td>Aug 8, 2026</td><td>🗑</td></tr>
+      </table>
+
+      <div class="modal-overlay">
+        <div class="modal">
+          <h3>Upload documents</h3>
+          <p class="desc">PDF, Markdown, or HTML — up to 20MB each.</p>
+          <div class="dropzone">
+            <div class="icon">⇧</div>
+            Drag & drop files here, or <a href="#upload-modal">browse</a>
+          </div>
+          <div class="queue-item">
+            <span class="fname">Infrastructure_Migration_Plan.pdf</span>
+            <div class="progress"><span style="width:100%;"></span></div>
+          </div>
+          <div class="queue-item">
+            <span class="fname">Vendor_Contract_Addendum.pdf</span>
+            <div class="progress"><span style="width:65%;"></span></div>
+          </div>
+          <div class="queue-item">
+            <span class="fname">Standup_Notes_Aug10.md</span>
+            <div class="progress"><span style="width:30%;"></span></div>
+          </div>
+          <div class="btn-row" style="flex-direction:row;justify-content:flex-end;">
+            <a class="btn secondary" href="#documents">Cancel</a>
+            <a class="btn" href="#documents">Upload 3 Files</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 5. DOCUMENT DETAIL -->
+<section class="screen" id="doc-detail">
+  <h2 class="screen-label">5 · Document Detail</h2>
+  <div class="app-shell">
+    <div class="sidebar">
+      <div class="logo">GraphMind</div>
+      <a href="#settings">User Settings</a>
+      <a href="#documents" class="active">Documents</a>
+      <a href="#chat">Chat</a>
+      <a href="#graph">Graph Preview</a>
+      <a href="#login">Exit</a>
+    </div>
+    <div class="main">
+      <h2>Vendor_Agreement_2026.pdf</h2>
+      <p class="desc">Document metadata</p>
+      <div class="detail-card">
+        <h3>Vendor_Agreement_2026.pdf</h3>
+        <div class="meta-row">
+          <span>Status: <span class="status ready">Ready</span></span>
+          <span>Uploaded: Aug 9, 2026</span>
+          <span>Type: PDF</span>
+        </div>
+        <strong style="font-size:13px;">Chapters</strong>
+        <ul class="chapter-list">
+          <li>Ch. 1 — Parties & Scope</li>
+          <li>Ch. 2 — Deliverables & Timeline</li>
+          <li>Ch. 3 — Payment Terms</li>
+          <li>Ch. 4 — Returns & Refund Policy</li>
+          <li>Ch. 5 — Termination</li>
+        </ul>
+        <a class="btn danger" href="#doc-detail">Delete Document</a>
+        <div class="confirm-box">
+          Deleting removes this document and its passages from search immediately. Knowledge-graph entities already derived from it may persist and continue influencing future answers. This action cannot be undone.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 6. CHAT -->
+<section class="screen" id="chat">
+  <h2 class="screen-label">6 · Chat</h2>
+  <div class="app-shell">
+    <div class="sidebar">
+      <div class="logo">GraphMind</div>
+      <a href="#settings">User Settings</a>
+      <a href="#documents">Documents</a>
+      <a href="#chat" class="active">Chat</a>
+      <a href="#graph">Graph Preview</a>
+      <a href="#login">Exit</a>
+    </div>
+    <div class="main">
+      <h2>Chat</h2>
+      <p class="desc">Ask a question grounded in your selected documents.</p>
+      <div class="chat-layout">
+        <div class="chat-window">
+          <div class="search-row">
+            <input type="text" class="pill-input" placeholder="Search documents to add to scope…">
+            <a class="btn secondary" href="#chat">Add</a>
+          </div>
+          <div class="msg-thread">
+            <div class="msg-user">Which vendors are mentioned across these documents and what do they supply?</div>
+            <div class="msg-bot">
+              Based on your corpus, three vendors are referenced: TechSource Ltd (cloud infrastructure)
+              <span class="cite">Ch. 2, Vendor_Agreement_2026.pdf</span>,
+              DataFlow Systems (analytics tooling)
+              <span class="cite">Ch. 1, Q3_Product_Spec.md</span>, and
+              NorthBridge Consulting (implementation support)
+              <span class="cite">Ch. 3, Client_Kickoff_MeetingNotes.pdf</span>.
+              The refund window with TechSource is 30 days from delivery
+              <span class="cite">Ch. 4, Vendor_Agreement_2026.pdf</span>.
+            </div>
+          </div>
+          <div class="input-row-wrap">
+            <div class="robot-char" aria-hidden="true">
+              <div class="robot-antenna"></div>
+              <div class="robot-head"></div>
+              <div class="robot-body"></div>
+            </div>
+            <div class="input-row">
+              <input type="text" placeholder="Ask a question about your documents…">
+              <button>Ask</button>
+            </div>
+          </div>
+        </div>
+        <div class="doc-panel">
+          <h4>Scope</h4>
+          <span class="selectall">Select all</span>
+          <div class="doc-chip">☑ Vendor_Agreement_2026.pdf</div>
+          <div class="doc-chip">☑ Q3_Product_Spec.md</div>
+          <div class="doc-chip">☑ Client_Kickoff_MeetingNotes.pdf</div>
+          <div class="doc-chip">☐ NDA_TechPartner.html</div>
+          <div class="doc-chip">☐ Infrastructure_Migration_Plan.pdf</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 7. GRAPH PREVIEW -->
+<section class="screen" id="graph">
+  <h2 class="screen-label">7 · Graph Preview</h2>
+  <div class="app-shell">
+    <div class="sidebar">
+      <div class="logo">GraphMind</div>
+      <a href="#settings">User Settings</a>
+      <a href="#documents">Documents</a>
+      <a href="#chat">Chat</a>
+      <a href="#graph" class="active">Graph Preview</a>
+      <a href="#login">Exit</a>
+    </div>
+    <div class="main">
+      <h2>Knowledge Graph</h2>
+      <p class="desc">Read-only view of entities and relationships extracted from your documents.</p>
+      <div class="graph-canvas">
+        <div class="edge" style="top:200px;left:105px;width:150px;transform:rotate(-27deg);"></div>
+        <div class="edge" style="top:205px;left:105px;width:150px;transform:rotate(27deg);"></div>
+        <div class="edge" style="top:95px;left:280px;width:150px;transform:rotate(20deg);"></div>
+        <div class="edge" style="top:305px;left:280px;width:150px;transform:rotate(-20deg);"></div>
+        <div class="node n1">GraphMind<br>Project</div>
+        <div class="node n2">TechSource<br>Ltd</div>
+        <div class="node n3">NorthBridge<br>Consulting</div>
+        <div class="node n4">Cloud<br>Infra</div>
+        <div class="node n5">Elena<br>Petrova</div>
+        <div class="node n6">Marcus<br>Ionescu</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 8. SETTINGS -->
+<section class="screen" id="settings">
+  <h2 class="screen-label">8 · User Settings</h2>
+  <div class="app-shell">
+    <div class="sidebar">
+      <div class="logo">GraphMind</div>
+      <a href="#settings" class="active">User Settings</a>
+      <a href="#documents">Documents</a>
+      <a href="#chat">Chat</a>
+      <a href="#graph">Graph Preview</a>
+      <a href="#login">Exit</a>
+    </div>
+    <div class="main">
+      <h2>User Settings</h2>
+      <p class="desc">Manage your profile, security, and appearance.</p>
+      <div class="settings-grid">
+        <div class="settings-block">
+          <h4>Profile</h4>
+          <label>Full name</label>
+          <input type="text" value="Elena Petrova">
+          <label>Email</label>
+          <input type="email" value="swetli_ib2@abv.bg">
+          <div class="btn-row"><a class="btn" href="#settings">Save Changes</a></div>
+        </div>
+        <div class="settings-block">
+          <h4>Password</h4>
+          <label>Current password</label>
+          <input type="password" placeholder="••••••••">
+          <label>New password</label>
+          <input type="password" placeholder="••••••••">
+          <div class="btn-row"><a class="btn" href="#settings">Update Password</a></div>
+        </div>
+        <div class="settings-block">
+          <h4>Appearance</h4>
+          <div class="toggle-row">
+            <span>Light mode</span>
+            <span class="toggle"><span class="knob"></span></span>
+          </div>
+          <div class="toggle-row">
+            <span>Dark mode</span>
+            <span class="toggle on"><span class="knob"></span></span>
+          </div>
+        </div>
+        <div class="settings-block">
+          <h4>Danger Zone</h4>
+          <p class="desc" style="margin-bottom:12px;">Permanently delete your account and all associated documents, graph data, and query history.</p>
+          <a class="btn danger" href="#settings">Delete Account</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>

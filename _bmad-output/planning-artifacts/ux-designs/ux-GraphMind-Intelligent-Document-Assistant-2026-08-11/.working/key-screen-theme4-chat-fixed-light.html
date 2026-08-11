@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>GraphMind — Chat (Theme 4, Light, Fixed Layout)</title>
+<style>
+:root{
+  --bg:#FFFFFF; --surface:#EDF1FA; --border:#C7D2E6;
+  --text:#10131A; --text2:#454E60;
+  --primary:#3861A8; --accent:#5B8DEF; --sky:#D1EEFE; --robot-a:#5B8DEF; --robot-b:#D1EEFE;
+  --success:#0A9E5C; --warning:#E08600; --danger:#E01E1E;
+  --citation:var(--sky);
+}
+*{box-sizing:border-box;}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);}
+
+/* ---- App shell ---- */
+.shell{display:flex;min-height:100vh;background:var(--bg);}
+.sidebar{width:220px;flex-shrink:0;background:var(--primary);color:#fff;padding:22px 14px;display:flex;flex-direction:column;gap:2px;}
+.sidebar .logo{display:flex;align-items:center;gap:10px;margin-bottom:26px;padding:0 8px;}
+.sidebar .logo .mark{width:26px;height:26px;border-radius:7px;background:#fff;position:relative;flex-shrink:0;}
+.sidebar .logo .mark::after{content:"";position:absolute;inset:6px;border-radius:50%;border:2px solid var(--primary);}
+.sidebar .logo span{font-weight:700;font-size:15px;}
+.sidebar a{color:#E4ECFA;text-decoration:none;font-size:13.5px;padding:10px 12px;border-radius:8px;display:flex;align-items:center;gap:10px;}
+.sidebar a:hover{background:rgba(255,255,255,.08);color:#fff;}
+.sidebar a.active{background:rgba(255,255,255,.14);color:#fff;font-weight:600;}
+.sidebar .exit{margin-top:auto;}
+.main{flex:1;padding:32px 40px;}
+.page-head{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:22px;flex-wrap:wrap;gap:12px;}
+.page-head h1{margin:0 0 4px;font-size:21px;color:var(--primary);}
+.page-head p{margin:0;color:var(--text2);font-size:13px;}
+.btn-secondary{background:#fff;color:var(--primary);border:1px solid var(--border);padding:10px 18px;font-size:14px;border-radius:8px;cursor:pointer;font-family:inherit;}
+
+/* ---- Chat page ---- */
+.chat-layout{display:grid;grid-template-columns:1fr 260px;gap:20px;}
+.chat-window{background:#fff;border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;height:560px;overflow:hidden;}
+.chat-search{display:flex;gap:8px;margin-bottom:14px;align-items:center;}
+.chat-search input[type=search]{flex:1;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;}
+.chat-msgs{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:12px;}
+.msg-user{align-self:flex-end;background:var(--primary);color:#fff;padding:10px 14px;border-radius:12px 12px 2px 12px;max-width:70%;font-size:13.5px;}
+.msg-bot{align-self:flex-start;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:12px 14px;border-radius:12px 12px 12px 2px;max-width:78%;font-size:13.5px;line-height:1.55;}
+.cite{display:inline-block;background:var(--citation);color:var(--primary);font-weight:700;font-size:11.5px;padding:2px 8px;border-radius:6px;margin-left:4px;white-space:nowrap;}
+
+/* ---- FIXED input row: input (flex:1) | send button, same height, vertically centered. Robot mascot "steps onto" the input field's top edge. ---- */
+.chat-input-bar{border-top:1px solid var(--border);padding:14px 20px;}
+.input-row-wrap{position:relative;margin-top:24px;}
+.robot-char{position:absolute;left:14px;bottom:100%;margin-bottom:-5px;width:26px;z-index:2;pointer-events:none;}
+.robot-antenna{position:relative;width:2px;height:5px;background:var(--robot-a);margin:0 auto;border-radius:1px;}
+.robot-antenna::after{content:"";position:absolute;top:-5px;left:-2px;width:6px;height:6px;border-radius:50%;background:var(--robot-a);}
+.robot-head{width:22px;height:18px;margin:1px auto 0;border-radius:8px 8px 6px 6px;background:linear-gradient(160deg,var(--robot-a),var(--robot-b));position:relative;box-shadow:0 2px 4px rgba(10,46,99,.18);}
+.robot-head::before{content:"";position:absolute;left:5.5px;top:7px;width:2.5px;height:2.5px;background:#fff;border-radius:50%;box-shadow:8px 0 0 #fff;}
+.robot-head::after{content:"";position:absolute;right:-3px;top:3px;width:4px;height:7px;background:var(--robot-b);border-radius:0 5px 5px 0;}
+.robot-body{width:18px;height:13px;margin:-2px auto 0;border-radius:6px 6px 8px 8px;background:linear-gradient(160deg,var(--robot-b),var(--robot-a));position:relative;box-shadow:0 3px 4px rgba(10,46,99,.15);}
+.robot-body::before{content:"";position:absolute;left:-4px;top:2px;width:4px;height:8px;background:var(--robot-a);border-radius:4px;transform:rotate(20deg);}
+.robot-body::after{content:"";position:absolute;right:-4px;top:2px;width:4px;height:8px;background:var(--robot-a);border-radius:4px;transform:rotate(-20deg);}
+.input-row{display:flex;align-items:center;gap:10px;width:100%;}
+.input-row input{
+  flex:1;
+  height:40px;
+  padding:0 14px;
+  border:1px solid var(--border);
+  border-radius:20px;
+  font-size:13.5px;
+  font-family:inherit;
+  line-height:38px;
+  box-sizing:border-box;
+  background:#fff;
+  color:var(--text);
+}
+.input-row input:focus{outline:2px solid var(--accent);outline-offset:1px;}
+.input-row button{
+  height:40px;
+  padding:0 20px;
+  border:none;
+  border-radius:20px;
+  background:var(--primary);
+  color:#fff;
+  font-size:13px;
+  font-weight:600;
+  font-family:inherit;
+  line-height:38px;
+  box-sizing:border-box;
+  cursor:pointer;
+  flex-shrink:0;
+}
+
+.docs-panel{background:#fff;border:1px solid var(--border);border-radius:12px;padding:16px;}
+.docs-panel h4{margin:0 0 4px;font-size:13px;color:var(--primary);}
+.docs-panel .selall{font-size:12px;color:var(--accent);cursor:pointer;margin-bottom:10px;display:inline-block;}
+.doc-chip{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;font-size:12.5px;background:var(--surface);}
+.doc-chip input{margin:0;}
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <div class="sidebar">
+    <div class="logo"><div class="mark"></div><span>GraphMind</span></div>
+    <a href="#settings">⚙ User Settings</a>
+    <a href="#documents">📄 Documents</a>
+    <a href="#chat" class="active">💬 Chat</a>
+    <a href="#graph">🕸 Graph Preview</a>
+    <a href="#login" class="exit">↩ Exit</a>
+  </div>
+  <div class="main">
+    <div class="page-head">
+      <div><h1>Chat</h1><p>Ask a question across your selected documents.</p></div>
+    </div>
+    <div class="chat-search">
+      <input type="search" placeholder="Search documents to add to this session…">
+      <button class="btn-secondary">＋ Add</button>
+    </div>
+    <div class="chat-layout">
+      <div class="chat-window">
+        <div class="chat-msgs" aria-live="polite" aria-atomic="false">
+          <div class="msg-user">Which vendors are mentioned across these documents, and what's the refund window in the vendor contract?</div>
+          <div class="msg-bot">
+            Three vendors are referenced: TechCorp Supplies, Northbridge Logistics, and Halden Components.
+            For TechCorp Supplies, the refund window is 30 days from delivery
+            <span class="cite">Ch. 4, Vendor_Agreement_2026.pdf</span>.
+            Northbridge Logistics is linked to the Q2 rollout via the "supplies" relationship in your knowledge graph
+            <span class="cite">Q2_Product_Spec_v3.pdf</span>.
+          </div>
+        </div>
+        <div class="chat-input-bar">
+          <div class="input-row-wrap">
+            <div class="robot-char" aria-hidden="true">
+              <div class="robot-antenna"></div>
+              <div class="robot-head"></div>
+              <div class="robot-body"></div>
+            </div>
+            <div class="input-row">
+              <input type="text" value="What are the termination conditions in the vendor agreement?">
+              <button>Ask</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="docs-panel">
+        <h4>Documents in scope</h4>
+        <span class="selall">Select all</span>
+        <div class="doc-chip"><input type="checkbox" checked><span>Vendor_Agreement_2026.pdf</span></div>
+        <div class="doc-chip"><input type="checkbox" checked><span>Q2_Product_Spec_v3.pdf</span></div>
+        <div class="doc-chip"><input type="checkbox"><span>Sprint_Planning_Notes.md</span></div>
+        <div class="doc-chip"><input type="checkbox"><span>Client_Onboarding_Checklist.html</span></div>
+        <div class="doc-chip" style="opacity:.5;"><input type="checkbox" disabled aria-label="NDA_Draft_Rev2.pdf — not yet available, still processing"><span>NDA_Draft_Rev2.pdf (processing)</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

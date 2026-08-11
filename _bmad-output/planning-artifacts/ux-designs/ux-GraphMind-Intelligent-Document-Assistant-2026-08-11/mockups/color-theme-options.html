@@ -1,0 +1,315 @@
+<meta charset="UTF-8">
+<title>GraphMind Color Theme Options</title>
+<style>
+/*
+THEME 1 — Sirma Classic (Corporate Trust)
+LIGHT: bg #FFFFFF surface #F4F6F9 border #DCE2EA text-primary #1F2933 text-secondary #5A6472
+       primary #0B3D91 accent #2F7DE1 success #1E8E5A warning #B8790A danger #C2382B citation #DCE9FB (text #0B3D91)
+DARK:  bg #0E1420 surface #16202E border #29394D text-primary #EAF0F7 text-secondary #9AAAC0
+       primary #5B9CF0 accent #2F7DE1 success #4FBE86 warning #E0A83E danger #E5695A citation #1B2B44 (text #8FBBF2)
+
+THEME 2 — Clinical Precision (Technical/Analytical)
+LIGHT: bg #FAFBFC surface #EEF1F5 border #D2D9E2 text-primary #1A1F27 text-secondary #626C7A
+       primary #0A2E63 accent #1768C7 success #147A52 warning #9C6A00 danger #A32E22 citation #E6EDF7 (text #0A2E63)
+DARK:  bg #0A0D12 surface #131924 border #232C3B text-primary #DDE4EC text-secondary #8790A0
+       primary #4C86D6 accent #1768C7 success #3FA476 warning #C99432 danger #CC5A4A citation #17202E (text #7AA8E8)
+
+THEME 3 — Warm Approachable (Friendly/Human)
+LIGHT: bg #FFFDF9 surface #F6F1E9 border #E6DCC9 text-primary #2B2620 text-secondary #6E6355
+       primary #24478A accent #3C82E8 success #2E9166 warning #C8862B danger #C4472E citation #FCEFD8 (text #8A5A15)
+DARK:  bg #171410 surface #201C16 border #3A3226 text-primary #F2EAD9 text-secondary #B4A891
+       primary #6FA0EE accent #4C93F5 success #56C08C warning #E5A94C danger #E27459 citation #2E2515 (text #F0C170)
+
+THEME 4 — Bold High-Contrast (Confident/Energetic)
+LIGHT: bg #FFFFFF surface #EDF1FA border #C7D2E6 text-primary #10131A text-secondary #454E60
+       primary #002E9E accent #1E5CFF success #0A9E5C warning #E08600 danger #E01E1E citation #D6E4FF (text #002E9E)
+DARK:  bg #05060A surface #10131E border #232B40 text-primary #F5F7FC text-secondary #A7B0C6
+       primary #4C7DFF accent #1E5CFF success #22C57F warning #FFA733 danger #FF5252 citation #14204A (text #7FA0FF)
+
+THEME 5 — Quiet Editorial (Calm/Considered)
+LIGHT: bg #FAF9F7 surface #F0EEE9 border #DAD6CD text-primary #24261F text-secondary #66695E
+       primary #1F3A5F accent #3E6EA5 success #3E7A5A warning #A87A30 danger #A8402F citation #E7E9DE (text #1F3A5F)
+DARK:  bg #14140F surface #1C1B15 border #34342A text-primary #E7E5DC text-secondary #A3A290
+       primary #6E93C0 accent #6E93C0 success #74A886 warning #C9A05E danger #C97A6A citation #24261A (text #9FBBDD)
+*/
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;margin:0;padding:32px;background:#f0f0f0;color:#111;}
+h1{font-size:22px;margin:0 0 4px;}
+.sub{color:#555;margin:0 0 28px;font-size:14px;}
+.theme{margin-bottom:44px;}
+.theme-title{font-size:18px;font-weight:700;margin:0 0 2px;}
+.theme-register{font-size:13px;color:#555;margin:0 0 12px;font-style:italic;}
+.modes{display:flex;gap:20px;flex-wrap:wrap;}
+.panel{flex:1;min-width:360px;border-radius:12px;padding:20px;box-sizing:border-box;}
+.panel-label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin-bottom:12px;opacity:.7;}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;}
+.chip{display:flex;align-items:center;gap:6px;border-radius:20px;padding:4px 10px 4px 4px;font-size:11px;border:1px solid rgba(0,0,0,.08);}
+.swatch{width:16px;height:16px;border-radius:50%;border:1px solid rgba(0,0,0,.15);flex-shrink:0;}
+.card{border-radius:10px;padding:14px;font-size:13px;line-height:1.5;}
+.msg-user{border-radius:10px;padding:8px 12px;margin-bottom:8px;display:inline-block;max-width:85%;}
+.msg-bot{border-radius:10px;padding:10px 12px;margin-bottom:6px;}
+.cite{display:inline-block;border-radius:6px;padding:1px 6px;font-size:11px;font-weight:600;margin-left:4px;}
+.docs{font-size:11px;margin-top:8px;}
+</style>
+
+<h1>GraphMind Color Theme Options</h1>
+<p class="sub">Five palette directions, each rendered in light and dark mode. All riff on the Sirma deep-blue-plus-white foundation but vary in register.</p>
+
+<!-- THEME 1 -->
+<div class="theme">
+<p class="theme-title">1. Sirma Classic</p>
+<p class="theme-register">Corporate trust — the baseline Sirma feel: clean, dependable, unmistakably "enterprise software."</p>
+<div class="modes">
+  <div class="panel" style="background:#FFFFFF;border:1px solid #DCE2EA;">
+    <div class="panel-label" style="color:#5A6472;">Light</div>
+    <div class="chips">
+      <span class="chip" style="background:#F4F6F9;color:#1F2933;"><span class="swatch" style="background:#FFFFFF;"></span>background</span>
+      <span class="chip" style="background:#F4F6F9;color:#1F2933;"><span class="swatch" style="background:#F4F6F9;"></span>surface</span>
+      <span class="chip" style="background:#F4F6F9;color:#1F2933;"><span class="swatch" style="background:#DCE2EA;"></span>border</span>
+      <span class="chip" style="background:#F4F6F9;color:#1F2933;"><span class="swatch" style="background:#1F2933;"></span>text-primary</span>
+      <span class="chip" style="background:#F4F6F9;color:#1F2933;"><span class="swatch" style="background:#5A6472;"></span>text-secondary</span>
+      <span class="chip" style="background:#F4F6F9;color:#1F2933;"><span class="swatch" style="background:#0B3D91;"></span>primary</span>
+      <span class="chip" style="background:#F4F6F9;color:#1F2933;"><span class="swatch" style="background:#2F7DE1;"></span>accent</span>
+      <span class="chip" style="background:#F4F6F9;color:#1F2933;"><span class="swatch" style="background:#1E8E5A;"></span>success</span>
+      <span class="chip" style="background:#F4F6F9;color:#1F2933;"><span class="swatch" style="background:#B8790A;"></span>warning</span>
+      <span class="chip" style="background:#F4F6F9;color:#1F2933;"><span class="swatch" style="background:#C2382B;"></span>danger</span>
+      <span class="chip" style="background:#F4F6F9;color:#1F2933;"><span class="swatch" style="background:#DCE9FB;"></span>citation</span>
+    </div>
+    <div class="card" style="background:#F4F6F9;border:1px solid #DCE2EA;">
+      <div class="msg-user" style="background:#0B3D91;color:#fff;">What's the refund window in the vendor contract?</div><br>
+      <div class="msg-bot" style="background:#FFFFFF;color:#1F2933;border:1px solid #DCE2EA;">The refund window is 30 days from delivery
+        <span class="cite" style="background:#DCE9FB;color:#0B3D91;">Ch. 4, Vendor_Agreement.pdf</span>.</div>
+      <div class="docs" style="color:#5A6472;">Scope: All documents (12 selected)</div>
+    </div>
+  </div>
+  <div class="panel" style="background:#0E1420;border:1px solid #29394D;">
+    <div class="panel-label" style="color:#9AAAC0;">Dark</div>
+    <div class="chips">
+      <span class="chip" style="background:#16202E;color:#EAF0F7;"><span class="swatch" style="background:#0E1420;"></span>background</span>
+      <span class="chip" style="background:#16202E;color:#EAF0F7;"><span class="swatch" style="background:#16202E;"></span>surface</span>
+      <span class="chip" style="background:#16202E;color:#EAF0F7;"><span class="swatch" style="background:#29394D;"></span>border</span>
+      <span class="chip" style="background:#16202E;color:#EAF0F7;"><span class="swatch" style="background:#EAF0F7;"></span>text-primary</span>
+      <span class="chip" style="background:#16202E;color:#EAF0F7;"><span class="swatch" style="background:#9AAAC0;"></span>text-secondary</span>
+      <span class="chip" style="background:#16202E;color:#EAF0F7;"><span class="swatch" style="background:#5B9CF0;"></span>primary</span>
+      <span class="chip" style="background:#16202E;color:#EAF0F7;"><span class="swatch" style="background:#2F7DE1;"></span>accent</span>
+      <span class="chip" style="background:#16202E;color:#EAF0F7;"><span class="swatch" style="background:#4FBE86;"></span>success</span>
+      <span class="chip" style="background:#16202E;color:#EAF0F7;"><span class="swatch" style="background:#E0A83E;"></span>warning</span>
+      <span class="chip" style="background:#16202E;color:#EAF0F7;"><span class="swatch" style="background:#E5695A;"></span>danger</span>
+      <span class="chip" style="background:#16202E;color:#EAF0F7;"><span class="swatch" style="background:#1B2B44;"></span>citation</span>
+    </div>
+    <div class="card" style="background:#16202E;border:1px solid #29394D;">
+      <div class="msg-user" style="background:#5B9CF0;color:#0E1420;">What's the refund window in the vendor contract?</div><br>
+      <div class="msg-bot" style="background:#0E1420;color:#EAF0F7;border:1px solid #29394D;">The refund window is 30 days from delivery
+        <span class="cite" style="background:#1B2B44;color:#8FBBF2;">Ch. 4, Vendor_Agreement.pdf</span>.</div>
+      <div class="docs" style="color:#9AAAC0;">Scope: All documents (12 selected)</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- THEME 2 -->
+<div class="theme">
+<p class="theme-title">2. Clinical Precision</p>
+<p class="theme-register">Technical/analytical — cooler, muted, low-saturation grays; feels like an instrument panel for serious research work.</p>
+<div class="modes">
+  <div class="panel" style="background:#FAFBFC;border:1px solid #D2D9E2;">
+    <div class="panel-label" style="color:#626C7A;">Light</div>
+    <div class="chips">
+      <span class="chip" style="background:#EEF1F5;color:#1A1F27;"><span class="swatch" style="background:#FAFBFC;"></span>background</span>
+      <span class="chip" style="background:#EEF1F5;color:#1A1F27;"><span class="swatch" style="background:#EEF1F5;"></span>surface</span>
+      <span class="chip" style="background:#EEF1F5;color:#1A1F27;"><span class="swatch" style="background:#D2D9E2;"></span>border</span>
+      <span class="chip" style="background:#EEF1F5;color:#1A1F27;"><span class="swatch" style="background:#1A1F27;"></span>text-primary</span>
+      <span class="chip" style="background:#EEF1F5;color:#1A1F27;"><span class="swatch" style="background:#626C7A;"></span>text-secondary</span>
+      <span class="chip" style="background:#EEF1F5;color:#1A1F27;"><span class="swatch" style="background:#0A2E63;"></span>primary</span>
+      <span class="chip" style="background:#EEF1F5;color:#1A1F27;"><span class="swatch" style="background:#1768C7;"></span>accent</span>
+      <span class="chip" style="background:#EEF1F5;color:#1A1F27;"><span class="swatch" style="background:#147A52;"></span>success</span>
+      <span class="chip" style="background:#EEF1F5;color:#1A1F27;"><span class="swatch" style="background:#9C6A00;"></span>warning</span>
+      <span class="chip" style="background:#EEF1F5;color:#1A1F27;"><span class="swatch" style="background:#A32E22;"></span>danger</span>
+      <span class="chip" style="background:#EEF1F5;color:#1A1F27;"><span class="swatch" style="background:#E6EDF7;"></span>citation</span>
+    </div>
+    <div class="card" style="background:#EEF1F5;border:1px solid #D2D9E2;">
+      <div class="msg-user" style="background:#0A2E63;color:#fff;">What's the refund window in the vendor contract?</div><br>
+      <div class="msg-bot" style="background:#FAFBFC;color:#1A1F27;border:1px solid #D2D9E2;">The refund window is 30 days from delivery
+        <span class="cite" style="background:#E6EDF7;color:#0A2E63;">Ch. 4, Vendor_Agreement.pdf</span>.</div>
+      <div class="docs" style="color:#626C7A;">Scope: All documents (12 selected)</div>
+    </div>
+  </div>
+  <div class="panel" style="background:#0A0D12;border:1px solid #232C3B;">
+    <div class="panel-label" style="color:#8790A0;">Dark</div>
+    <div class="chips">
+      <span class="chip" style="background:#131924;color:#DDE4EC;"><span class="swatch" style="background:#0A0D12;"></span>background</span>
+      <span class="chip" style="background:#131924;color:#DDE4EC;"><span class="swatch" style="background:#131924;"></span>surface</span>
+      <span class="chip" style="background:#131924;color:#DDE4EC;"><span class="swatch" style="background:#232C3B;"></span>border</span>
+      <span class="chip" style="background:#131924;color:#DDE4EC;"><span class="swatch" style="background:#DDE4EC;"></span>text-primary</span>
+      <span class="chip" style="background:#131924;color:#DDE4EC;"><span class="swatch" style="background:#8790A0;"></span>text-secondary</span>
+      <span class="chip" style="background:#131924;color:#DDE4EC;"><span class="swatch" style="background:#4C86D6;"></span>primary</span>
+      <span class="chip" style="background:#131924;color:#DDE4EC;"><span class="swatch" style="background:#1768C7;"></span>accent</span>
+      <span class="chip" style="background:#131924;color:#DDE4EC;"><span class="swatch" style="background:#3FA476;"></span>success</span>
+      <span class="chip" style="background:#131924;color:#DDE4EC;"><span class="swatch" style="background:#C99432;"></span>warning</span>
+      <span class="chip" style="background:#131924;color:#DDE4EC;"><span class="swatch" style="background:#CC5A4A;"></span>danger</span>
+      <span class="chip" style="background:#131924;color:#DDE4EC;"><span class="swatch" style="background:#17202E;"></span>citation</span>
+    </div>
+    <div class="card" style="background:#131924;border:1px solid #232C3B;">
+      <div class="msg-user" style="background:#4C86D6;color:#0A0D12;">What's the refund window in the vendor contract?</div><br>
+      <div class="msg-bot" style="background:#0A0D12;color:#DDE4EC;border:1px solid #232C3B;">The refund window is 30 days from delivery
+        <span class="cite" style="background:#17202E;color:#7AA8E8;">Ch. 4, Vendor_Agreement.pdf</span>.</div>
+      <div class="docs" style="color:#8790A0;">Scope: All documents (12 selected)</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- THEME 3 -->
+<div class="theme">
+<p class="theme-title">3. Warm Approachable</p>
+<p class="theme-register">Warmer/friendlier — cream and amber-tinted neutrals soften the blue; feels like a helpful colleague, not a compliance tool.</p>
+<div class="modes">
+  <div class="panel" style="background:#FFFDF9;border:1px solid #E6DCC9;">
+    <div class="panel-label" style="color:#6E6355;">Light</div>
+    <div class="chips">
+      <span class="chip" style="background:#F6F1E9;color:#2B2620;"><span class="swatch" style="background:#FFFDF9;"></span>background</span>
+      <span class="chip" style="background:#F6F1E9;color:#2B2620;"><span class="swatch" style="background:#F6F1E9;"></span>surface</span>
+      <span class="chip" style="background:#F6F1E9;color:#2B2620;"><span class="swatch" style="background:#E6DCC9;"></span>border</span>
+      <span class="chip" style="background:#F6F1E9;color:#2B2620;"><span class="swatch" style="background:#2B2620;"></span>text-primary</span>
+      <span class="chip" style="background:#F6F1E9;color:#2B2620;"><span class="swatch" style="background:#6E6355;"></span>text-secondary</span>
+      <span class="chip" style="background:#F6F1E9;color:#2B2620;"><span class="swatch" style="background:#24478A;"></span>primary</span>
+      <span class="chip" style="background:#F6F1E9;color:#2B2620;"><span class="swatch" style="background:#3C82E8;"></span>accent</span>
+      <span class="chip" style="background:#F6F1E9;color:#2B2620;"><span class="swatch" style="background:#2E9166;"></span>success</span>
+      <span class="chip" style="background:#F6F1E9;color:#2B2620;"><span class="swatch" style="background:#C8862B;"></span>warning</span>
+      <span class="chip" style="background:#F6F1E9;color:#2B2620;"><span class="swatch" style="background:#C4472E;"></span>danger</span>
+      <span class="chip" style="background:#F6F1E9;color:#2B2620;"><span class="swatch" style="background:#FCEFD8;"></span>citation</span>
+    </div>
+    <div class="card" style="background:#F6F1E9;border:1px solid #E6DCC9;">
+      <div class="msg-user" style="background:#24478A;color:#fff;">What's the refund window in the vendor contract?</div><br>
+      <div class="msg-bot" style="background:#FFFDF9;color:#2B2620;border:1px solid #E6DCC9;">The refund window is 30 days from delivery
+        <span class="cite" style="background:#FCEFD8;color:#8A5A15;">Ch. 4, Vendor_Agreement.pdf</span>.</div>
+      <div class="docs" style="color:#6E6355;">Scope: All documents (12 selected)</div>
+    </div>
+  </div>
+  <div class="panel" style="background:#171410;border:1px solid #3A3226;">
+    <div class="panel-label" style="color:#B4A891;">Dark</div>
+    <div class="chips">
+      <span class="chip" style="background:#201C16;color:#F2EAD9;"><span class="swatch" style="background:#171410;"></span>background</span>
+      <span class="chip" style="background:#201C16;color:#F2EAD9;"><span class="swatch" style="background:#201C16;"></span>surface</span>
+      <span class="chip" style="background:#201C16;color:#F2EAD9;"><span class="swatch" style="background:#3A3226;"></span>border</span>
+      <span class="chip" style="background:#201C16;color:#F2EAD9;"><span class="swatch" style="background:#F2EAD9;"></span>text-primary</span>
+      <span class="chip" style="background:#201C16;color:#F2EAD9;"><span class="swatch" style="background:#B4A891;"></span>text-secondary</span>
+      <span class="chip" style="background:#201C16;color:#F2EAD9;"><span class="swatch" style="background:#6FA0EE;"></span>primary</span>
+      <span class="chip" style="background:#201C16;color:#F2EAD9;"><span class="swatch" style="background:#4C93F5;"></span>accent</span>
+      <span class="chip" style="background:#201C16;color:#F2EAD9;"><span class="swatch" style="background:#56C08C;"></span>success</span>
+      <span class="chip" style="background:#201C16;color:#F2EAD9;"><span class="swatch" style="background:#E5A94C;"></span>warning</span>
+      <span class="chip" style="background:#201C16;color:#F2EAD9;"><span class="swatch" style="background:#E27459;"></span>danger</span>
+      <span class="chip" style="background:#201C16;color:#F2EAD9;"><span class="swatch" style="background:#2E2515;"></span>citation</span>
+    </div>
+    <div class="card" style="background:#201C16;border:1px solid #3A3226;">
+      <div class="msg-user" style="background:#6FA0EE;color:#171410;">What's the refund window in the vendor contract?</div><br>
+      <div class="msg-bot" style="background:#171410;color:#F2EAD9;border:1px solid #3A3226;">The refund window is 30 days from delivery
+        <span class="cite" style="background:#2E2515;color:#F0C170;">Ch. 4, Vendor_Agreement.pdf</span>.</div>
+      <div class="docs" style="color:#B4A891;">Scope: All documents (12 selected)</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- THEME 4 -->
+<div class="theme">
+<p class="theme-title">4. Bold High-Contrast</p>
+<p class="theme-register">Higher-contrast/bolder — punchy saturated blue, near-black text, crisp edges; feels confident and modern, less "corporate beige."</p>
+<div class="modes">
+  <div class="panel" style="background:#FFFFFF;border:1px solid #C7D2E6;">
+    <div class="panel-label" style="color:#454E60;">Light</div>
+    <div class="chips">
+      <span class="chip" style="background:#EDF1FA;color:#10131A;"><span class="swatch" style="background:#FFFFFF;"></span>background</span>
+      <span class="chip" style="background:#EDF1FA;color:#10131A;"><span class="swatch" style="background:#EDF1FA;"></span>surface</span>
+      <span class="chip" style="background:#EDF1FA;color:#10131A;"><span class="swatch" style="background:#C7D2E6;"></span>border</span>
+      <span class="chip" style="background:#EDF1FA;color:#10131A;"><span class="swatch" style="background:#10131A;"></span>text-primary</span>
+      <span class="chip" style="background:#EDF1FA;color:#10131A;"><span class="swatch" style="background:#454E60;"></span>text-secondary</span>
+      <span class="chip" style="background:#EDF1FA;color:#10131A;"><span class="swatch" style="background:#002E9E;"></span>primary</span>
+      <span class="chip" style="background:#EDF1FA;color:#10131A;"><span class="swatch" style="background:#1E5CFF;"></span>accent</span>
+      <span class="chip" style="background:#EDF1FA;color:#10131A;"><span class="swatch" style="background:#0A9E5C;"></span>success</span>
+      <span class="chip" style="background:#EDF1FA;color:#10131A;"><span class="swatch" style="background:#E08600;"></span>warning</span>
+      <span class="chip" style="background:#EDF1FA;color:#10131A;"><span class="swatch" style="background:#E01E1E;"></span>danger</span>
+      <span class="chip" style="background:#EDF1FA;color:#10131A;"><span class="swatch" style="background:#D6E4FF;"></span>citation</span>
+    </div>
+    <div class="card" style="background:#EDF1FA;border:1px solid #C7D2E6;">
+      <div class="msg-user" style="background:#002E9E;color:#fff;">What's the refund window in the vendor contract?</div><br>
+      <div class="msg-bot" style="background:#FFFFFF;color:#10131A;border:1px solid #C7D2E6;">The refund window is 30 days from delivery
+        <span class="cite" style="background:#D6E4FF;color:#002E9E;">Ch. 4, Vendor_Agreement.pdf</span>.</div>
+      <div class="docs" style="color:#454E60;">Scope: All documents (12 selected)</div>
+    </div>
+  </div>
+  <div class="panel" style="background:#05060A;border:1px solid #232B40;">
+    <div class="panel-label" style="color:#A7B0C6;">Dark</div>
+    <div class="chips">
+      <span class="chip" style="background:#10131E;color:#F5F7FC;"><span class="swatch" style="background:#05060A;"></span>background</span>
+      <span class="chip" style="background:#10131E;color:#F5F7FC;"><span class="swatch" style="background:#10131E;"></span>surface</span>
+      <span class="chip" style="background:#10131E;color:#F5F7FC;"><span class="swatch" style="background:#232B40;"></span>border</span>
+      <span class="chip" style="background:#10131E;color:#F5F7FC;"><span class="swatch" style="background:#F5F7FC;"></span>text-primary</span>
+      <span class="chip" style="background:#10131E;color:#F5F7FC;"><span class="swatch" style="background:#A7B0C6;"></span>text-secondary</span>
+      <span class="chip" style="background:#10131E;color:#F5F7FC;"><span class="swatch" style="background:#4C7DFF;"></span>primary</span>
+      <span class="chip" style="background:#10131E;color:#F5F7FC;"><span class="swatch" style="background:#1E5CFF;"></span>accent</span>
+      <span class="chip" style="background:#10131E;color:#F5F7FC;"><span class="swatch" style="background:#22C57F;"></span>success</span>
+      <span class="chip" style="background:#10131E;color:#F5F7FC;"><span class="swatch" style="background:#FFA733;"></span>warning</span>
+      <span class="chip" style="background:#10131E;color:#F5F7FC;"><span class="swatch" style="background:#FF5252;"></span>danger</span>
+      <span class="chip" style="background:#10131E;color:#F5F7FC;"><span class="swatch" style="background:#14204A;"></span>citation</span>
+    </div>
+    <div class="card" style="background:#10131E;border:1px solid #232B40;">
+      <div class="msg-user" style="background:#4C7DFF;color:#05060A;">What's the refund window in the vendor contract?</div><br>
+      <div class="msg-bot" style="background:#05060A;color:#F5F7FC;border:1px solid #232B40;">The refund window is 30 days from delivery
+        <span class="cite" style="background:#14204A;color:#7FA0FF;">Ch. 4, Vendor_Agreement.pdf</span>.</div>
+      <div class="docs" style="color:#A7B0C6;">Scope: All documents (12 selected)</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- THEME 5 -->
+<div class="theme">
+<p class="theme-title">5. Quiet Editorial</p>
+<p class="theme-register">Calm/considered — paper-toned neutrals, desaturated blue-slate primary; feels like a trustworthy research notebook, low-glare for long reading sessions.</p>
+<div class="modes">
+  <div class="panel" style="background:#FAF9F7;border:1px solid #DAD6CD;">
+    <div class="panel-label" style="color:#66695E;">Light</div>
+    <div class="chips">
+      <span class="chip" style="background:#F0EEE9;color:#24261F;"><span class="swatch" style="background:#FAF9F7;"></span>background</span>
+      <span class="chip" style="background:#F0EEE9;color:#24261F;"><span class="swatch" style="background:#F0EEE9;"></span>surface</span>
+      <span class="chip" style="background:#F0EEE9;color:#24261F;"><span class="swatch" style="background:#DAD6CD;"></span>border</span>
+      <span class="chip" style="background:#F0EEE9;color:#24261F;"><span class="swatch" style="background:#24261F;"></span>text-primary</span>
+      <span class="chip" style="background:#F0EEE9;color:#24261F;"><span class="swatch" style="background:#66695E;"></span>text-secondary</span>
+      <span class="chip" style="background:#F0EEE9;color:#24261F;"><span class="swatch" style="background:#1F3A5F;"></span>primary</span>
+      <span class="chip" style="background:#F0EEE9;color:#24261F;"><span class="swatch" style="background:#3E6EA5;"></span>accent</span>
+      <span class="chip" style="background:#F0EEE9;color:#24261F;"><span class="swatch" style="background:#3E7A5A;"></span>success</span>
+      <span class="chip" style="background:#F0EEE9;color:#24261F;"><span class="swatch" style="background:#A87A30;"></span>warning</span>
+      <span class="chip" style="background:#F0EEE9;color:#24261F;"><span class="swatch" style="background:#A8402F;"></span>danger</span>
+      <span class="chip" style="background:#F0EEE9;color:#24261F;"><span class="swatch" style="background:#E7E9DE;"></span>citation</span>
+    </div>
+    <div class="card" style="background:#F0EEE9;border:1px solid #DAD6CD;">
+      <div class="msg-user" style="background:#1F3A5F;color:#fff;">What's the refund window in the vendor contract?</div><br>
+      <div class="msg-bot" style="background:#FAF9F7;color:#24261F;border:1px solid #DAD6CD;">The refund window is 30 days from delivery
+        <span class="cite" style="background:#E7E9DE;color:#1F3A5F;">Ch. 4, Vendor_Agreement.pdf</span>.</div>
+      <div class="docs" style="color:#66695E;">Scope: All documents (12 selected)</div>
+    </div>
+  </div>
+  <div class="panel" style="background:#14140F;border:1px solid #34342A;">
+    <div class="panel-label" style="color:#A3A290;">Dark</div>
+    <div class="chips">
+      <span class="chip" style="background:#1C1B15;color:#E7E5DC;"><span class="swatch" style="background:#14140F;"></span>background</span>
+      <span class="chip" style="background:#1C1B15;color:#E7E5DC;"><span class="swatch" style="background:#1C1B15;"></span>surface</span>
+      <span class="chip" style="background:#1C1B15;color:#E7E5DC;"><span class="swatch" style="background:#34342A;"></span>border</span>
+      <span class="chip" style="background:#1C1B15;color:#E7E5DC;"><span class="swatch" style="background:#E7E5DC;"></span>text-primary</span>
+      <span class="chip" style="background:#1C1B15;color:#E7E5DC;"><span class="swatch" style="background:#A3A290;"></span>text-secondary</span>
+      <span class="chip" style="background:#1C1B15;color:#E7E5DC;"><span class="swatch" style="background:#6E93C0;"></span>primary</span>
+      <span class="chip" style="background:#1C1B15;color:#E7E5DC;"><span class="swatch" style="background:#6E93C0;"></span>accent</span>
+      <span class="chip" style="background:#1C1B15;color:#E7E5DC;"><span class="swatch" style="background:#74A886;"></span>success</span>
+      <span class="chip" style="background:#1C1B15;color:#E7E5DC;"><span class="swatch" style="background:#C9A05E;"></span>warning</span>
+      <span class="chip" style="background:#1C1B15;color:#E7E5DC;"><span class="swatch" style="background:#C97A6A;"></span>danger</span>
+      <span class="chip" style="background:#1C1B15;color:#E7E5DC;"><span class="swatch" style="background:#24261A;"></span>citation</span>
+    </div>
+    <div class="card" style="background:#1C1B15;border:1px solid #34342A;">
+      <div class="msg-user" style="background:#6E93C0;color:#14140F;">What's the refund window in the vendor contract?</div><br>
+      <div class="msg-bot" style="background:#14140F;color:#E7E5DC;border:1px solid #34342A;">The refund window is 30 days from delivery
+        <span class="cite" style="background:#24261A;color:#9FBBDD;">Ch. 4, Vendor_Agreement.pdf</span>.</div>
+      <div class="docs" style="color:#A3A290;">Scope: All documents (12 selected)</div>
+    </div>
+  </div>
+</div>
+</div>
