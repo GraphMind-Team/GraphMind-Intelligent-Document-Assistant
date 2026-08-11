@@ -62,7 +62,7 @@ User isolation is enforced server-side at the query layer, not the UI — includ
 | LLM entity extraction imprecise or slow | Extraction scope constrained to a small fixed entity-type set; small dedicated eval sample validates extraction separately from answer quality |
 | Three managed services → demo-time network dependency | Graph queries validated offline in advance; local export serves as demonstration fallback |
 | Authentication overruns its allocation, blocks user isolation | Minimal schema only — no password reset/email verification in v1 |
-| Frontend consumes disproportionate time | Two pages, utility-class styling, no visual polish in v1 |
+| Frontend consumes disproportionate time | Utility-class styling against a fixed design-token set, bespoke components, no component library. [UPDATED 2026-08-11: the original mitigation read "two pages, utility-class styling, no visual polish in v1", which predates the finalized UX spines — those define 8 screens and a full token system. What now bounds frontend time is the fixed token set and the absence of a component library, not screen count.] |
 | Cross-user data leakage (brainstorming reverse-brainstorm finding) | Server-side `user_id` filtering enforced at query layer in both databases (PRD §4.1) |
 | Weaviate/Neo4j write desync on partial ingestion failure (brainstorming finding) | Direction identified: unified ingestion job status tracking both writes — not yet a committed design |
 | Ingestion cost/latency spiral from reprocessing unchanged docs (brainstorming finding) | Content-hash dedupe (PRD FR-6) |
@@ -100,7 +100,7 @@ User isolation is enforced server-side at the query layer, not the UI — includ
 - Conversation export to PDF/Markdown
 - Migration to a paid AuraDB tier if the project continues beyond the course
 - Reference-counted/full graph deletion on document removal (brainstorming)
-- Account deletion recovery/undo window (PRD §4.7 FR-18)
+- Account deletion recovery/undo window (PRD §4.7 FR-16)
 
 **Pulled forward into v1 (was backlog in the original course brief):**
 - Drag-and-drop upload with progress indication → now PRD FR-14

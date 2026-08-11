@@ -1,0 +1,13 @@
+# Python
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+
+# Node
+node_modules/
+
+# Secrets — never commit (AD-8: env vars only)
+.env
+*.env
+!.env.example
