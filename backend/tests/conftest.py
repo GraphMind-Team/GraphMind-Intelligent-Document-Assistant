@@ -22,7 +22,7 @@ import os
 import pytest
 
 os.environ.setdefault("DATABASE_URL", "postgresql+psycopg2://test:test@localhost:5432/test")
-os.environ.setdefault("JWT_SECRET", "test-secret")
+os.environ.setdefault("JWT_SECRET", "test-secret-at-least-32-bytes-long-for-hs256")
 
 
 @pytest.fixture()

@@ -5,6 +5,8 @@ Per architecture decision AD-2, all Postgres access goes through
 a connection directly.
 """
 
+import uuid
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -13,6 +15,10 @@ from app.shared.models import User
 
 def get_user_by_email(db: Session, email: str) -> User | None:
     return db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+
+
+def get_user_by_id(db: Session, user_id: uuid.UUID) -> User | None:
+    return db.get(User, user_id)
 
 
 def create_user(db: Session, user: User) -> User:

@@ -35,3 +35,31 @@ class RegisterResponse(BaseModel):
     full_name: str
     email: str
     created_at: datetime
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    # No min_length=8 here (unlike RegisterRequest): login must accept
+    # whatever a legitimately-registered password already is, not
+    # re-enforce registration's strength rule. max_length is kept purely
+    # as a defensive request-size bound.
+    password: str = Field(min_length=1, max_length=128)
+
+    @field_validator("email")
+    @classmethod
+    def _normalize_email(cls, value: str) -> str:
+        return value.strip().lower()
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+class MeResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    full_name: str
+    email: str
+    created_at: datetime
