@@ -160,6 +160,103 @@ def test_upload_ignores_client_supplied_user_id_form_field(client):
     assert response.status_code == 201, response.text
 
 
+def test_upload_rate_limit_returns_429_past_the_window_budget(client, _fresh_rate_limiters):
+    _, _, upload_rate_limiter, _ = _fresh_rate_limiters
+    token = _register_and_login(
+        client, full_name="Maria Ivanova", email="maria-ratelimit@example.com", password="password12345"
+    )
+
+    # 30/minute is the configured budget -- the 31st within the window is
+    # the first that must be refused.
+    for _ in range(upload_rate_limiter._max_attempts):
+        ok = client.post(
+            "/documents",
+            headers=_auth_headers(token),
+            files={"file": ("notes.md", b"# heading", "text/markdown")},
+        )
+        assert ok.status_code == 201, ok.text
+
+    refused = client.post(
+        "/documents",
+        headers=_auth_headers(token),
+        files={"file": ("notes.md", b"# heading", "text/markdown")},
+    )
+    assert refused.status_code == 429
+    assert "Too many uploads" in refused.json()["detail"]
+
+
+def test_upload_rate_limit_is_per_account(client):
+    # Account A exhausting its budget must not refuse account B.
+    token_a = _register_and_login(
+        client, full_name="Account A", email="maria-ratelimit-a@example.com", password="password12345"
+    )
+    token_b = _register_and_login(
+        client, full_name="Account B", email="maria-ratelimit-b@example.com", password="password12345"
+    )
+
+    for _ in range(30):
+        client.post(
+            "/documents",
+            headers=_auth_headers(token_a),
+            files={"file": ("notes.md", b"# heading", "text/markdown")},
+        )
+
+    assert (
+        client.post(
+            "/documents",
+            headers=_auth_headers(token_a),
+            files={"file": ("notes.md", b"# heading", "text/markdown")},
+        ).status_code
+        == 429
+    )
+    b_response = client.post(
+        "/documents",
+        headers=_auth_headers(token_b),
+        files={"file": ("notes.md", b"# heading", "text/markdown")},
+    )
+    assert b_response.status_code == 201, b_response.text
+
+
+def test_upload_concurrency_limiter_rejects_past_max_in_flight(_fresh_rate_limiters):
+    # The concurrency limiter is exercised directly rather than through the
+    # TestClient: TestClient issues requests synchronously, so no two
+    # uploads are ever genuinely in flight at once through it.
+    import pytest as _pytest
+    from fastapi import HTTPException
+
+    _, _, _, limiter = _fresh_rate_limiters
+    user_key = "some-user-id"
+
+    with limiter.slot(user_key), limiter.slot(user_key), limiter.slot(user_key), limiter.slot(
+        user_key
+    ), limiter.slot(user_key):
+        # 5 slots held (the configured max) -- the 6th must be refused.
+        with _pytest.raises(HTTPException) as excinfo:
+            with limiter.slot(user_key):
+                pass
+        assert excinfo.value.status_code == 429
+
+    # All slots released on context exit -- a fresh one is admitted again,
+    # and the key is dropped rather than left at 0.
+    with limiter.slot(user_key):
+        pass
+    assert user_key not in limiter._in_flight
+
+
+def test_upload_concurrency_limiter_releases_slot_on_exception(_fresh_rate_limiters):
+    _, _, _, limiter = _fresh_rate_limiters
+    user_key = "erroring-user"
+
+    try:
+        with limiter.slot(user_key):
+            raise ValueError("upload blew up mid-request")
+    except ValueError:
+        pass
+
+    # A slot leaked here would permanently shrink the user's budget.
+    assert user_key not in limiter._in_flight
+
+
 def test_upload_requires_authentication(client):
     response = client.post(
         "/documents",

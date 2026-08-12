@@ -17,9 +17,14 @@ from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_user
 from app.documents import service
+from app.documents.rate_limiter import (
+    get_upload_concurrency_limiter,
+    get_upload_rate_limiter,
+)
 from app.documents.schemas import DocumentResponse
 from app.shared.data_access import get_db_session
 from app.shared.models import User
+from app.shared.rate_limiter import ConcurrencyLimiter, RateLimiter
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -50,17 +55,26 @@ async def upload_document(
     file: UploadFile = File(...),
     db: Session = Depends(get_db_session),
     current_user: User = Depends(get_current_user),
+    rate_limiter: RateLimiter = Depends(get_upload_rate_limiter),
+    concurrency_limiter: ConcurrencyLimiter = Depends(get_upload_concurrency_limiter),
 ) -> DocumentResponse:
-    file_type = service.validate_format(file.filename or "", file.content_type)
-    content = await _read_bounded(file)
-    service.validate_size(len(content))
-    document = service.upload_document(
-        db,
-        current_user,
-        filename=file.filename or "",
-        file_type=file_type,
-        content=content,
-    )
+    user_key = str(current_user.id)
+    rate_limiter.check(user_key)
+    # The concurrency slot wraps the body read specifically -- that's the
+    # part that holds bytes in memory, so it's what needs bounding against
+    # a parallel burst. Released via context manager even if validation
+    # raises mid-read.
+    with concurrency_limiter.slot(user_key):
+        file_type = service.validate_format(file.filename or "", file.content_type)
+        content = await _read_bounded(file)
+        service.validate_size(len(content))
+        document = service.upload_document(
+            db,
+            current_user,
+            filename=file.filename or "",
+            file_type=file_type,
+            content=content,
+        )
     return DocumentResponse.model_validate(document)
 
 
