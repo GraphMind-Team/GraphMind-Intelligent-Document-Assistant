@@ -21,7 +21,18 @@
   --text: #10131A;
   --text2: #454E60;
   --primary: #3861A8;
+  --on-primary: #FFFFFF;
   --accent: #5B8DEF;
+  /* Auth/settings card surface -- per the reference mockup, distinct from
+     both --bg (page ground) and --surface (recessed tint): light mode
+     the card matches the page (#fff), dark mode it's raised one step. */
+  --card-bg: #FFFFFF;
+  --card-shadow: 0 1px 3px rgba(0, 0, 0, .06);
+  /* Form input fill -- matches --bg in light, one step up (--surface2) in
+     dark, per the mockup's `input[type=...]` rule. A dedicated token
+     (not a Tailwind `dark:` variant, which would key off OS
+     prefers-color-scheme instead of this app's data-theme toggle). */
+  --input-bg: #FFFFFF;
   --sky: #D1EEFE;
   --success: #0A9E5C;
   --warning: #E08600;
@@ -35,8 +46,21 @@
   --robot-a: #5B8DEF;
   --robot-b: #D1EEFE;
 
-  /* Sidebar */
-  --sidebar-foreground: #DCE6F5;
+  /* Sidebar -- per the reference mockup's `.sidebar`/`.sidebar a` rules:
+     light mode is a solid primary-fill block, not a pale surface tint.
+     Inactive link text is #E4ECFA (the mockup's literal value -- lighter
+     than DESIGN.md's YAML `foreground: '#DCE6F5'`, which the design doc's
+     own prose flags as an AA-contrast correction over the YAML value). */
+  --sidebar-bg: #3861A8;
+  --sidebar-foreground: #E4ECFA;
+  --sidebar-hover-bg: rgba(255, 255, 255, .08);
+  --sidebar-active-bg: rgba(255, 255, 255, .14);
+  --sidebar-active-foreground: #FFFFFF;
+  /* Logo mark swaps: white circle on the primary-fill sidebar (light) vs.
+     primary-colored circle on the surface-dark sidebar (dark) -- the
+     mockup's `.sidebar .logo .mark`. Not --on-primary (that's a text
+     color, and its dark value #1E222B doesn't match this swap at all). */
+  --sidebar-logo-mark-bg: #FFFFFF;
 
   /* Status pills -- all clear 4.5:1 */
   --status-ready-bg: #E1F1EA;
@@ -91,6 +115,14 @@
   --text: #E4E7EC;
   --text2: #9AA4B5;
   --primary: #5B8CFF;
+  /* Dark text on the lighter primary-dark fill, for contrast -- per the
+     mockup's `.btn-primary{color:#1E222B}` in dark mode (matches the
+     chat-bubble-user dark treatment DESIGN.md describes in prose). White
+     text would fail contrast against primary-dark's higher luminance. */
+  --on-primary: #1E222B;
+  --card-bg: #262B35;
+  --card-shadow: 0 1px 3px rgba(0, 0, 0, .3);
+  --input-bg: #2E333F;
   --accent: #4C7DFF;
   --success: #3FBD82;
   --warning: #E3A94A;
@@ -106,8 +138,14 @@
      light-mode tint while every other surface is dark. */
   --sky: #2A3557;
 
-  /* Sidebar (dark: text2-dark) */
+  /* Sidebar -- dark mode switches to surface-dark (not primary), a
+     deliberate asymmetry to avoid a jarring saturated block. */
+  --sidebar-bg: #262B35;
   --sidebar-foreground: #9AA4B5;
+  --sidebar-hover-bg: rgba(255, 255, 255, .06);
+  --sidebar-active-bg: rgba(91, 140, 255, .18);
+  --sidebar-active-foreground: #E4E7EC;
+  --sidebar-logo-mark-bg: #5B8CFF;
 
   /* Status pills -- dark tints */
   --status-ready-bg: rgba(63, 189, 130, .16);
@@ -148,6 +186,9 @@
   --color-text: var(--text);
   --color-text2: var(--text2);
   --color-primary: var(--primary);
+  --color-on-primary: var(--on-primary);
+  --color-card-bg: var(--card-bg);
+  --color-input-bg: var(--input-bg);
   --color-accent: var(--accent);
   --color-sky: var(--sky);
   --color-success: var(--success);
@@ -160,7 +201,12 @@
   --color-robot-a: var(--robot-a);
   --color-robot-b: var(--robot-b);
 
+  --color-sidebar-bg: var(--sidebar-bg);
   --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-hover-bg: var(--sidebar-hover-bg);
+  --color-sidebar-active-bg: var(--sidebar-active-bg);
+  --color-sidebar-active-foreground: var(--sidebar-active-foreground);
+  --color-sidebar-logo-mark-bg: var(--sidebar-logo-mark-bg);
 
   --color-status-ready-bg: var(--status-ready-bg);
   --color-status-ready-text: var(--status-ready-text);

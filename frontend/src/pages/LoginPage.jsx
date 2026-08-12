@@ -1,18 +1,21 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { getRedirectTarget } from '../utils/authRedirect'
 
 // Login page (Story 1.4). Mirrors RegisterPage.jsx's structure/styling.
-// On success, calls authFetch('/auth/me') as concrete end-to-end proof
-// the JWT works -- there's no authenticated shell to redirect into yet
-// (that arrives in Story 1.5).
+// On success, navigates into the authenticated shell -- back to wherever
+// ProtectedRoute redirected the user *from* (location.state.from, set by
+// ProtectedRoute.jsx) if there was one, otherwise /documents, Story 1.5's
+// default post-login landing route.
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState(null)
   const [submitting, setSubmitting] = useState(false)
-  const [profile, setProfile] = useState(null)
-  const { login, authFetch } = useAuth()
+  const { login } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -20,10 +23,7 @@ export default function LoginPage() {
     setSubmitting(true)
     try {
       await login({ email, password })
-      const response = await authFetch('/auth/me')
-      const data = await response.json().catch(() => null)
-      if (!response.ok) throw new Error('Logged in, but could not load your profile.')
-      setProfile(data)
+      navigate(getRedirectTarget(location), { replace: true })
     } catch (err) {
       setError(err.message)
     } finally {
@@ -33,56 +33,54 @@ export default function LoginPage() {
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-[var(--bg)] p-8">
-      <div className="w-full max-w-[400px] rounded-[14px] border border-[var(--border)] bg-[var(--surface)] p-9 shadow-sm">
-        <h1 className="mb-1 text-xl font-bold text-[var(--primary)]">Log in</h1>
-        <p className="mb-6 text-sm text-[var(--text2)]">Welcome back.</p>
+      <div className="w-full max-w-[400px] rounded-[14px] border border-[var(--border)] bg-[var(--card-bg)] p-9 shadow-[var(--card-shadow)]">
+        <span
+          aria-hidden="true"
+          className="relative mb-3.5 block h-[38px] w-[38px] rounded-[9px] bg-[linear-gradient(135deg,var(--primary),var(--accent))] after:absolute after:inset-[10px] after:rounded-full after:border-2 after:border-[var(--bg)] after:content-['']"
+        />
+        <h1 className="mb-1 text-xl font-bold text-[var(--primary)]">Welcome back</h1>
+        <p className="mb-6 text-sm text-[var(--text2)]">Log in to your GraphMind workspace.</p>
 
-        {profile ? (
-          <p className="text-sm text-[var(--text)]">Logged in as {profile.email}.</p>
-        ) : (
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-            <label className="flex flex-col gap-1 text-sm text-[var(--text)]">
-              Email
-              <input
-                type="email"
-                required
-                autoComplete="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-[var(--text)]"
-              />
-            </label>
+        <form onSubmit={handleSubmit} className="flex flex-col">
+          <label htmlFor="login-email" className="mb-1.5 block text-sm font-semibold text-[var(--text2)]">Email</label>
+          <input
+            id="login-email"
+            type="email"
+            required
+            autoComplete="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            className="mb-4 w-full rounded-lg border border-[var(--border)] bg-[var(--input-bg)] px-3 py-2.5 text-sm text-[var(--text)]"
+          />
 
-            <label className="flex flex-col gap-1 text-sm text-[var(--text)]">
-              Password
-              <input
-                type="password"
-                required
-                autoComplete="current-password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-[var(--text)]"
-              />
-            </label>
+          <label htmlFor="login-password" className="mb-1.5 block text-sm font-semibold text-[var(--text2)]">Password</label>
+          <input
+            id="login-password"
+            type="password"
+            required
+            autoComplete="current-password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            className="mb-4 w-full rounded-lg border border-[var(--border)] bg-[var(--input-bg)] px-3 py-2.5 text-sm text-[var(--text)]"
+          />
 
-            {error && (
-              <p role="alert" className="text-sm text-[var(--danger)]">
-                {error}
-              </p>
-            )}
+          {error && (
+            <p role="alert" className="mb-4 text-sm text-[var(--danger)]">
+              {error}
+            </p>
+          )}
 
-            <button
-              type="submit"
-              disabled={submitting}
-              className="mt-2 rounded-md bg-[var(--primary)] px-4 py-2 font-semibold text-[var(--on-primary)] disabled:opacity-60"
-            >
-              Log In
-            </button>
-          </form>
-        )}
+          <button
+            type="submit"
+            disabled={submitting}
+            className="w-full rounded-lg bg-[var(--primary)] px-5 py-2.5 text-sm font-semibold text-[var(--on-primary)] disabled:opacity-60"
+          >
+            Log In
+          </button>
+        </form>
 
-        <p className="mt-4 text-center text-sm text-[var(--text2)]">
-          Don't have an account? <Link to="/" className="text-[var(--accent)]">Register</Link>
+        <p className="mt-3 text-center text-sm text-[var(--text2)]">
+          Don't have an account? <Link to="/" className="font-semibold text-[var(--accent)]">Register</Link>
         </p>
       </div>
     </main>

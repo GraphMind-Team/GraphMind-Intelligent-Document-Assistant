@@ -29,7 +29,11 @@ export default function RegisterPage() {
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-[var(--bg)] p-8">
-      <div className="w-full max-w-[400px] rounded-[14px] border border-[var(--border)] bg-[var(--surface)] p-9 shadow-sm">
+      <div className="w-full max-w-[400px] rounded-[14px] border border-[var(--border)] bg-[var(--card-bg)] p-9 shadow-[var(--card-shadow)]">
+        <span
+          aria-hidden="true"
+          className="relative mb-3.5 block h-[38px] w-[38px] rounded-[9px] bg-[linear-gradient(135deg,var(--primary),var(--accent))] after:absolute after:inset-[10px] after:rounded-full after:border-2 after:border-[var(--bg)] after:content-['']"
+        />
         <h1 className="mb-1 text-xl font-bold text-[var(--primary)]">Create your account</h1>
         <p className="mb-6 text-sm text-[var(--text2)]">
           Start asking grounded questions of your documents.
@@ -38,47 +42,44 @@ export default function RegisterPage() {
         {registered ? (
           <p className="text-sm text-[var(--text)]">Account created for {email}.</p>
         ) : (
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-            <label className="flex flex-col gap-1 text-sm text-[var(--text)]">
-              Full name
-              <input
-                type="text"
-                required
-                autoComplete="name"
-                value={fullName}
-                onChange={(event) => setFullName(event.target.value)}
-                className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-[var(--text)]"
-              />
-            </label>
+          <form onSubmit={handleSubmit} className="flex flex-col">
+            <label htmlFor="register-fullname" className="mb-1.5 block text-sm font-semibold text-[var(--text2)]">Full name</label>
+            <input
+              id="register-fullname"
+              type="text"
+              required
+              autoComplete="name"
+              value={fullName}
+              onChange={(event) => setFullName(event.target.value)}
+              className="mb-4 w-full rounded-lg border border-[var(--border)] bg-[var(--input-bg)] px-3 py-2.5 text-sm text-[var(--text)]"
+            />
 
-            <label className="flex flex-col gap-1 text-sm text-[var(--text)]">
-              Email
-              <input
-                type="email"
-                required
-                autoComplete="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-[var(--text)]"
-              />
-            </label>
+            <label htmlFor="register-email" className="mb-1.5 block text-sm font-semibold text-[var(--text2)]">Email</label>
+            <input
+              id="register-email"
+              type="email"
+              required
+              autoComplete="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              className="mb-4 w-full rounded-lg border border-[var(--border)] bg-[var(--input-bg)] px-3 py-2.5 text-sm text-[var(--text)]"
+            />
 
-            <label className="flex flex-col gap-1 text-sm text-[var(--text)]">
-              Password
-              <input
-                type="password"
-                required
-                minLength={8}
-                maxLength={128}
-                autoComplete="new-password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-[var(--text)]"
-              />
-            </label>
+            <label htmlFor="register-password" className="mb-1.5 block text-sm font-semibold text-[var(--text2)]">Password</label>
+            <input
+              id="register-password"
+              type="password"
+              required
+              minLength={8}
+              maxLength={128}
+              autoComplete="new-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              className="mb-4 w-full rounded-lg border border-[var(--border)] bg-[var(--input-bg)] px-3 py-2.5 text-sm text-[var(--text)]"
+            />
 
             {error && (
-              <p role="alert" className="text-sm text-[var(--danger)]">
+              <p role="alert" className="mb-4 text-sm text-[var(--danger)]">
                 {error}
               </p>
             )}
@@ -86,15 +87,15 @@ export default function RegisterPage() {
             <button
               type="submit"
               disabled={submitting}
-              className="mt-2 rounded-md bg-[var(--primary)] px-4 py-2 font-semibold text-[var(--on-primary)] disabled:opacity-60"
+              className="w-full rounded-lg bg-[var(--primary)] px-5 py-2.5 text-sm font-semibold text-[var(--on-primary)] disabled:opacity-60"
             >
               Create Account
             </button>
           </form>
         )}
 
-        <p className="mt-4 text-center text-sm text-[var(--text2)]">
-          Already have an account? <Link to="/login" className="text-[var(--accent)]">Log in</Link>
+        <p className="mt-3 text-center text-sm text-[var(--text2)]">
+          Already have an account? <Link to="/login" className="font-semibold text-[var(--accent)]">Log in</Link>
         </p>
       </div>
     </main>
