@@ -105,6 +105,28 @@ def test_me_with_wrong_secret_token_returns_401(client):
     assert response.json() == {"detail": "Not authenticated."}
 
 
+def test_me_with_valid_token_for_deleted_user_returns_401(client, db_session):
+    """Covers `get_current_user`'s second failure branch: the JWT itself
+    decodes fine (right secret, not expired) but the account it names no
+    longer exists -- e.g. deleted after the token was issued. Every other
+    /auth/me 401 test above fails earlier, at the decode step itself, so
+    none of them exercise `repository.get_user_by_id` returning None."""
+    client.post("/auth/register", json=_valid_register_payload())
+    login_response = client.post("/auth/login", json=_login_payload())
+    token = login_response.json()["access_token"]
+
+    from app.shared.models import User
+
+    user = db_session.query(User).filter_by(email="maria@example.com").one()
+    db_session.delete(user)
+    db_session.commit()
+
+    response = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Not authenticated."}
+
+
 def test_me_with_expired_token_returns_401(client):
     import os
     from datetime import datetime, timedelta, timezone
