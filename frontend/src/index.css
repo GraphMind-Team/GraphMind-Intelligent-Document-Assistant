@@ -1,1 +1,35 @@
 @import "tailwindcss";
+
+/*
+ * Minimal theme tokens (Story 1.3) -- only the variables Registration
+ * needs (bg/surface/border/text/text2/primary/accent), sourced from
+ * DESIGN.md. The full token set (status pills, citation chip, dedicated
+ * focus-ring token, etc.) and the runtime toggle are Story 1.2's job; this
+ * is a scoped-down subset so auth pages aren't built against hardcoded
+ * colors in the meantime (AD-5, UX-DR2).
+ */
+:root,
+:root[data-theme='light'] {
+  --bg: #ffffff;
+  --surface: #edf1fa;
+  --border: #c7d2e6;
+  --text: #10131a;
+  --text2: #454e60;
+  --primary: #3861a8;
+  --accent: #5b8def;
+}
+
+:root[data-theme='dark'] {
+  --bg: #1e222b;
+  --surface: #262b35;
+  --border: #3a4150;
+  --text: #e4e7ec;
+  --text2: #9aa4b5;
+  --primary: #5b8cff;
+  --accent: #4c7dff;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
