@@ -1,10 +1,14 @@
-"""Auth module routes.
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
 
-Stub for Story 1.1 (running project skeleton). No endpoints are defined yet;
-this router is registered in `app.main` so the module's presence is visible
-from day one. Real authentication endpoints arrive in a later story.
-"""
-
-from fastapi import APIRouter
+from app.auth import service
+from app.auth.schemas import RegisterRequest, RegisterResponse
+from app.shared.data_access import get_db_session
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+@router.post("/register", response_model=RegisterResponse, status_code=201)
+def register(data: RegisterRequest, db: Session = Depends(get_db_session)) -> RegisterResponse:
+    user = service.register_user(db, data)
+    return RegisterResponse.model_validate(user)

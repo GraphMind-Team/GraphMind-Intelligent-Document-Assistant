@@ -13,6 +13,13 @@ as a confusing runtime error.
 import os
 
 from dotenv import load_dotenv
+
+# Populate os.environ from backend/.env if present (local dev convenience),
+# before importing any module below -- `auth.routes` transitively imports
+# `shared.data_access.session`, which reads DATABASE_URL at import time. In
+# deployment, real env vars are injected by the platform instead.
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -21,10 +28,6 @@ from app.auth.routes import router as auth_router
 from app.chat.routes import router as chat_router
 from app.documents.routes import router as documents_router
 from app.kg.routes import router as kg_router
-
-# Populate os.environ from backend/.env if present (local dev convenience).
-# In deployment, real env vars are injected by the platform instead.
-load_dotenv()
 
 REQUIRED_ENV_VARS = ["DATABASE_URL", "JWT_SECRET"]
 
