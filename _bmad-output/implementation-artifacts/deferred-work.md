@@ -10,10 +10,6 @@
   summary: Add a `vercel.json` SPA rewrite (catch-all to `index.html`) before the frontend is first deployed to Vercel.
   evidence: Story 1.3 introduced client-side routing (`react-router-dom`/`BrowserRouter`) for the Registration page. `epic-1-context.md` pins the frontend deployment target to Vercel. Without a rewrite rule, a direct load or refresh on any non-root route (e.g. `/health`, later `/register`, `/login`) 404s on Vercel's static host — Vite's local dev server serves it correctly, so this doesn't show up until the first real deploy. Not a blocker now (nothing is deployed yet).
 
-- source_spec: `_bmad-output/implementation-artifacts/spec-1-2-design-token-foundation-and-dual-theme-rendering.md`
-  summary: Set the `color-scheme` CSS property (`light`/`dark`) alongside `data-theme` so native form controls and scrollbars match the theme.
-  evidence: Story 1.2 review (blind-hunter) found no `color-scheme` handling; no native form inputs exist yet (Story 1.3/1.4 add the first ones), so there's nothing to visibly regress until then.
-
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-5-authenticated-shell-and-tenancy-enforced-data-access.md`
   summary: Give `RegisterPage`'s post-success state a "Log in now" link (or auto-login) instead of leaving the user stranded on a static confirmation message.
   evidence: Story 1.5 review (blind-hunter) noted this is now a UX inconsistency relative to the login flow's new redirect-back smoothness. Pre-existing from Story 1.3, not introduced by 1.5 -- out of this story's scope, but cheap to fix whenever Register/Login next get touched.
