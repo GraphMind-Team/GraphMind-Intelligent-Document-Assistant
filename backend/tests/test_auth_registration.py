@@ -68,6 +68,20 @@ def test_register_stores_hashed_password_not_plaintext(client, db_session):
     assert user.password_hash.startswith("$bcrypt-sha256$")
 
 
+def test_register_rate_limited_after_five_attempts(client):
+    """Per-IP, not per-email -- unlike login, a 6th *distinct*-email attempt
+    from the same source is still blocked, since the attack this guards
+    against (enumeration via 409 vs. 201, or mass account creation) is one
+    source rotating emails, not one source retrying the same email."""
+    for i in range(5):
+        response = client.post("/auth/register", json=_valid_payload(email=f"user{i}@example.com"))
+        assert response.status_code == 201
+
+    response = client.post("/auth/register", json=_valid_payload(email="user5@example.com"))
+    assert response.status_code == 429
+    assert response.json() == {"detail": "Too many registration attempts. Try again later."}
+
+
 def test_register_integrity_error_race_returns_409(client, monkeypatch):
     """Simulates the TOCTOU race the defense-in-depth code exists for: the
     pre-check says "no such user" even though the DB already has one, so

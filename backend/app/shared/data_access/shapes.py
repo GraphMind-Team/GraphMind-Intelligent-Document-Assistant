@@ -9,7 +9,8 @@ on one contract up front instead of drifting into incompatible shapes.
 Per architecture decision AD-2, `shared/data_access/` is the sole path to
 Weaviate, Neo4j, and Postgres -- no module's `repository.py` may open its
 own client/connection. That's what makes the tenancy rule below
-structural rather than a matter of every call site remembering it.
+structural rather than a matter of every call site remembering it. The
+Postgres-side equivalent is `tenancy.py`'s `user_scoped_select` helper.
 """
 
 from dataclasses import dataclass

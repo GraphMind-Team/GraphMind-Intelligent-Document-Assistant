@@ -23,6 +23,7 @@ load_dotenv()
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app.auth.routes import router as auth_router
 from app.chat.routes import router as chat_router
@@ -45,6 +46,18 @@ def _validate_env() -> None:
 _validate_env()
 
 app = FastAPI(title="GraphMind API")
+
+# Without this, `request.client.host` (the login/register rate limiters'
+# key -- see app.auth.routes) is always the reverse proxy's own IP once
+# deployed behind one, since raw TCP peer address is all Starlette sees by
+# default. Render's network model puts exactly one hop -- its own edge LB
+# -- between the public internet and this app; nothing else can reach it
+# directly, so trusting every peer's X-Forwarded-For here is safe. Without
+# it, every caller behind the proxy would share one rate-limit budget,
+# letting an attacker lock out an arbitrary victim account by burning it
+# with unrelated traffic. Locally (no proxy in front of `uvicorn --reload`),
+# there's no X-Forwarded-For to trust, so this is a no-op in dev.
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 # Local frontend dev server origin (Vite default port).
 FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "http://localhost:5173")

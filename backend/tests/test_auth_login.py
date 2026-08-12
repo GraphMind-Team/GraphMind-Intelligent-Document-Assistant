@@ -1,6 +1,3 @@
-import pytest
-
-
 def _valid_register_payload(**overrides):
     payload = {
         "full_name": "Maria Ivanova",
@@ -15,22 +12,6 @@ def _login_payload(**overrides):
     payload = {"email": "maria@example.com", "password": "correct horse battery staple"}
     payload.update(overrides)
     return payload
-
-
-@pytest.fixture(autouse=True)
-def _fresh_rate_limiter(client):
-    """Overrides the module-level rate limiter singleton with a fresh
-    instance per test, so attempt counts from one test never leak into the
-    next. Depends on `client` (not standalone) so it composes correctly
-    with conftest.py's `client` fixture, which clears
-    `app.dependency_overrides` in its own `finally` block on teardown."""
-    from app.auth.rate_limiter import LoginRateLimiter, get_login_rate_limiter
-    from app.main import app
-
-    limiter = LoginRateLimiter(max_attempts=5, window_seconds=60.0)
-    app.dependency_overrides[get_login_rate_limiter] = lambda: limiter
-    yield limiter
-    app.dependency_overrides.pop(get_login_rate_limiter, None)
 
 
 def test_login_success_returns_jwt(client):
@@ -147,7 +128,7 @@ def test_me_with_expired_token_returns_401(client):
     assert response.json() == {"detail": "Not authenticated."}
 
 
-def test_login_rate_limited_after_five_attempts(client, _fresh_rate_limiter):
+def test_login_rate_limited_after_five_attempts(client):
     client.post("/auth/register", json=_valid_register_payload())
 
     for _ in range(5):
@@ -159,7 +140,7 @@ def test_login_rate_limited_after_five_attempts(client, _fresh_rate_limiter):
     assert response.json() == {"detail": "Too many login attempts. Try again later."}
 
 
-def test_login_success_resets_rate_limit_counter(client, _fresh_rate_limiter):
+def test_login_success_resets_rate_limit_counter(client):
     client.post("/auth/register", json=_valid_register_payload())
 
     for _ in range(4):

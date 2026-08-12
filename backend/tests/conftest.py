@@ -72,3 +72,30 @@ def client(db_session):
         yield TestClient(app)
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+def _fresh_auth_rate_limiters(client):
+    """Overrides both module-level rate-limiter singletons (login, register)
+    with fresh instances per test, so attempt counts from one test -- or
+    from an earlier test file in the same run -- never leak into the next.
+    Depends on `client` (not standalone) so it composes correctly with the
+    `client` fixture above, which clears `app.dependency_overrides` in its
+    own `finally` block on teardown. Autouse + defined here (not per test
+    file) because every test that hits `/auth/register` or `/auth/login`
+    -- not just the rate-limit-specific tests -- would otherwise share one
+    process-wide budget across the whole test run."""
+    from app.auth.rate_limiter import RateLimiter, get_login_rate_limiter, get_register_rate_limiter
+    from app.main import app
+
+    login_limiter = RateLimiter(
+        max_attempts=5, window_seconds=60.0, detail="Too many login attempts. Try again later."
+    )
+    register_limiter = RateLimiter(
+        max_attempts=5, window_seconds=60.0, detail="Too many registration attempts. Try again later."
+    )
+    app.dependency_overrides[get_login_rate_limiter] = lambda: login_limiter
+    app.dependency_overrides[get_register_rate_limiter] = lambda: register_limiter
+    yield login_limiter, register_limiter
+    app.dependency_overrides.pop(get_login_rate_limiter, None)
+    app.dependency_overrides.pop(get_register_rate_limiter, None)

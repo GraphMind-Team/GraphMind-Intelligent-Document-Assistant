@@ -80,7 +80,7 @@ export default function LoginPage() {
         </form>
 
         <p className="mt-3 text-center text-sm text-[var(--text2)]">
-          Don't have an account? <Link to="/" className="font-semibold text-[var(--accent)]">Register</Link>
+          Don't have an account? <Link to="/" className="font-semibold text-[var(--link)]">Register</Link>
         </p>
       </div>
     </main>

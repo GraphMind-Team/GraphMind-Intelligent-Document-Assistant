@@ -6,8 +6,13 @@ import { useAuth } from '../context/AuthContext'
 // keeps an unauthenticated visitor from ever seeing shell chrome/pages
 // with no data behind them, redirecting to /login instead.
 export default function ProtectedRoute() {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, isInitializing } = useAuth()
   const location = useLocation()
+
+  // Wait for AuthContext's boot-time `/auth/me` check before deciding --
+  // otherwise a stored-but-expired token would flash shell content for
+  // one render before the 401 response evicts it.
+  if (isInitializing) return null
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: location }} />

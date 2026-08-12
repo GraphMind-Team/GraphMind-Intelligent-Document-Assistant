@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { API_BASE_URL, loginAccount } from '../api/authClient'
 
 const AuthContext = createContext(undefined)
@@ -76,7 +76,44 @@ export function AuthProvider({ children }) {
     [logout],
   )
 
-  const value = { token, isAuthenticated: token !== null, login, logout, authFetch }
+  // A stored token only proves a string made it into localStorage, not
+  // that the server still honors it -- until now, an expired/tampered
+  // token left the user "logged in" into a shell with nothing to 401 (its
+  // pages are all placeholders), with Exit as the only way out. One
+  // `/auth/me` call at boot settles it: 401 -> authFetch's own handler
+  // logs out, success -> nothing to do. `isInitializing` covers the gap
+  // while that's in flight, so ProtectedRoute/PublicOnlyRoute don't act on
+  // a token that hasn't been confirmed yet (a bad token would otherwise
+  // flash shell content before the 401 evicts it; a good one could get
+  // bounced by a stale unauthenticated read). A network error (as opposed
+  // to a 401) leaves the session as-is -- a dropped request isn't proof
+  // the token is invalid, so this doesn't sign the user out over that.
+  const [isInitializing, setIsInitializing] = useState(() => getStoredToken() !== null)
+
+  useEffect(() => {
+    if (!tokenRef.current) {
+      setIsInitializing(false)
+      return
+    }
+    let cancelled = false
+    authFetch('/auth/me')
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setIsInitializing(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [authFetch])
+
+  const value = {
+    token,
+    isAuthenticated: Boolean(token),
+    isInitializing,
+    login,
+    logout,
+    authFetch,
+  }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

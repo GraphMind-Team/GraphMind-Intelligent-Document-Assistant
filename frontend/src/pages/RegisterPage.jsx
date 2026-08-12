@@ -95,7 +95,7 @@ export default function RegisterPage() {
         )}
 
         <p className="mt-3 text-center text-sm text-[var(--text2)]">
-          Already have an account? <Link to="/login" className="font-semibold text-[var(--accent)]">Log in</Link>
+          Already have an account? <Link to="/login" className="font-semibold text-[var(--link)]">Log in</Link>
         </p>
       </div>
     </main>
