@@ -37,7 +37,7 @@ story_location: _bmad-output/implementation-artifacts
 development_status:
   epic-1: in-progress
   1-1-running-project-skeleton: done
-  1-2-design-token-foundation-and-dual-theme-rendering: backlog
+  1-2-design-token-foundation-and-dual-theme-rendering: review
   1-3-account-registration: backlog
   1-4-login-and-jwt-session: backlog
   1-5-authenticated-shell-and-tenancy-enforced-data-access: backlog
