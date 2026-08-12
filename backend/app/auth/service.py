@@ -21,21 +21,29 @@ def hash_password(password: str) -> str:
 
 
 def register_user(db: Session, data: RegisterRequest) -> User:
-    email = data.email.strip().lower()
-
-    if repository.get_user_by_email(db, email) is not None:
+    # data.email is already stripped+lowercased by RegisterRequest's
+    # validator, so this and any other consumer of the schema agree on the
+    # same casing.
+    if repository.get_user_by_email(db, data.email) is not None:
         raise HTTPException(status_code=409, detail="An account with this email already exists.")
 
     user = User(
         full_name=data.full_name,
-        email=email,
+        email=data.email,
         password_hash=hash_password(data.password),
     )
 
     try:
-        return repository.create_user(db, user)
+        user = repository.create_user(db, user)
+        db.commit()
     except IntegrityError:
         # Defense-in-depth against a concurrent registration racing the
         # pre-check above -- the DB-level unique constraint on email caught
         # what the pre-check missed.
-        raise HTTPException(status_code=409, detail="An account with this email already exists.")
+        db.rollback()
+        raise HTTPException(
+            status_code=409, detail="An account with this email already exists."
+        ) from None
+
+    db.refresh(user)
+    return user

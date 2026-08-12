@@ -44,6 +44,7 @@ export default function RegisterPage() {
               <input
                 type="text"
                 required
+                autoComplete="name"
                 value={fullName}
                 onChange={(event) => setFullName(event.target.value)}
                 className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-[var(--text)]"
@@ -55,6 +56,7 @@ export default function RegisterPage() {
               <input
                 type="email"
                 required
+                autoComplete="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-[var(--text)]"
@@ -67,18 +69,24 @@ export default function RegisterPage() {
                 type="password"
                 required
                 minLength={8}
+                maxLength={128}
+                autoComplete="new-password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-[var(--text)]"
               />
             </label>
 
-            {error && <p className="text-sm text-red-600">{error}</p>}
+            {error && (
+              <p role="alert" className="text-sm text-[var(--danger)]">
+                {error}
+              </p>
+            )}
 
             <button
               type="submit"
               disabled={submitting}
-              className="mt-2 rounded-md bg-[var(--primary)] px-4 py-2 font-semibold text-white disabled:opacity-60"
+              className="mt-2 rounded-md bg-[var(--primary)] px-4 py-2 font-semibold text-[var(--on-primary)] disabled:opacity-60"
             >
               Create Account
             </button>

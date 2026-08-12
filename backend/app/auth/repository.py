@@ -17,13 +17,15 @@ def get_user_by_email(db: Session, email: str) -> User | None:
 
 
 def create_user(db: Session, user: User) -> User:
-    """Insert `user`. Raises `IntegrityError` (after rollback) on a unique
-    constraint conflict -- the caller decides how to translate that."""
+    """Stage `user` for insert and flush to surface a unique-constraint
+    conflict as `IntegrityError` immediately. Does not commit -- the caller
+    (service layer) owns the transaction boundary, since a future
+    multi-write operation (e.g. Story 1.5) may need to commit several
+    repository calls as one transaction."""
     db.add(user)
     try:
-        db.commit()
+        db.flush()
     except IntegrityError:
         db.rollback()
         raise
-    db.refresh(user)
     return user

@@ -19,6 +19,7 @@ real usage is unaffected: `app.main`'s `_validate_env()` already requires
 """
 
 import os
+from collections.abc import Iterator
 from functools import lru_cache
 
 from dotenv import load_dotenv
@@ -48,7 +49,7 @@ def get_session_factory():
     return sessionmaker(bind=get_engine(), autoflush=False, autocommit=False)
 
 
-def get_db_session() -> Session:
+def get_db_session() -> Iterator[Session]:
     """FastAPI dependency yielding a request-scoped DB session."""
     db = get_session_factory()()
     try:

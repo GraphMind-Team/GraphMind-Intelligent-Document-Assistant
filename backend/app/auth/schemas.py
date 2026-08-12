@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 class RegisterRequest(BaseModel):
     full_name: str = Field(min_length=1, max_length=255)
     email: EmailStr
-    password: str = Field(min_length=8)
+    password: str = Field(min_length=8, max_length=128)
 
     @field_validator("full_name")
     @classmethod
@@ -18,6 +18,14 @@ class RegisterRequest(BaseModel):
         if not stripped:
             raise ValueError("full_name must not be blank")
         return stripped
+
+    @field_validator("email")
+    @classmethod
+    def _normalize_email(cls, value: str) -> str:
+        # Normalized here, not in the service, so every future consumer of
+        # this schema (e.g. Story 1.4's login) agrees on the same casing
+        # without having to remember to repeat `.strip().lower()`.
+        return value.strip().lower()
 
 
 class RegisterResponse(BaseModel):
