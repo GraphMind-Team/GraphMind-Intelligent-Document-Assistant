@@ -69,17 +69,20 @@ This project follows a spec-driven planning process. The full set of planning ar
 
 ## Local Setup
 
-Requires Python 3.12+ and Node.js 20+. Each developer works from their own local Python virtual environment — there is no shared/global interpreter, and `.venv/` is gitignored.
+Requires Python 3.12+ and Node.js `^20.19 || >=22.12` (Vite 8's actual minimum -- a plain "Node 20" install can be older than that and fail to start the frontend). Each developer works from their own local Python virtual environment — there is no shared/global interpreter, and `.venv/` is gitignored.
 
 **Backend**
 
 ```bash
+cd backend
 python -m venv .venv
 # Windows: .venv\Scripts\activate | macOS/Linux: source .venv/bin/activate
-pip install -r backend/requirements.txt
-cp backend/.env.example backend/.env   # fill in your own local values
-cd backend && uvicorn app.main:app --reload
+pip install -r requirements.txt
+cp .env.example .env   # fill in your own local values
+uvicorn app.main:app --reload
 ```
+
+`.venv` lives in `backend/`, not the repo root -- `.claude/launch.json`'s backend launch config expects it there.
 
 The backend starts on `http://localhost:8000`; `GET /health` returns `{"status": "ok"}`.
 
@@ -97,7 +100,7 @@ The frontend dev server starts on `http://localhost:5173` and calls the backend 
 
 ```bash
 cd backend && pytest
-cd frontend && npm run lint
+cd frontend && npm run lint && npm run test
 ```
 
 ## Project Context

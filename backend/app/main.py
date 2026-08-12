@@ -23,6 +23,7 @@ load_dotenv()
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app.auth.routes import router as auth_router
 from app.chat.routes import router as chat_router
@@ -45,6 +46,26 @@ def _validate_env() -> None:
 _validate_env()
 
 app = FastAPI(title="GraphMind API")
+
+# Without this, `request.client.host` (the login/register rate limiters'
+# key -- see app.auth.routes) is always the reverse proxy's own IP once
+# deployed behind one, since raw TCP peer address is all Starlette sees by
+# default. Every caller behind the proxy would then share one rate-limit
+# budget, letting an attacker lock out an arbitrary victim account by
+# burning it with unrelated traffic.
+#
+# `trusted_hosts` gates *which* immediate TCP peer is allowed to hand us a
+# X-Forwarded-For value we then believe -- trusting everyone (`"*"`) would
+# let anyone who can open a direct connection to this process (bypassing
+# the proxy) hand us an arbitrary spoofed IP, defeating the rate limiter
+# more thoroughly than the unpatched version did. Defaults to loopback
+# only, so this is inert both in local dev (no proxy in front of `uvicorn
+# --reload`, nothing to trust) and, left unset, in production too --
+# see backend/.env.example for why that's a real production risk (not a
+# hypothetical) that needs a deliberate deploy-time decision, not a value
+# this default can safely guess at.
+TRUSTED_PROXY_HOSTS = os.environ.get("TRUSTED_PROXY_HOSTS", "127.0.0.1")
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=TRUSTED_PROXY_HOSTS)
 
 # Local frontend dev server origin (Vite default port).
 FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "http://localhost:5173")

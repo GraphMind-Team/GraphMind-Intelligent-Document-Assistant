@@ -5,8 +5,8 @@
 export default function SettingsPage() {
   return (
     <>
-      <h1 className="text-xl font-bold text-[var(--text)]">User Settings</h1>
-      <p className="mt-2 text-sm text-[var(--text2)]">Coming in Epic 5.</p>
+      <h1 className="text-xl font-bold text-text">User Settings</h1>
+      <p className="mt-2 text-sm text-text2">Coming in Epic 5.</p>
     </>
   )
 }

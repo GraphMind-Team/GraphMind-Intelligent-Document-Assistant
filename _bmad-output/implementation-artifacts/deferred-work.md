@@ -10,14 +10,6 @@
   summary: Add a `vercel.json` SPA rewrite (catch-all to `index.html`) before the frontend is first deployed to Vercel.
   evidence: Story 1.3 introduced client-side routing (`react-router-dom`/`BrowserRouter`) for the Registration page. `epic-1-context.md` pins the frontend deployment target to Vercel. Without a rewrite rule, a direct load or refresh on any non-root route (e.g. `/health`, later `/register`, `/login`) 404s on Vercel's static host — Vite's local dev server serves it correctly, so this doesn't show up until the first real deploy. Not a blocker now (nothing is deployed yet).
 
-- source_spec: `_bmad-output/implementation-artifacts/spec-1-2-design-token-foundation-and-dual-theme-rendering.md`
-  summary: Set the `color-scheme` CSS property (`light`/`dark`) alongside `data-theme` so native form controls and scrollbars match the theme.
-  evidence: Story 1.2 review (blind-hunter) found no `color-scheme` handling; no native form inputs exist yet (Story 1.3/1.4 add the first ones), so there's nothing to visibly regress until then.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-1-5-authenticated-shell-and-tenancy-enforced-data-access.md`
-  summary: Set up frontend test tooling (vitest + React Testing Library) and cover `ProtectedRoute`/`PublicOnlyRoute`/`Shell`'s Exit handler and `LoginPage`'s redirect-target logic -- the client-side auth-gating/redirect logic this story introduces has zero automated coverage.
-  evidence: Story 1.5 review (blind-hunter + verification-gap, independently, across two review passes) found no frontend test runner anywhere in the repo. Verification-gap specifically traced that a `ProtectedRoute`/`PublicOnlyRoute` condition inversion (locking every user out, or exposing every shell/auth route to the wrong audience) would ship with no automated signal. Every behavior was manually verified live in-browser for this story, but that doesn't survive the next change to these files. Worth prioritizing alongside/before the CI-workflow item above, since this gap is security-adjacent rather than cosmetic.
-
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-5-authenticated-shell-and-tenancy-enforced-data-access.md`
   summary: Give `RegisterPage`'s post-success state a "Log in now" link (or auto-login) instead of leaving the user stranded on a static confirmation message.
   evidence: Story 1.5 review (blind-hunter) noted this is now a UX inconsistency relative to the login flow's new redirect-back smoothness. Pre-existing from Story 1.3, not introduced by 1.5 -- out of this story's scope, but cheap to fix whenever Register/Login next get touched.
@@ -33,3 +25,24 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-5-authenticated-shell-and-tenancy-enforced-data-access.md`
   summary: Set `document.title` per route (Documents/Chat/Graph/Settings/Login/Register currently all share one static title).
   evidence: Story 1.5 review (blind-hunter) noted this as a minor but real bookmarking/browser-history legibility gap for the now-multi-page shell.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-5-authenticated-shell-and-tenancy-enforced-data-access.md`
+  summary: >
+    Before the first Render deploy (Epic 2+): set `TRUSTED_PROXY_HOSTS` (backend env var,
+    `backend/app/main.py`) to a real value. Left at its safe default (`127.0.0.1`), every
+    caller's `request.client.host` resolves to Render's edge proxy IP once actually deployed
+    behind one -- login degrades to the old per-email lockout risk (findings this env var was
+    added to fix), and `/auth/register`'s IP-only rate-limit key becomes a single shared
+    5-per-60s budget for the entire site, not per caller. Render doesn't publish a stable
+    IP/CIDR for its edge proxy, so "*" is the only practical value -- but only after confirming
+    (current Render docs at deploy time) that this app's container has no direct public port
+    and is reachable only through Render's own routing layer. Setting "*" without that
+    confirmation lets anyone connecting directly spoof `X-Forwarded-For` and defeat the rate
+    limiters entirely -- worse than the unset default.
+  evidence: >
+    Review of the `TRUSTED_PROXY_HOSTS` fix (2026-08-12) found the code itself correct but the
+    risk entirely deploy-config-shaped: nothing currently forces this decision before Epic 2's
+    first deploy, so the fix is formally closed in code but inert (or actively worse, if
+    misconfigured) in production. `backend/.env.example`'s inline comment documents the same
+    tradeoff at the point of configuration; this entry exists so it isn't only discoverable by
+    someone already reading that file.

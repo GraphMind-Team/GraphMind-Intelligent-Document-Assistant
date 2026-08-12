@@ -28,22 +28,22 @@ export default function RegisterPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[var(--bg)] p-8">
-      <div className="w-full max-w-[400px] rounded-[14px] border border-[var(--border)] bg-[var(--card-bg)] p-9 shadow-[var(--card-shadow)]">
+    <main className="flex min-h-screen items-center justify-center bg-bg p-8">
+      <div className="w-full max-w-[400px] rounded-[14px] border border-border bg-card-bg p-9 shadow-card">
         <span
           aria-hidden="true"
-          className="relative mb-3.5 block h-[38px] w-[38px] rounded-[9px] bg-[linear-gradient(135deg,var(--primary),var(--accent))] after:absolute after:inset-[10px] after:rounded-full after:border-2 after:border-[var(--bg)] after:content-['']"
+          className="relative mb-3.5 block h-[38px] w-[38px] rounded-[9px] bg-linear-to-br from-primary to-accent after:absolute after:inset-[10px] after:rounded-full after:border-2 after:border-bg after:content-['']"
         />
-        <h1 className="mb-1 text-xl font-bold text-[var(--primary)]">Create your account</h1>
-        <p className="mb-6 text-sm text-[var(--text2)]">
+        <h1 className="mb-1 text-xl font-bold text-primary">Create your account</h1>
+        <p className="mb-6 text-sm text-text2">
           Start asking grounded questions of your documents.
         </p>
 
         {registered ? (
-          <p className="text-sm text-[var(--text)]">Account created for {email}.</p>
+          <p className="text-sm text-text">Account created for {email}.</p>
         ) : (
           <form onSubmit={handleSubmit} className="flex flex-col">
-            <label htmlFor="register-fullname" className="mb-1.5 block text-sm font-semibold text-[var(--text2)]">Full name</label>
+            <label htmlFor="register-fullname" className="mb-1.5 block text-sm font-semibold text-text2">Full name</label>
             <input
               id="register-fullname"
               type="text"
@@ -51,10 +51,10 @@ export default function RegisterPage() {
               autoComplete="name"
               value={fullName}
               onChange={(event) => setFullName(event.target.value)}
-              className="mb-4 w-full rounded-lg border border-[var(--border)] bg-[var(--input-bg)] px-3 py-2.5 text-sm text-[var(--text)]"
+              className="mb-4 w-full rounded-lg border border-border bg-input-bg px-3 py-2.5 text-sm text-text"
             />
 
-            <label htmlFor="register-email" className="mb-1.5 block text-sm font-semibold text-[var(--text2)]">Email</label>
+            <label htmlFor="register-email" className="mb-1.5 block text-sm font-semibold text-text2">Email</label>
             <input
               id="register-email"
               type="email"
@@ -62,10 +62,10 @@ export default function RegisterPage() {
               autoComplete="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              className="mb-4 w-full rounded-lg border border-[var(--border)] bg-[var(--input-bg)] px-3 py-2.5 text-sm text-[var(--text)]"
+              className="mb-4 w-full rounded-lg border border-border bg-input-bg px-3 py-2.5 text-sm text-text"
             />
 
-            <label htmlFor="register-password" className="mb-1.5 block text-sm font-semibold text-[var(--text2)]">Password</label>
+            <label htmlFor="register-password" className="mb-1.5 block text-sm font-semibold text-text2">Password</label>
             <input
               id="register-password"
               type="password"
@@ -75,11 +75,11 @@ export default function RegisterPage() {
               autoComplete="new-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className="mb-4 w-full rounded-lg border border-[var(--border)] bg-[var(--input-bg)] px-3 py-2.5 text-sm text-[var(--text)]"
+              className="mb-4 w-full rounded-lg border border-border bg-input-bg px-3 py-2.5 text-sm text-text"
             />
 
             {error && (
-              <p role="alert" className="mb-4 text-sm text-[var(--danger)]">
+              <p role="alert" className="mb-4 text-sm text-danger">
                 {error}
               </p>
             )}
@@ -87,15 +87,15 @@ export default function RegisterPage() {
             <button
               type="submit"
               disabled={submitting}
-              className="w-full rounded-lg bg-[var(--primary)] px-5 py-2.5 text-sm font-semibold text-[var(--on-primary)] disabled:opacity-60"
+              className="w-full rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary disabled:opacity-60"
             >
               Create Account
             </button>
           </form>
         )}
 
-        <p className="mt-3 text-center text-sm text-[var(--text2)]">
-          Already have an account? <Link to="/login" className="font-semibold text-[var(--accent)]">Log in</Link>
+        <p className="mt-3 text-center text-sm text-text2">
+          Already have an account? <Link to="/login" className="font-semibold text-link">Log in</Link>
         </p>
       </div>
     </main>

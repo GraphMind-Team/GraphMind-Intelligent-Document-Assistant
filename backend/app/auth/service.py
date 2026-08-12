@@ -8,6 +8,7 @@ shared.data_access chain, so it sets the precedent other modules mirror.
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from typing import Final
 
 import jwt
@@ -31,12 +32,20 @@ JWT_ALGORITHM: Final = "HS256"
 
 _DEFAULT_ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
-# Precomputed dummy hash so a login attempt against a nonexistent email
-# still runs a bcrypt verify (same code path, roughly the same wall-clock
-# time as a wrong-password attempt against a real account) -- avoids a
-# timing side-channel that would otherwise reveal which emails are
-# registered.
-_DUMMY_PASSWORD_HASH = bcrypt_sha256.hash("dummy-password-for-timing-parity")
+@lru_cache
+def _dummy_password_hash() -> str:
+    """Dummy hash so a login attempt against a nonexistent email still
+    runs a bcrypt verify (same code path, roughly the same wall-clock time
+    as a wrong-password attempt against a real account) -- avoids a timing
+    side-channel that would otherwise reveal which emails are registered.
+
+    Computed lazily and cached (mirrors `get_engine`'s pattern in
+    shared/data_access/session.py), not eagerly at import time -- bcrypt
+    hashing costs ~300ms, which every import of this module (including
+    pytest collection, or any process that never calls
+    `authenticate_user`) would otherwise pay up front for no reason, and
+    which adds directly to Render's already-slow cold start."""
+    return bcrypt_sha256.hash("dummy-password-for-timing-parity")
 
 
 def hash_password(password: str) -> str:
@@ -119,7 +128,7 @@ def authenticate_user(db: Session, email: str, password: str) -> User:
     password" -- this is the message that actually matters for account
     enumeration (unlike registration's necessarily-revealing 409)."""
     user = repository.get_user_by_email(db, email)
-    hash_to_check = user.password_hash if user is not None else _DUMMY_PASSWORD_HASH
+    hash_to_check = user.password_hash if user is not None else _dummy_password_hash()
     password_ok = bcrypt_sha256.verify(password, hash_to_check)
     if user is None or not password_ok:
         raise HTTPException(status_code=401, detail="Invalid email or password.")

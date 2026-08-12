@@ -47,14 +47,21 @@ export default function HealthPage() {
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-bg p-8 text-center">
-      {/* TODO(Epic 5): remove once the real Settings appearance toggle ships. */}
-      <button
-        type="button"
-        onClick={toggleTheme}
-        className="rounded-md border border-border bg-surface px-4 py-2 text-body font-semibold text-text"
-      >
-        Switch to {theme === 'dark' ? 'light' : 'dark'} mode (dev only)
-      </button>
+      {/* /health has no auth guard (it's a liveness probe), so this dev-only
+          toggle would otherwise be a live, publicly reachable control.
+          import.meta.env.DEV is Vite's own dev/build flag -- false (so
+          this renders nothing) in any `vite build` output, including
+          production. TODO(Epic 5): remove once the real Settings
+          appearance toggle ships. */}
+      {import.meta.env.DEV && (
+        <button
+          type="button"
+          onClick={toggleTheme}
+          className="rounded-md border border-border bg-surface px-4 py-2 text-body font-semibold text-text"
+        >
+          Switch to {theme === 'dark' ? 'light' : 'dark'} mode (dev only)
+        </button>
+      )}
 
       <h1 className="text-page-title font-bold text-primary">GraphMind</h1>
       <p className="text-body text-text2">Backend health check</p>

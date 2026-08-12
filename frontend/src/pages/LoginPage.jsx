@@ -32,17 +32,17 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[var(--bg)] p-8">
-      <div className="w-full max-w-[400px] rounded-[14px] border border-[var(--border)] bg-[var(--card-bg)] p-9 shadow-[var(--card-shadow)]">
+    <main className="flex min-h-screen items-center justify-center bg-bg p-8">
+      <div className="w-full max-w-[400px] rounded-[14px] border border-border bg-card-bg p-9 shadow-card">
         <span
           aria-hidden="true"
-          className="relative mb-3.5 block h-[38px] w-[38px] rounded-[9px] bg-[linear-gradient(135deg,var(--primary),var(--accent))] after:absolute after:inset-[10px] after:rounded-full after:border-2 after:border-[var(--bg)] after:content-['']"
+          className="relative mb-3.5 block h-[38px] w-[38px] rounded-[9px] bg-linear-to-br from-primary to-accent after:absolute after:inset-[10px] after:rounded-full after:border-2 after:border-bg after:content-['']"
         />
-        <h1 className="mb-1 text-xl font-bold text-[var(--primary)]">Welcome back</h1>
-        <p className="mb-6 text-sm text-[var(--text2)]">Log in to your GraphMind workspace.</p>
+        <h1 className="mb-1 text-xl font-bold text-primary">Welcome back</h1>
+        <p className="mb-6 text-sm text-text2">Log in to your GraphMind workspace.</p>
 
         <form onSubmit={handleSubmit} className="flex flex-col">
-          <label htmlFor="login-email" className="mb-1.5 block text-sm font-semibold text-[var(--text2)]">Email</label>
+          <label htmlFor="login-email" className="mb-1.5 block text-sm font-semibold text-text2">Email</label>
           <input
             id="login-email"
             type="email"
@@ -50,10 +50,10 @@ export default function LoginPage() {
             autoComplete="email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
-            className="mb-4 w-full rounded-lg border border-[var(--border)] bg-[var(--input-bg)] px-3 py-2.5 text-sm text-[var(--text)]"
+            className="mb-4 w-full rounded-lg border border-border bg-input-bg px-3 py-2.5 text-sm text-text"
           />
 
-          <label htmlFor="login-password" className="mb-1.5 block text-sm font-semibold text-[var(--text2)]">Password</label>
+          <label htmlFor="login-password" className="mb-1.5 block text-sm font-semibold text-text2">Password</label>
           <input
             id="login-password"
             type="password"
@@ -61,11 +61,11 @@ export default function LoginPage() {
             autoComplete="current-password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            className="mb-4 w-full rounded-lg border border-[var(--border)] bg-[var(--input-bg)] px-3 py-2.5 text-sm text-[var(--text)]"
+            className="mb-4 w-full rounded-lg border border-border bg-input-bg px-3 py-2.5 text-sm text-text"
           />
 
           {error && (
-            <p role="alert" className="mb-4 text-sm text-[var(--danger)]">
+            <p role="alert" className="mb-4 text-sm text-danger">
               {error}
             </p>
           )}
@@ -73,14 +73,14 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={submitting}
-            className="w-full rounded-lg bg-[var(--primary)] px-5 py-2.5 text-sm font-semibold text-[var(--on-primary)] disabled:opacity-60"
+            className="w-full rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary disabled:opacity-60"
           >
             Log In
           </button>
         </form>
 
-        <p className="mt-3 text-center text-sm text-[var(--text2)]">
-          Don't have an account? <Link to="/" className="font-semibold text-[var(--accent)]">Register</Link>
+        <p className="mt-3 text-center text-sm text-text2">
+          Don't have an account? <Link to="/" className="font-semibold text-link">Register</Link>
         </p>
       </div>
     </main>
