@@ -39,7 +39,7 @@ development_status:
   1-1-running-project-skeleton: done
   1-2-design-token-foundation-and-dual-theme-rendering: done
   1-3-account-registration: done
-  1-4-login-and-jwt-session: backlog
+  1-4-login-and-jwt-session: done
   1-5-authenticated-shell-and-tenancy-enforced-data-access: backlog
   epic-1-retrospective: optional
 
