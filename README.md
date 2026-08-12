@@ -67,6 +67,39 @@ This project follows a spec-driven planning process. The full set of planning ar
 - **Architecture**: [`planning-artifacts/architecture/architecture-GraphMind-Intelligent-Document-Assistant-2026-08-11/ARCHITECTURE-SPINE.md`](_bmad-output/planning-artifacts/architecture/architecture-GraphMind-Intelligent-Document-Assistant-2026-08-11/ARCHITECTURE-SPINE.md)
 - **Canonical spec**: [`specs/spec-GraphMind-Intelligent-Document-Assistant/SPEC.md`](_bmad-output/specs/spec-GraphMind-Intelligent-Document-Assistant/SPEC.md)
 
+## Local Setup
+
+Requires Python 3.12+ and Node.js 20+. Each developer works from their own local Python virtual environment — there is no shared/global interpreter, and `.venv/` is gitignored.
+
+**Backend**
+
+```bash
+python -m venv .venv
+# Windows: .venv\Scripts\activate | macOS/Linux: source .venv/bin/activate
+pip install -r backend/requirements.txt
+cp backend/.env.example backend/.env   # fill in your own local values
+cd backend && uvicorn app.main:app --reload
+```
+
+The backend starts on `http://localhost:8000`; `GET /health` returns `{"status": "ok"}`.
+
+**Frontend**
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The frontend dev server starts on `http://localhost:5173` and calls the backend `/health` endpoint on load. Optionally copy `frontend/.env.example` to `frontend/.env` to point it at a non-default backend URL.
+
+**Tests & linting**
+
+```bash
+cd backend && pytest
+cd frontend && npm run lint
+```
+
 ## Project Context
 
 GraphMind is being built by a two-person team over a 20-day delivery window, scoped deliberately to a strict MVP following KISS and YAGNI principles. Later phases are tracked separately and are not part of the v1 deliverable.

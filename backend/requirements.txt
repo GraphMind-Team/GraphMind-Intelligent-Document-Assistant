@@ -1,0 +1,19 @@
+# Pinned per the architecture stack table (ARCHITECTURE-SPINE.md).
+# Install into your own local .venv: `pip install -r backend/requirements.txt`
+fastapi==0.141.1
+pydantic>=2,<3
+sqlalchemy==2.0.51
+alembic==1.19.0
+weaviate-client==4.22.0
+neo4j==6.2.0
+
+# Operational dependencies not in the stack table but required to run the
+# skeleton: ASGI server, .env loading, and the Postgres driver SQLAlchemy
+# needs for DATABASE_URL.
+uvicorn[standard]==0.34.0
+python-dotenv==1.0.1
+asyncpg==0.31.0
+
+# Test tooling.
+pytest==8.4.1
+httpx==0.28.1
