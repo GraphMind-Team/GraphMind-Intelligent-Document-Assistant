@@ -20,12 +20,12 @@ function renderProtectedRoute() {
 }
 
 describe('ProtectedRoute', () => {
-  it('renders nothing while AuthContext is still validating the stored token', () => {
+  it('renders a loading screen (not a blank page) while AuthContext is still validating the stored token', () => {
     useAuth.mockReturnValue({ isAuthenticated: false, isInitializing: true })
 
-    const { container } = renderProtectedRoute()
+    renderProtectedRoute()
 
-    expect(container).toBeEmptyDOMElement()
+    expect(screen.getByText('Loading…')).toBeInTheDocument()
     expect(screen.queryByText('Shell content')).not.toBeInTheDocument()
     expect(screen.queryByText('Login page')).not.toBeInTheDocument()
   })

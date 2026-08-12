@@ -1,4 +1,5 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
+import LoadingScreen from './LoadingScreen'
 import { useAuth } from '../context/AuthContext'
 import { getRedirectTarget } from '../utils/authRedirect'
 
@@ -21,8 +22,9 @@ export default function PublicOnlyRoute() {
 
   // Same wait as ProtectedRoute -- a stored token that's about to fail
   // AuthContext's boot-time `/auth/me` check shouldn't get routed as
-  // "authenticated" into the shell for one render first.
-  if (isInitializing) return null
+  // "authenticated" into the shell for one render first. Bounded, not
+  // indefinite -- see ProtectedRoute.jsx's identical comment.
+  if (isInitializing) return <LoadingScreen />
 
   if (isAuthenticated) {
     return <Navigate to={getRedirectTarget(location)} replace />

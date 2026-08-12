@@ -97,6 +97,43 @@ describe('AuthContext boot-time token validation', () => {
 
     expect(screen.getByTestId('authenticated')).toHaveTextContent('true')
   })
+
+  it(
+    'gives up on a stalled /auth/me request instead of hanging forever (e.g. a Render cold start)',
+    async () => {
+      window.localStorage.setItem('access_token', 'a-valid-token')
+      // A fetch that never settles on its own -- exactly what a genuinely
+      // stalled request looks like -- but does reject once its AbortSignal
+      // fires, same as real fetch. If AuthContext ever stops passing a
+      // signal, this promise (and the test) would hang until Vitest's own
+      // timeout, rather than resolving via the assertions below.
+      vi.spyOn(global, 'fetch').mockImplementation(
+        (_url, options) =>
+          new Promise((_resolve, reject) => {
+            options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+          }),
+      )
+
+      render(
+        <AuthProvider>
+          <Consumer />
+        </AuthProvider>,
+      )
+
+      expect(screen.getByTestId('initializing')).toHaveTextContent('true')
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/auth/me'),
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      )
+
+      await waitFor(() => expect(screen.getByTestId('initializing')).toHaveTextContent('false'), { timeout: 7000 })
+
+      // Timed out, not confirmed invalid -- same "don't know" treatment as
+      // a network error, not a forced logout.
+      expect(screen.getByTestId('authenticated')).toHaveTextContent('true')
+    },
+    10000,
+  )
 })
 
 describe('AuthContext isAuthenticated coercion', () => {

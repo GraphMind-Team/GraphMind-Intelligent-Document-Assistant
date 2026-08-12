@@ -4,6 +4,13 @@ import { API_BASE_URL, loginAccount } from '../api/authClient'
 const AuthContext = createContext(undefined)
 
 const STORAGE_KEY = 'access_token'
+// Render's free tier idles down and cold-starts in ~1 min (epic-1-context.md)
+// -- without a bound, a first visit during that window would leave
+// isInitializing (and both route guards' blank-render gate) stuck forever
+// on a fetch that never resolves. 5s is comfortably inside that cold-start
+// window while still being a real bound: the check aborts and falls back
+// to "don't know", same as any other network error.
+const AUTH_ME_CHECK_TIMEOUT_MS = 5000
 
 // Mirrors ThemeContext's storage-guard pattern -- private mode/disabled
 // storage/sandboxed iframes shouldn't crash AuthProvider, just fall back
@@ -85,9 +92,9 @@ export function AuthProvider({ children }) {
   // while that's in flight, so ProtectedRoute/PublicOnlyRoute don't act on
   // a token that hasn't been confirmed yet (a bad token would otherwise
   // flash shell content before the 401 evicts it; a good one could get
-  // bounced by a stale unauthenticated read). A network error (as opposed
-  // to a 401) leaves the session as-is -- a dropped request isn't proof
-  // the token is invalid, so this doesn't sign the user out over that.
+  // bounced by a stale unauthenticated read). A network error or a timeout
+  // (as opposed to a 401) leaves the session as-is -- neither is proof the
+  // token is invalid, so this doesn't sign the user out over that.
   const [isInitializing, setIsInitializing] = useState(() => getStoredToken() !== null)
 
   useEffect(() => {
@@ -96,7 +103,7 @@ export function AuthProvider({ children }) {
       return
     }
     let cancelled = false
-    authFetch('/auth/me')
+    authFetch('/auth/me', { signal: AbortSignal.timeout(AUTH_ME_CHECK_TIMEOUT_MS) })
       .catch(() => {})
       .finally(() => {
         if (!cancelled) setIsInitializing(false)
