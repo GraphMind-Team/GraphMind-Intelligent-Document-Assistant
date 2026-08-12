@@ -13,8 +13,8 @@ import SettingsPage from './pages/SettingsPage'
 // Catch-all for anything that isn't a real route.
 function NotFoundPage() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[var(--bg)] p-8">
-      <p className="text-sm text-[var(--text2)]">Page not found.</p>
+    <main className="flex min-h-screen items-center justify-center bg-bg p-8">
+      <p className="text-sm text-text2">Page not found.</p>
     </main>
   )
 }

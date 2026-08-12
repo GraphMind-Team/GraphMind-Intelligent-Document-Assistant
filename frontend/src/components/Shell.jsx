@@ -19,8 +19,8 @@ const NAV_LINK_CLASS = ({ isActive }) =>
   [
     'flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm',
     isActive
-      ? 'bg-[var(--sidebar-active-bg)] font-semibold text-[var(--sidebar-active-foreground)]'
-      : 'text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-hover-bg)] hover:text-[var(--sidebar-active-foreground)]',
+      ? 'bg-sidebar-active-bg font-semibold text-sidebar-active-foreground'
+      : 'text-sidebar-foreground hover:bg-sidebar-hover-bg hover:text-sidebar-active-foreground',
   ].join(' ')
 
 export default function Shell() {
@@ -33,14 +33,14 @@ export default function Shell() {
   }
 
   return (
-    <div className="flex min-h-screen bg-[var(--bg)]">
+    <div className="flex min-h-screen bg-bg">
       <nav
         aria-label="Main"
-        className="flex w-[220px] shrink-0 flex-col gap-1 bg-[var(--sidebar-bg)] p-3.5"
+        className="flex w-[220px] shrink-0 flex-col gap-1 bg-sidebar-bg p-3.5"
       >
         <div className="mb-6 flex items-center gap-2.5 px-2">
-          <span className="relative block h-[26px] w-[26px] shrink-0 rounded-[7px] bg-[var(--sidebar-logo-mark-bg)] after:absolute after:inset-[6px] after:rounded-full after:border-2 after:border-[var(--sidebar-bg)] after:content-['']" />
-          <span className="text-[15px] font-bold text-[var(--sidebar-active-foreground)]">GraphMind</span>
+          <span className="relative block h-[26px] w-[26px] shrink-0 rounded-[7px] bg-sidebar-logo-mark-bg after:absolute after:inset-[6px] after:rounded-full after:border-2 after:border-sidebar-bg after:content-['']" />
+          <span className="text-[15px] font-bold text-sidebar-active-foreground">GraphMind</span>
         </div>
 
         <ul className="flex flex-col gap-[2px]">
@@ -72,7 +72,7 @@ export default function Shell() {
         <button
           type="button"
           onClick={handleExit}
-          className="mt-auto flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-hover-bg)] hover:text-[var(--sidebar-active-foreground)]"
+          className="mt-auto flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm text-sidebar-foreground hover:bg-sidebar-hover-bg hover:text-sidebar-active-foreground"
         >
           <span aria-hidden="true">↩</span> Exit
         </button>

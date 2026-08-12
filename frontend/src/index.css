@@ -211,6 +211,7 @@
   --color-primary: var(--primary);
   --color-on-primary: var(--on-primary);
   --color-card-bg: var(--card-bg);
+  --shadow-card: var(--card-shadow);
   --color-input-bg: var(--input-bg);
   --color-accent: var(--accent);
   --color-link: var(--link);
