@@ -29,3 +29,24 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-5-authenticated-shell-and-tenancy-enforced-data-access.md`
   summary: Set `document.title` per route (Documents/Chat/Graph/Settings/Login/Register currently all share one static title).
   evidence: Story 1.5 review (blind-hunter) noted this as a minor but real bookmarking/browser-history legibility gap for the now-multi-page shell.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-5-authenticated-shell-and-tenancy-enforced-data-access.md`
+  summary: >
+    Before the first Render deploy (Epic 2+): set `TRUSTED_PROXY_HOSTS` (backend env var,
+    `backend/app/main.py`) to a real value. Left at its safe default (`127.0.0.1`), every
+    caller's `request.client.host` resolves to Render's edge proxy IP once actually deployed
+    behind one -- login degrades to the old per-email lockout risk (findings this env var was
+    added to fix), and `/auth/register`'s IP-only rate-limit key becomes a single shared
+    5-per-60s budget for the entire site, not per caller. Render doesn't publish a stable
+    IP/CIDR for its edge proxy, so "*" is the only practical value -- but only after confirming
+    (current Render docs at deploy time) that this app's container has no direct public port
+    and is reachable only through Render's own routing layer. Setting "*" without that
+    confirmation lets anyone connecting directly spoof `X-Forwarded-For` and defeat the rate
+    limiters entirely -- worse than the unset default.
+  evidence: >
+    Review of the `TRUSTED_PROXY_HOSTS` fix (2026-08-12) found the code itself correct but the
+    risk entirely deploy-config-shaped: nothing currently forces this decision before Epic 2's
+    first deploy, so the fix is formally closed in code but inert (or actively worse, if
+    misconfigured) in production. `backend/.env.example`'s inline comment documents the same
+    tradeoff at the point of configuration; this entry exists so it isn't only discoverable by
+    someone already reading that file.

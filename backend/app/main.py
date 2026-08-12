@@ -60,10 +60,10 @@ app = FastAPI(title="GraphMind API")
 # the proxy) hand us an arbitrary spoofed IP, defeating the rate limiter
 # more thoroughly than the unpatched version did. Defaults to loopback
 # only, so this is inert both in local dev (no proxy in front of `uvicorn
-# --reload`, nothing to trust) and in the hypothetical where the app is
-# ever reachable directly. `TRUSTED_PROXY_HOSTS` is set to Render's actual
-# edge address at deploy time -- see backend/.env.example -- so trust is
-# opt-in per-environment instead of baked in unconditionally.
+# --reload`, nothing to trust) and, left unset, in production too --
+# see backend/.env.example for why that's a real production risk (not a
+# hypothetical) that needs a deliberate deploy-time decision, not a value
+# this default can safely guess at.
 TRUSTED_PROXY_HOSTS = os.environ.get("TRUSTED_PROXY_HOSTS", "127.0.0.1")
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=TRUSTED_PROXY_HOSTS)
 
