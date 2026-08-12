@@ -46,3 +46,49 @@
     misconfigured) in production. `backend/.env.example`'s inline comment documents the same
     tradeoff at the point of configuration; this entry exists so it isn't only discoverable by
     someone already reading that file.
+
+- source_spec: `_bmad-output/planning-artifacts/epics.md` (Story 2.2: Document library and detail view)
+  summary: >
+    Extracted document text (chapter names, titles, any future preview/snippet) must render as
+    plain text / React nodes only -- never `dangerouslySetInnerHTML`, and never through an
+    unconfigured Markdown renderer. If a Markdown preview is ever added, it must use a
+    sanitizing renderer (e.g. `react-markdown` + `rehype-sanitize`, or DOMPurify), not a raw one.
+  evidence: >
+    Ad-hoc security review (2026-08-12) of the existing codebase. Story 2.2's Document Detail
+    renders chapter names extracted from the uploaded file itself (Story 2.3), not user-typed
+    form input -- a malicious chapter heading (e.g. containing an `onerror` payload) becomes
+    stored XSS the moment it's rendered as raw HTML. FR-3 explicitly lists Markdown and HTML as
+    ingestible formats; most Markdown-to-HTML libraries pass raw HTML through by default unless
+    configured to strip it, so an uploaded `.md` file is a direct delivery vector if any future
+    preview renders extracted Markdown "as Markdown" without sanitization. No code currently
+    renders raw HTML anywhere (plain JSX `{value}` auto-escapes throughout), so nothing is
+    broken today -- this is a constraint for whoever builds Story 2.2/2.3, not a bug fix.
+    Same risk applies to Epic 3's chat answers/citations, which also echo document-derived text.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-1-upload-documents-with-drag-and-drop-and-per-file-progress.md`
+  summary: >
+    Once the CI workflow (already tracked above) exists, add a step that runs `alembic upgrade
+    head` against a real/throwaway Postgres (or an `alembic check`-style diff) rather than only
+    the SQLite schema `Base.metadata.create_all` builds for tests.
+  evidence: >
+    Story 2.1 review (verification-gap) found every backend test builds its schema directly from
+    the `Document`/`User` ORM models (`conftest.py`'s `db_session` fixture), never by running the
+    actual Alembic migration files. A migration that drifts from its model (wrong nullability,
+    missing FK/index, wrong column type) would pass the full test suite and only surface at a real
+    deploy against Postgres. Not urgent alone, but worth folding into the CI item once that lands.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-1-upload-documents-with-drag-and-drop-and-per-file-progress.md`
+  summary: >
+    Add file-content sniffing (magic bytes, e.g. via `python-magic`) so a file's actual content is
+    checked against its claimed format, not just its extension and (spoofable) Content-Type header.
+  evidence: >
+    Story 2.1 review (blind-hunter) noted `_ALLOWED_CONTENT_TYPES` permits `application/
+    octet-stream` for every format (a deliberate, documented permissiveness for browsers/OSes with
+    no `.md` mime mapping) -- so a file named `report.pdf` containing arbitrary bytes currently
+    passes validation. Low priority for an MVP course project with no malware-scanning
+    infrastructure, but worth knowing before Story 2.3 starts parsing uploaded content as if it
+    were trustworthy PDF/Markdown/HTML.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-1-upload-documents-with-drag-and-drop-and-per-file-progress.md`
+  summary: Sanitize/validate `filename` if it's ever used as a filesystem path (e.g. a future export or download feature) -- it's currently stored and rendered verbatim (safe today, since it's only ever rendered as escaped React text, never used as a path).
+  evidence: Story 2.1 review (blind-hunter) flagged that an uploaded filename can contain path separators or `..` segments; not exploitable by any code that exists today, but worth catching before a future feature trusts it as a path.

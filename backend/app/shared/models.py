@@ -8,7 +8,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, Uuid, func
+from sqlalchemy import DateTime, ForeignKey, Integer, LargeBinary, String, Uuid, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -31,4 +31,35 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class Document(Base):
+    """An uploaded document (Story 2.1).
+
+    Minimal columns this story needs -- later stories (2.2+) `ALTER` this
+    table incrementally (content_hash in 2.6, failed_reason in 2.5,
+    chapter/passage counts in 2.2/2.3) rather than guessing those fields
+    now. `content` stores the raw uploaded bytes directly in Postgres
+    (`LargeBinary` -> `bytea`) -- a deliberate zero-new-infra choice flagged
+    in the story's "Ask First" section, not a default to assume for later
+    stories without re-confirming.
+
+    `status` stores the FR-4 five-value vocabulary verbatim
+    (`Uploaded`/`Extracting`/`Graphing`/`Ready`/`Failed`) as a plain string,
+    not a DB enum -- this story only ever writes `Uploaded`; Story 2.3+
+    advances it.
+    """
+
+    __tablename__ = "documents"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True
+    )
+    filename: Mapped[str] = mapped_column(String, nullable=False)
+    file_type: Mapped[str] = mapped_column(String, nullable=False)
+    file_size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

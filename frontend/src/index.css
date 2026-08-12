@@ -28,6 +28,11 @@
      the card matches the page (#fff), dark mode it's raised one step. */
   --card-bg: #FFFFFF;
   --card-shadow: 0 1px 3px rgba(0, 0, 0, .06);
+  /* Modal elevation (Story 2.1) -- per DESIGN.md's "Elevation & Depth":
+     the one place with a real elevation cue, "signaling this floats above
+     everything else and demands attention." Only the shadow's opacity
+     differs between themes (.25 light / .45 dark), not its shape. */
+  --modal-shadow: 0 12px 40px rgba(10, 20, 40, .25);
   /* Form input fill -- matches --bg in light, one step up (--surface2) in
      dark, per the mockup's `input[type=...]` rule. A dedicated token
      (not a Tailwind `dark:` variant, which would key off OS
@@ -137,6 +142,7 @@
   --on-primary: #1E222B;
   --card-bg: #262B35;
   --card-shadow: 0 1px 3px rgba(0, 0, 0, .3);
+  --modal-shadow: 0 12px 40px rgba(0, 0, 0, .45);
   --input-bg: #2E333F;
   --accent: #4C7DFF;
   /* Link/small-text variant of --accent -- --accent-dark only clears
@@ -217,6 +223,7 @@
   --color-on-primary: var(--on-primary);
   --color-card-bg: var(--card-bg);
   --shadow-card: var(--card-shadow);
+  --shadow-modal: var(--modal-shadow);
   --color-input-bg: var(--input-bg);
   --color-accent: var(--accent);
   --color-link: var(--link);
