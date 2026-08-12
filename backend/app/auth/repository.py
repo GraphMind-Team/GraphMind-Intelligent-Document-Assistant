@@ -6,7 +6,6 @@ a connection directly.
 """
 
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.shared.models import User
@@ -18,14 +17,10 @@ def get_user_by_email(db: Session, email: str) -> User | None:
 
 def create_user(db: Session, user: User) -> User:
     """Stage `user` for insert and flush to surface a unique-constraint
-    conflict as `IntegrityError` immediately. Does not commit -- the caller
-    (service layer) owns the transaction boundary, since a future
-    multi-write operation (e.g. Story 1.5) may need to commit several
-    repository calls as one transaction."""
+    conflict as `IntegrityError` immediately. Does not commit or roll back
+    -- the caller (service layer) owns the whole transaction boundary,
+    since a future multi-write operation (e.g. Story 1.5) may need to
+    commit or roll back several repository calls as one transaction."""
     db.add(user)
-    try:
-        db.flush()
-    except IntegrityError:
-        db.rollback()
-        raise
+    db.flush()
     return user
