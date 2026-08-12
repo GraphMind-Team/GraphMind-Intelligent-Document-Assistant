@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
 // FastAPI's `detail` is a plain string for HTTPException errors (e.g. the
 // 409 duplicate-email case) but a list of {msg, loc, type} objects for
@@ -30,6 +30,23 @@ export async function registerAccount({ fullName, email, password }) {
   if (!response.ok) {
     const message = formatDetail(data?.detail)
     throw new Error(message || `Registration failed (${response.status}).`)
+  }
+
+  return data
+}
+
+export async function loginAccount({ email, password }) {
+  const response = await fetch(`${API_BASE_URL}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  })
+
+  const data = await response.json().catch(() => null)
+
+  if (!response.ok) {
+    const message = formatDetail(data?.detail)
+    throw new Error(message || `Login failed (${response.status}).`)
   }
 
   return data

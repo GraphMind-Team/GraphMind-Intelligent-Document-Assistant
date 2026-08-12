@@ -1,4 +1,14 @@
-from app.auth.service import hash_password
+import uuid
+
+import pytest
+from fastapi import HTTPException
+
+from app.auth.service import (
+    authenticate_user,
+    create_access_token,
+    decode_access_token,
+    hash_password,
+)
 
 
 def test_hash_password_round_trips():
@@ -24,3 +34,37 @@ def test_hash_password_handles_long_password():
     hashed = hash_password(long_password)
     assert bcrypt_sha256.verify(long_password, hashed)
     assert not bcrypt_sha256.verify("x" * 199, hashed)
+
+
+def test_create_access_token_round_trips_via_decode():
+    user_id = uuid.uuid4()
+    token = create_access_token(user_id)
+    assert decode_access_token(token) == user_id
+
+
+def test_decode_access_token_rejects_garbage_string():
+    with pytest.raises(HTTPException) as excinfo:
+        decode_access_token("not-a-jwt")
+    assert excinfo.value.status_code == 401
+
+
+def test_authenticate_user_generic_error_for_missing_user(db_session):
+    with pytest.raises(HTTPException) as excinfo:
+        authenticate_user(db_session, "nobody@example.com", "whatever")
+    assert excinfo.value.status_code == 401
+    assert excinfo.value.detail == "Invalid email or password."
+
+
+def test_authenticate_user_generic_error_for_wrong_password(db_session):
+    from app.auth.service import register_user
+    from app.auth.schemas import RegisterRequest
+
+    register_user(
+        db_session,
+        RegisterRequest(full_name="Maria Ivanova", email="maria@example.com", password="correct horse battery staple"),
+    )
+
+    with pytest.raises(HTTPException) as excinfo:
+        authenticate_user(db_session, "maria@example.com", "wrong password")
+    assert excinfo.value.status_code == 401
+    assert excinfo.value.detail == "Invalid email or password."
