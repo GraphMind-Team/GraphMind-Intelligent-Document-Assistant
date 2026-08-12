@@ -50,14 +50,22 @@ app = FastAPI(title="GraphMind API")
 # Without this, `request.client.host` (the login/register rate limiters'
 # key -- see app.auth.routes) is always the reverse proxy's own IP once
 # deployed behind one, since raw TCP peer address is all Starlette sees by
-# default. Render's network model puts exactly one hop -- its own edge LB
-# -- between the public internet and this app; nothing else can reach it
-# directly, so trusting every peer's X-Forwarded-For here is safe. Without
-# it, every caller behind the proxy would share one rate-limit budget,
-# letting an attacker lock out an arbitrary victim account by burning it
-# with unrelated traffic. Locally (no proxy in front of `uvicorn --reload`),
-# there's no X-Forwarded-For to trust, so this is a no-op in dev.
-app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+# default. Every caller behind the proxy would then share one rate-limit
+# budget, letting an attacker lock out an arbitrary victim account by
+# burning it with unrelated traffic.
+#
+# `trusted_hosts` gates *which* immediate TCP peer is allowed to hand us a
+# X-Forwarded-For value we then believe -- trusting everyone (`"*"`) would
+# let anyone who can open a direct connection to this process (bypassing
+# the proxy) hand us an arbitrary spoofed IP, defeating the rate limiter
+# more thoroughly than the unpatched version did. Defaults to loopback
+# only, so this is inert both in local dev (no proxy in front of `uvicorn
+# --reload`, nothing to trust) and in the hypothetical where the app is
+# ever reachable directly. `TRUSTED_PROXY_HOSTS` is set to Render's actual
+# edge address at deploy time -- see backend/.env.example -- so trust is
+# opt-in per-environment instead of baked in unconditionally.
+TRUSTED_PROXY_HOSTS = os.environ.get("TRUSTED_PROXY_HOSTS", "127.0.0.1")
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=TRUSTED_PROXY_HOSTS)
 
 # Local frontend dev server origin (Vite default port).
 FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "http://localhost:5173")
