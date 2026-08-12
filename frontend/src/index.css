@@ -1,80 +1,233 @@
 @import "tailwindcss";
 
 /*
- * Minimal theme tokens (Story 1.3) -- only the variables Registration
- * needs (bg/surface/border/text/text2/primary/accent/danger/on-primary),
- * sourced from DESIGN.md and the reference mockup's .btn-primary rule.
- * The full token set (status pills, citation chip, dedicated focus-ring
- * token, etc.) and the runtime toggle are Story 1.2's job; this is a
- * scoped-down subset so auth pages aren't built against hardcoded colors
- * in the meantime (AD-5, UX-DR2).
+ * Design-token foundation (Story 1.2).
+ * Source of truth: _bmad-output/planning-artifacts/ux-designs/.../DESIGN.md
+ *
+ * Colors: raw CSS custom properties per theme (light default in :root,
+ * dark override in :root[data-theme="dark"]), then re-pointed into Tailwind
+ * v4's @theme so utility classes (bg-bg, text-primary, ...) stay static
+ * while resolving dynamically at runtime.
+ *
+ * Typography/spacing/radius have no light/dark variants, so those are
+ * plain @theme keys.
  */
+
 :root {
-  --bg: #ffffff;
-  --surface: #edf1fa;
-  --border: #c7d2e6;
-  --text: #10131a;
-  --text2: #454e60;
-  --primary: #3861a8;
-  --accent: #5b8def;
-  --danger: #e01e1e;
-  --on-primary: #ffffff;
+  /* Core palette -- light (default) */
+  --bg: #FFFFFF;
+  --surface: #EDF1FA;
+  --border: #C7D2E6;
+  --text: #10131A;
+  --text2: #454E60;
+  --primary: #3861A8;
+  --accent: #5B8DEF;
+  --sky: #D1EEFE;
+  --success: #0A9E5C;
+  --warning: #E08600;
+  --danger: #E01E1E;
+
+  /* Citation chip -- accepted AA deviation (UX-DR21), do not re-tune */
+  --citation: #D1EEFE;
+  --citation-text: #4A7FE0;
+
+  /* Robot mascot -- locked, independent namespace */
+  --robot-a: #5B8DEF;
+  --robot-b: #D1EEFE;
+
+  /* Sidebar */
+  --sidebar-foreground: #DCE6F5;
+
+  /* Status pills -- all clear 4.5:1 */
+  --status-ready-bg: #E1F1EA;
+  --status-ready-text: #0C7A47;
+  --status-uploaded-bg: #FBEFD6;
+  --status-uploaded-text: #8A5200;
+  --status-extracting-bg: #FBEFD6;
+  --status-extracting-text: #8A5200;
+  --status-graphing-bg: #FBEFD6;
+  --status-graphing-text: #8A5200;
+  --status-failed-bg: #FBE2E2;
+  --status-failed-text: #CA1B1B;
+
+  /* Focus ring -- >=3:1 against bg and surface/surface-dark */
+  --focus-ring: #3861A8;
+
+  /* Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --text-body: 13.5px;
+  --text-body--line-height: 1.55;
+  --text-label: 12px;
+  --text-label--font-weight: 600;
+  --text-label--letter-spacing: 0.02em;
+  --text-eyebrow: 11px;
+  --text-eyebrow--font-weight: 700;
+  --text-eyebrow--letter-spacing: 0.04em;
+  --text-page-title: 21px;
+  --text-page-title--font-weight: 700;
+  --text-section-title: 22px;
+  --text-section-title--font-weight: 700;
+  --text-auth-title: 20px;
+  --text-auth-title--font-weight: 700;
+
+  /* Spacing (named additions; Tailwind's default 1-10 scale already
+     matches DESIGN.md's 4px-base numeric scale) */
+  --spacing-gutter: 20px;
+  --spacing-page-padding: 32px 40px;
+  --spacing-section-padding: 48px 5vw;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 14px;
 }
 
-/*
- * Matches the OS preference before ThemeContext's JS runs (avoids a
- * light-theme flash for a dark-OS user on first paint). Plain `:root` has
- * lower specificity than the `[data-theme]` rules below, so once JS sets
- * `data-theme`, those win outright -- and they resolve to the same values
- * anyway, since ThemeContext derives its initial state from this same
- * media query.
- */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #1e222b;
-    --surface: #262b35;
-    --border: #3a4150;
-    --text: #e4e7ec;
-    --text2: #9aa4b5;
-    --primary: #5b8cff;
-    --accent: #4c7dff;
-    --danger: #e4685f;
-    --on-primary: #1e222b;
-  }
+:root[data-theme="dark"] {
+  /* Core palette -- dark ("Soft Dark") override */
+  --bg: #1E222B;
+  --surface: #262B35;
+  --border: #3A4150;
+  --text: #E4E7EC;
+  --text2: #9AA4B5;
+  --primary: #5B8CFF;
+  --accent: #4C7DFF;
+  --success: #3FBD82;
+  --warning: #E3A94A;
+  --danger: #E4685F;
+
+  /* Citation chip -- re-tuned pair, not an opacity trick */
+  --citation: #2A3557;
+  --citation-text: #8FB0FF;
+
+  /* --sky is literally the citation-chip background per DESIGN.md ("sky's
+     sole sanctioned use is as this citation-chip background") -- mirrors
+     --citation-dark so a future --color-sky consumer can't render the
+     light-mode tint while every other surface is dark. */
+  --sky: #2A3557;
+
+  /* Sidebar (dark: text2-dark) */
+  --sidebar-foreground: #9AA4B5;
+
+  /* Status pills -- dark tints */
+  --status-ready-bg: rgba(63, 189, 130, .16);
+  --status-ready-text: #3FBD82;
+  --status-uploaded-bg: rgba(227, 169, 74, .16);
+  --status-uploaded-text: #E3A94A;
+  --status-extracting-bg: rgba(227, 169, 74, .16);
+  --status-extracting-text: #E3A94A;
+  --status-graphing-bg: rgba(227, 169, 74, .16);
+  --status-graphing-text: #E3A94A;
+  /* .06 opacity (lower than ready/uploaded's .16) -- danger-dark at .16
+     only clears 3.96:1, below AA; .06 clears 4.55:1 */
+  --status-failed-bg: rgba(228, 104, 95, .06);
+  --status-failed-text: #E4685F;
+
+  /* Focus ring -- accent-dark, verified >=3:1 against bg and surface2-dark */
+  --focus-ring: #4C7DFF;
 }
 
-:root[data-theme='light'] {
-  --bg: #ffffff;
-  --surface: #edf1fa;
-  --border: #c7d2e6;
-  --text: #10131a;
-  --text2: #454e60;
-  --primary: #3861a8;
-  --accent: #5b8def;
-  --danger: #e01e1e;
-  --on-primary: #ffffff;
+/* Extra dark-only surface step (surface2-dark) and border used by a few
+   components; not swapped in light mode since light has no third step. */
+:root {
+  --surface2: #EDF1FA;
+}
+:root[data-theme="dark"] {
+  --surface2: #2E333F;
 }
 
-:root[data-theme='dark'] {
-  --bg: #1e222b;
-  --surface: #262b35;
-  --border: #3a4150;
-  --text: #e4e7ec;
-  --text2: #9aa4b5;
-  --primary: #5b8cff;
-  --accent: #4c7dff;
-  --danger: #e4685f;
-  --on-primary: #1e222b;
+/* Re-points every @theme key at the runtime CSS var of the same role
+   (colors) or at the plain value defined above (typography/spacing/
+   radius) -- utility classes below stay static; only the var() target
+   changes when [data-theme="dark"] is toggled. */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface2: var(--surface2);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-text2: var(--text2);
+  --color-primary: var(--primary);
+  --color-accent: var(--accent);
+  --color-sky: var(--sky);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+
+  --color-citation: var(--citation);
+  --color-citation-text: var(--citation-text);
+
+  --color-robot-a: var(--robot-a);
+  --color-robot-b: var(--robot-b);
+
+  --color-sidebar-foreground: var(--sidebar-foreground);
+
+  --color-status-ready-bg: var(--status-ready-bg);
+  --color-status-ready-text: var(--status-ready-text);
+  --color-status-uploaded-bg: var(--status-uploaded-bg);
+  --color-status-uploaded-text: var(--status-uploaded-text);
+  --color-status-extracting-bg: var(--status-extracting-bg);
+  --color-status-extracting-text: var(--status-extracting-text);
+  --color-status-graphing-bg: var(--status-graphing-bg);
+  --color-status-graphing-text: var(--status-graphing-text);
+  --color-status-failed-bg: var(--status-failed-bg);
+  --color-status-failed-text: var(--status-failed-text);
+
+  --color-focus-ring: var(--focus-ring);
+
+  --font-sans: var(--font-sans);
+
+  --text-body: var(--text-body);
+  --text-body--line-height: var(--text-body--line-height);
+  --text-label: var(--text-label);
+  --text-label--font-weight: var(--text-label--font-weight);
+  --text-label--letter-spacing: var(--text-label--letter-spacing);
+  --text-eyebrow: var(--text-eyebrow);
+  --text-eyebrow--font-weight: var(--text-eyebrow--font-weight);
+  --text-eyebrow--letter-spacing: var(--text-eyebrow--letter-spacing);
+  --text-page-title: var(--text-page-title);
+  --text-page-title--font-weight: var(--text-page-title--font-weight);
+  --text-section-title: var(--text-section-title);
+  --text-section-title--font-weight: var(--text-section-title--font-weight);
+  --text-auth-title: var(--text-auth-title);
+  --text-auth-title--font-weight: var(--text-auth-title--font-weight);
+
+  --spacing-gutter: var(--spacing-gutter);
+  --spacing-page-padding: var(--spacing-page-padding);
+  --spacing-section-padding: var(--spacing-section-padding);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
 }
 
-/*
- * Interim focus ring using --accent. epic-1-context.md already tracks a
- * dedicated focus-ring token as a Story 1.2 gap (must clear 3:1 non-text
- * contrast against bg/surface/surface-dark) -- --accent doesn't clear
- * that against the light --surface (~2.85:1), so this is a known
- * stopgap, not a final choice.
- */
-:focus-visible {
-  outline: 2px solid var(--accent);
+body {
+  font-family: var(--font-sans);
+}
+
+/* Focus ring -- applied globally to interactive elements, both themes.
+   Reuses primary (light) / accent-dark (dark) via --color-focus-ring,
+   distinct from the border token. */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
   outline-offset: 2px;
+}
+
+/* Motion -- transitions/animations only run when the user has not
+   requested reduced motion (UX-DR28). */
+@media (prefers-reduced-motion: no-preference) {
+  button,
+  a,
+  input,
+  textarea,
+  select,
+  [data-animate] {
+    transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+  }
 }
