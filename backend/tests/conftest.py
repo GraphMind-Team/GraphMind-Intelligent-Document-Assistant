@@ -13,6 +13,6 @@ import pytest
 def _required_env_vars():
     import os
 
-    os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost:5432/test")
+    os.environ.setdefault("DATABASE_URL", "postgresql+psycopg2://test:test@localhost:5432/test")
     os.environ.setdefault("JWT_SECRET", "test-secret")
     yield

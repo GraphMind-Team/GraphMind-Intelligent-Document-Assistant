@@ -122,10 +122,10 @@ Two developers, two independent `.venv` directories at the same relative path (`
 
 **Dependency pinning**
 
-- Backend dependencies pinned to the architecture's stack table; `asyncpg` pinned at 0.31.0 specifically because 0.30.0 has no prebuilt wheel for Python 3.14.
+- Backend dependencies pinned to the architecture's stack table; `psycopg2-binary` is the sync driver, matching Alembic's default sync migration setup (no async DB I/O anywhere in this skeleton yet).
   [`requirements.txt:1`](../../backend/requirements.txt#L1)
 
-- `DATABASE_URL` documented with the async scheme (`postgresql+asyncpg://`) to match what the driver above expects.
+- `DATABASE_URL` documented with the sync scheme (`postgresql+psycopg2://`) and `sslmode=require` (Neon's async-driver strings use `ssl=require` instead -- not interchangeable).
   [`.env.example:5`](../../backend/.env.example#L5)
 
 **Tests & docs (peripherals)**
