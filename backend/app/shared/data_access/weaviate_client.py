@@ -32,7 +32,13 @@ PASSAGE_COLLECTION = "Passage"
 # and a spike in resident memory for the whole batch's text+embedding
 # payload at once. Batched insert avoids both; not tuned against a real
 # large-document benchmark, just a conservative, documented default.
-_INSERT_BATCH_SIZE = 100
+#
+# Public (not `_`-prefixed): `documents/service.py` batches its own
+# embed-then-write loop by this same size, so the two batching layers --
+# embedding memory on the caller's side, insert_many payload size here --
+# stay in lockstep off one source of truth instead of two magic numbers
+# that could silently drift apart.
+PASSAGE_BATCH_SIZE = 100
 
 
 @lru_cache
@@ -70,26 +76,44 @@ def _ensure_passage_collection(client: WeaviateClient) -> None:
     )
 
 
+def delete_passages_for_document(document_id: str, user_id: str) -> None:
+    """Deletes every existing passage for `(document_id, user_id)`.
+
+    A separate call from `write_passages` (rather than folded into it) so
+    a caller ingesting a large document can delete once up front, then
+    call `write_passages` repeatedly with successive batches -- folding
+    the delete into every `write_passages` call would wipe out whatever
+    the previous batch just inserted. Filtered on `user_id` too (not just
+    `document_id`, which alone would already be correct in practice) to
+    keep `shapes.py`'s documented rule -- `user_id` required on every
+    write *and* every query filter -- true for every Weaviate operation
+    this module performs.
+    """
+    client = get_weaviate_client()
+    _ensure_passage_collection(client)
+    collection = client.collections.get(PASSAGE_COLLECTION)
+    collection.data.delete_many(
+        where=Filter.by_property("document_id").equal(document_id)
+        & Filter.by_property("user_id").equal(user_id)
+    )
+
+
 def write_passages(passages: list[WeaviatePassage]) -> None:
     """The only function `documents/` calls to reach Weaviate (AD-2) -- no
     raw collection/query call may appear anywhere in `documents/`.
 
-    Deletes any existing objects for this batch's `(document_id, user_id)`
-    first, then inserts the new batch -- a re-ingest that produces fewer
-    chunks than a prior run must not leave orphaned old chunks behind, and
-    filtering the delete on `user_id` too (not just `document_id`, which
-    alone would already be correct in practice) keeps `shapes.py`'s
-    documented rule -- `user_id` required on every write *and* every query
-    filter -- true for every Weaviate operation this function performs.
+    Insert-only -- does not delete anything first (see
+    `delete_passages_for_document` for that, called once up front by a
+    caller that's about to write a document's passages in batches).
+    Batches `insert_many` itself in chunks of `PASSAGE_BATCH_SIZE` even if
+    called with a single large list, so this stays safe to call directly
+    with everything at once too, not just from a pre-batched loop.
 
     Requires every passage in `passages` to share the same
-    `(document_id, user_id)` pair -- the delete filter is derived from
-    `passages[0]` alone, so a mixed batch would silently delete another
-    document's (or another user's) passages and insert the new ones under
-    whatever `passages[0]` happened to carry. True by construction for
-    `documents/service.py`'s only caller today (one document, one owner,
-    per `ingest_document` run), but this function is public in `shared/`
-    and Epic 3/4 callers won't have that guarantee for free.
+    `(document_id, user_id)` pair -- a caller that's meant to batch by
+    document (as `documents/service.py`'s `ingest_document` does) getting
+    this wrong is exactly the mixed-batch case worth catching here rather
+    than writing under the wrong owner.
     """
     if not passages:
         return
@@ -105,13 +129,9 @@ def write_passages(passages: list[WeaviatePassage]) -> None:
     client = get_weaviate_client()
     _ensure_passage_collection(client)
     collection = client.collections.get(PASSAGE_COLLECTION)
-    collection.data.delete_many(
-        where=Filter.by_property("document_id").equal(document_id)
-        & Filter.by_property("user_id").equal(user_id)
-    )
 
-    for batch_start in range(0, len(passages), _INSERT_BATCH_SIZE):
-        batch = passages[batch_start : batch_start + _INSERT_BATCH_SIZE]
+    for batch_start in range(0, len(passages), PASSAGE_BATCH_SIZE):
+        batch = passages[batch_start : batch_start + PASSAGE_BATCH_SIZE]
         objects = [
             DataObject(
                 properties={

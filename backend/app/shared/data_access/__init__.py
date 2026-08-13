@@ -14,6 +14,6 @@ Neo4j client here too.
 
 from app.shared.data_access.session import get_db_session
 from app.shared.data_access.tenancy import user_scoped_select
-from app.shared.data_access.weaviate_client import write_passages
+from app.shared.data_access.weaviate_client import delete_passages_for_document, write_passages
 
-__all__ = ["get_db_session", "user_scoped_select", "write_passages"]
+__all__ = ["get_db_session", "user_scoped_select", "delete_passages_for_document", "write_passages"]

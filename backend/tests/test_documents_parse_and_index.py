@@ -75,10 +75,17 @@ def _session_factory(db_session):
 def _stub_embeddings(monkeypatch):
     """`embed_texts` is stubbed here (rather than exercising the real
     `fastembed` model) so these tests stay fast and deterministic -- the
-    real model is exercised separately in test_embeddings.py."""
+    real model is exercised separately in test_embeddings.py. Also stubs
+    `delete_passages_for_document` -- `ingest_document` calls it directly
+    (for real, not through `write_passages`) before its batch loop, so
+    every test that doesn't stub it would otherwise try a real Weaviate
+    connection, not just the ones that happen to mock `write_passages`."""
+    from unittest.mock import Mock
+
     import app.documents.service as service_module
 
     monkeypatch.setattr(service_module, "embed_texts", lambda texts: [[0.0] * 384 for _ in texts])
+    monkeypatch.setattr(service_module, "delete_passages_for_document", Mock())
 
 
 def test_ingest_markdown_produces_passages_tagged_with_document_chapter_chunk_index(
@@ -264,6 +271,61 @@ def test_ingest_weaviate_write_failure_marks_failed(client, db_session, monkeypa
 
 def test_ingest_missing_document_returns_silently(db_session):
     real_ingest_document(uuid.uuid4(), session_factory=_session_factory(db_session))
+
+
+def test_ingest_embeds_and_writes_in_batches_not_all_chunks_at_once(
+    client, db_session, monkeypatch
+):
+    """A large document must not build one `embed_texts` call (and one
+    `vectors` list) covering every chunk before anything reaches Weaviate
+    -- that's the whole document's worth of 384-dim vectors alive in
+    Python memory simultaneously, the more likely OOM path on a 512MB
+    instance versus the batching already applied on the Weaviate
+    `insert_many` side. `parse_document` is stubbed to return more chunks
+    than `PASSAGE_BATCH_SIZE` without needing a genuinely huge upload."""
+    from unittest.mock import Mock
+
+    import app.documents.service as service_module
+    from app.documents.parsing import ParsedChunk
+
+    _stub_embeddings(monkeypatch)
+
+    chunk_count = service_module.PASSAGE_BATCH_SIZE * 2 + 5
+    fake_chunks = [
+        ParsedChunk(chapter="Chapter", chunk_index=i, text=f"chunk {i} text")
+        for i in range(chunk_count)
+    ]
+    monkeypatch.setattr(service_module, "parse_document", lambda file_type, content: fake_chunks)
+
+    embed_call_sizes = []
+
+    def _tracking_embed(texts):
+        embed_call_sizes.append(len(texts))
+        return [[0.0] * 384 for _ in texts]
+
+    monkeypatch.setattr(service_module, "embed_texts", _tracking_embed)
+
+    fake_write_passages = Mock()
+    monkeypatch.setattr(service_module, "write_passages", fake_write_passages)
+
+    token = _register_and_login(
+        client, full_name="Ingest User", email="ingest-batching@example.com", password="password12345"
+    )
+    doc = _upload(client, token, "notes.md", _MARKDOWN, "text/markdown")
+
+    real_ingest_document(uuid.UUID(doc["id"]), session_factory=_session_factory(db_session))
+
+    service_module.delete_passages_for_document.assert_called_once()
+
+    # 3 batches: two full PASSAGE_BATCH_SIZE ones plus a small remainder --
+    # both embedding and writing happen per batch, not once for everything.
+    batch_size = service_module.PASSAGE_BATCH_SIZE
+    assert embed_call_sizes == [batch_size, batch_size, 5]
+    assert fake_write_passages.call_count == 3
+    for call in fake_write_passages.call_args_list:
+        assert len(call.args[0]) <= batch_size
+    total_written = sum(len(call.args[0]) for call in fake_write_passages.call_args_list)
+    assert total_written == chunk_count
 
 
 class _FailSecondCommitSession:

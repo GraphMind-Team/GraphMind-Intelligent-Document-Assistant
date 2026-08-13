@@ -19,7 +19,11 @@ from app.documents import repository
 from app.documents.parsing import parse_document
 from app.shared.data_access.session import get_session_factory
 from app.shared.data_access.shapes import WeaviatePassage
-from app.shared.data_access.weaviate_client import write_passages
+from app.shared.data_access.weaviate_client import (
+    PASSAGE_BATCH_SIZE,
+    delete_passages_for_document,
+    write_passages,
+)
 from app.shared.embeddings import embed_texts
 from app.shared.models import Document, User
 
@@ -171,6 +175,15 @@ def ingest_document(
     mid-task still leaves a row stuck at `Extracting` with no safety net;
     a known, accepted gap for this story (would need a heartbeat/lease or
     a startup reconciliation pass to close).
+
+    Embeds and writes in batches of `PASSAGE_BATCH_SIZE` rather than
+    embedding every chunk up front into one `vectors` list: a large
+    document (the 20MB upload cap) can run to thousands of chunks, and
+    holding every chunk's 384-dim vector in memory simultaneously before
+    the first one even reaches Weaviate is the more likely OOM path on a
+    512MB instance -- the batched `write_passages` call on the Weaviate
+    side alone doesn't help if everything already piled up in Python
+    memory before any of it got sent.
     """
     session_factory = session_factory or get_session_factory()
     db = session_factory()
@@ -184,22 +197,25 @@ def ingest_document(
             db.commit()
 
             chunks = parse_document(document.file_type, document.content)
-            vectors = embed_texts([chunk.text for chunk in chunks])
-            passages = [
-                WeaviatePassage(
-                    chunk_id=str(
-                        uuid.uuid5(uuid.NAMESPACE_URL, f"{document.id}:{chunk.chunk_index}")
-                    ),
-                    document_id=str(document.id),
-                    user_id=str(document.user_id),
-                    chapter=chunk.chapter,
-                    chunk_index=chunk.chunk_index,
-                    text=chunk.text,
-                    embedding=vector,
-                )
-                for chunk, vector in zip(chunks, vectors, strict=True)
-            ]
-            write_passages(passages)
+            delete_passages_for_document(str(document.id), str(document.user_id))
+            for batch_start in range(0, len(chunks), PASSAGE_BATCH_SIZE):
+                batch = chunks[batch_start : batch_start + PASSAGE_BATCH_SIZE]
+                vectors = embed_texts([chunk.text for chunk in batch])
+                passages = [
+                    WeaviatePassage(
+                        chunk_id=str(
+                            uuid.uuid5(uuid.NAMESPACE_URL, f"{document.id}:{chunk.chunk_index}")
+                        ),
+                        document_id=str(document.id),
+                        user_id=str(document.user_id),
+                        chapter=chunk.chapter,
+                        chunk_index=chunk.chunk_index,
+                        text=chunk.text,
+                        embedding=vector,
+                    )
+                    for chunk, vector in zip(batch, vectors, strict=True)
+                ]
+                write_passages(passages)
         except Exception:
             logger.exception("Ingestion failed for document %s", document_id)
             try:
