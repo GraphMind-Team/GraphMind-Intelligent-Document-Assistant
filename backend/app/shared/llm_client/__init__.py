@@ -33,9 +33,25 @@ logger = logging.getLogger(__name__)
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-# Free-tier-friendly default -- overridable via OPENROUTER_MODEL for local
-# testing against a different model without a code change.
-DEFAULT_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
+# Free-tier default -- overridable via OPENROUTER_MODEL without a code
+# change, which is the intended fix if this slug stops being offered free
+# (see below) rather than editing this line under time pressure.
+#
+# Chosen by measuring candidates from OpenRouter's live free-tier list
+# against this module's actual prompt: it returned correctly-shaped,
+# correctly-typed entities *and* relationships for English and Bulgarian
+# (this project supports Bulgarian documents -- see the multilingual
+# embedding model in `shared/embeddings/`), and was the fastest of the
+# candidates that did. Rejected: `meta-llama/llama-3.3-70b-instruct:free`,
+# the previous default, which now 404s with "unavailable for free";
+# `openrouter/free`, which returned `entities` as bare strings instead of
+# objects, so every entity was dropped by `_parse_and_validate` and its
+# relationships then had nothing to resolve against.
+#
+# Free slugs are not a stable contract -- they get withdrawn, as the
+# previous default did. A 404 here is (correctly) non-retryable and fails
+# the document, so the symptom is loud rather than silent.
+DEFAULT_MODEL = "openai/gpt-oss-20b:free"
 
 # OD-1's closed type sets (resolved by the human before this spec was
 # written -- see the spec's Intent section). The prompt below asks the
@@ -48,16 +64,28 @@ RELATIONSHIP_TYPES = frozenset({"WORKS_AT", "SUPPLIES", "PART_OF", "LOCATED_IN",
 # 2 attempts total (not 2 retries) -- matches `weaviate_client`/
 # `embeddings`'s framing of "retryable" as "transient provider failure",
 # not an open-ended retry loop.
-_MAX_ATTEMPTS = 2
-_TIMEOUT_SECONDS = 30.0
+# 3 attempts, not the 2 this story's Design Notes first specified: free-tier
+# 429s are routine rather than exceptional (see
+# `extract_entities_and_relationships`), and a single retry against a
+# provider that rate-limits in bursts fails documents that would have
+# succeeded moments later.
+_MAX_ATTEMPTS = 3
 
-# Retrying a transient provider failure in the same microsecond mostly
-# just re-hits whatever is still failing, spending the second attempt for
-# nothing. A short fixed pause (not exponential backoff -- there's only
-# ever one retry) makes the budget mean something. Safe to sleep here:
-# `ingest_document` runs this in Starlette's background threadpool, off
-# the event loop, with no user waiting synchronously on the response.
-_RETRY_DELAY_SECONDS = 2.0
+# Generous, and deliberately so. Measured against the real provider: even a
+# one-sentence prompt took ~32s end to end, and real ingestion sends up to
+# EXTRACTION_CHAR_BUDGET (12,000) characters. httpx's `timeout=` is
+# per-operation (connect/read/write), not total elapsed, so this is a
+# floor on patience rather than a wall-clock cap -- but at 30s it was close
+# enough to observed latency to start failing healthy requests.
+_TIMEOUT_SECONDS = 120.0
+
+# Retrying a transient failure in the same microsecond mostly re-hits
+# whatever is still failing, spending the attempt for nothing. Doubles per
+# attempt, and a 429's own `Retry-After` overrides it entirely. Safe to
+# sleep here: `ingest_document` runs this in Starlette's background
+# threadpool, off the event loop, with no user waiting synchronously.
+_RETRY_DELAY_SECONDS = 3.0
+_MAX_RETRY_DELAY_SECONDS = 30.0
 
 _SYSTEM_PROMPT = (
     "You extract entities and relationships from a document's text for a "
@@ -116,24 +144,64 @@ class ExtractionError(Exception):
 
 
 class _RetryableExtractionError(Exception):
-    """Internal: a transport-level failure (timeout/5xx) or a malformed
-    response (bad JSON, wrong shape) -- both get the same 2-attempt retry
-    budget as the Design Notes specify, rather than distinguishing "the
-    network failed" from "the model responded with garbage"."""
+    """Internal: a transport-level failure (timeout/5xx), a rate limit
+    (429), or a malformed response (bad JSON, wrong shape) -- all get the
+    same retry budget, rather than distinguishing "the network failed"
+    from "the model responded with garbage".
+
+    `retry_after` carries the server's own `Retry-After` hint in seconds
+    when it sent one, so a 429 waits as long as the provider actually
+    asked for instead of a fixed guess.
+    """
+
+    def __init__(self, message: str, *, retry_after: float | None = None):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+def _parse_retry_after(response: httpx.Response) -> float | None:
+    """`Retry-After` in delta-seconds form, when present and sane.
+
+    Only the numeric form is honoured -- the HTTP-date form is legal but
+    OpenRouter doesn't send it, and a misparsed date would be worse than
+    falling back to the fixed delay. Capped so a provider advertising a
+    multi-minute cooldown can't pin a background ingestion task open far
+    longer than the caller's own patience.
+    """
+    raw = response.headers.get("Retry-After")
+    if not raw:
+        return None
+    try:
+        seconds = float(raw.strip())
+    except ValueError:
+        return None
+    if seconds <= 0:
+        return None
+    return min(seconds, _MAX_RETRY_DELAY_SECONDS)
 
 
 def extract_entities_and_relationships(text: str) -> ExtractionResult:
     """One document's concatenated chapter text -> validated entities and
     relationships.
 
-    Retries up to `_MAX_ATTEMPTS` total on a timeout, a 5xx response, or a
-    malformed/unparseable response body (bad JSON, or JSON that isn't the
-    expected `{"entities": [...], "relationships": [...]}` shape) --
-    a malformed response is treated exactly like a transport error, not a
-    crash, per the Design Notes. A 4xx response (bad request, bad API key)
-    is not retryable and raises immediately -- retrying a request that's
-    wrong by construction just burns the attempt budget for no chance of a
-    different outcome.
+    Retries up to `_MAX_ATTEMPTS` total on a timeout, a 5xx response, a
+    429 rate limit, or a malformed/unparseable response body (bad JSON, or
+    JSON that isn't the expected `{"entities": [...], "relationships":
+    [...]}` shape) -- a malformed response is treated exactly like a
+    transport error, not a crash, per the Design Notes.
+
+    429 is retryable despite being a 4xx, and that distinction is load-
+    bearing rather than pedantic: this project runs on OpenRouter's free
+    tier by hard constraint, where "temporarily rate-limited upstream,
+    please retry shortly" is a routine response, not a broken request.
+    Lumping it in with the genuinely non-retryable 4xx (bad API key,
+    malformed request) would fail documents for a condition that clears on
+    its own seconds later. Every *other* 4xx still raises immediately --
+    retrying a request that's wrong by construction just burns the budget
+    for no chance of a different outcome.
+
+    Backoff grows between attempts, and a 429 carrying a `Retry-After`
+    waits exactly as long as the provider asked instead of guessing.
 
     Raises `ExtractionError` once attempts are exhausted (or immediately,
     for a non-retryable failure) -- callers never see the underlying
@@ -153,7 +221,16 @@ def extract_entities_and_relationships(text: str) -> ExtractionResult:
                 exc,
             )
             if attempt < _MAX_ATTEMPTS:
-                time.sleep(_RETRY_DELAY_SECONDS)
+                # The provider's own hint wins over the local schedule --
+                # it knows when its limit resets and we don't.
+                delay = exc.retry_after
+                if delay is None:
+                    delay = min(
+                        _RETRY_DELAY_SECONDS * (2 ** (attempt - 1)),
+                        _MAX_RETRY_DELAY_SECONDS,
+                    )
+                logger.info("Retrying entity extraction in %.1fs", delay)
+                time.sleep(delay)
     raise ExtractionError(
         f"OpenRouter entity extraction failed after {_MAX_ATTEMPTS} attempts"
     ) from last_error
@@ -199,9 +276,17 @@ def _call_openrouter(text: str) -> str:
         raise _RetryableExtractionError(
             f"OpenRouter returned {response.status_code}: {response.text[:500]}"
         )
-    # A 4xx here is not retryable -- wrapped in `ExtractionError` (not the
-    # raw `httpx.HTTPStatusError`) so this function keeps the promise its
-    # own docstring makes: callers never see the underlying httpx/json
+    # 429 is a 4xx but is explicitly transient -- on the free tier this is
+    # the single most common failure, and it clears by itself. Retried,
+    # honouring the server's own `Retry-After` when it sent one.
+    if response.status_code == 429:
+        raise _RetryableExtractionError(
+            f"OpenRouter rate-limited the request (429): {response.text[:500]}",
+            retry_after=_parse_retry_after(response),
+        )
+    # Every other 4xx is not retryable -- wrapped in `ExtractionError` (not
+    # the raw `httpx.HTTPStatusError`) so this function keeps the promise
+    # its own docstring makes: callers never see the underlying httpx/json
     # exception directly, on any failure path. Raised immediately, not via
     # `_RetryableExtractionError`, so it propagates straight out on the
     # first attempt rather than being caught by the retry loop.

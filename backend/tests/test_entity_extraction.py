@@ -22,17 +22,33 @@ from app.shared.llm_client import (
 _REQUEST = httpx.Request("POST", llm_client_module.OPENROUTER_URL)
 
 
-def _openrouter_response(status_code: int, *, content: str | None = None, body: dict | None = None):
+def _openrouter_response(
+    status_code: int,
+    *,
+    content: str | None = None,
+    body: dict | None = None,
+    headers: dict | None = None,
+):
     """Builds a real `httpx.Response` (not a bare mock) so `raise_for_status`
     behaves exactly as it would against a real OpenRouter reply."""
     if body is None:
         body = {"choices": [{"message": {"content": content}}]}
-    return httpx.Response(status_code, json=body, request=_REQUEST)
+    return httpx.Response(status_code, json=body, request=_REQUEST, headers=headers)
 
 
 @pytest.fixture(autouse=True)
 def _openrouter_api_key(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+
+
+@pytest.fixture(autouse=True)
+def _no_real_sleeping(monkeypatch):
+    """Retry backoff is real `time.sleep` in production; tests assert the
+    retry *behavior*, not the wall-clock wait. Recorded rather than
+    discarded so the delay itself stays assertable."""
+    slept: list[float] = []
+    monkeypatch.setattr(llm_client_module.time, "sleep", slept.append)
+    return slept
 
 
 def _valid_content():
@@ -228,3 +244,63 @@ def test_extract_a_4xx_response_is_not_retried(monkeypatch):
         extract_entities_and_relationships("text")
 
     assert len(calls) == 1
+
+
+def test_extract_retries_a_429_rate_limit_and_can_still_succeed(monkeypatch):
+    """429 is a 4xx but is explicitly transient, and on OpenRouter's free
+    tier -- which this project is constrained to -- it is the single most
+    common failure. Treating it like a bad API key would fail documents for
+    a condition that clears by itself seconds later."""
+    calls = []
+
+    def _fake_post(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            return _openrouter_response(
+                429, body={"error": {"message": "temporarily rate-limited upstream", "code": 429}}
+            )
+        return _openrouter_response(200, content=_valid_content())
+
+    monkeypatch.setattr(llm_client_module.httpx, "post", _fake_post)
+
+    result = extract_entities_and_relationships("text")
+
+    assert len(calls) == 2  # retried, not raised on the first 429
+    assert [(e.name, e.type) for e in result.entities] == [
+        ("Maria Ivanova", "Person"),
+        ("TechCorp", "Organization"),
+    ]
+
+
+def test_extract_honours_a_429_retry_after_header(monkeypatch, _no_real_sleeping):
+    """The provider knows when its own limit resets; the local backoff
+    schedule is only a guess in its absence."""
+
+    def _fake_post(*args, **kwargs):
+        return _openrouter_response(
+            429, body={"error": "slow down"}, headers={"Retry-After": "7"}
+        )
+
+    monkeypatch.setattr(llm_client_module.httpx, "post", _fake_post)
+
+    with pytest.raises(ExtractionError):
+        extract_entities_and_relationships("text")
+
+    # Every wait used the server's hint, not the doubling local schedule
+    # (which would have produced 3.0 then 6.0).
+    assert _no_real_sleeping == [7.0, 7.0]
+
+
+def test_extract_backoff_grows_between_attempts(monkeypatch, _no_real_sleeping):
+    def _fake_post(*args, **kwargs):
+        return _openrouter_response(503, body={"error": "upstream down"})
+
+    monkeypatch.setattr(llm_client_module.httpx, "post", _fake_post)
+
+    with pytest.raises(ExtractionError):
+        extract_entities_and_relationships("text")
+
+    # One sleep fewer than attempts -- nothing waits after the last try.
+    assert len(_no_real_sleeping) == llm_client_module._MAX_ATTEMPTS - 1
+    assert _no_real_sleeping == sorted(_no_real_sleeping)
+    assert _no_real_sleeping[0] < _no_real_sleeping[-1]

@@ -141,8 +141,26 @@
     Raised independently by two of three adversarial review passes on Story 2.4. Mitigated, not
     eliminated: `ensure_ready()` now creates a `(name, type, user_id)` uniqueness constraint at
     startup (best-effort, logged not fatal) specifically so a real Neo4j instance enforces the
-    "one node, not two" guarantee even if application-level `MERGE` logic regresses -- but that
-    constraint itself is untested against a live database for the same CI reason.
+    "one node, not two" guarantee even if application-level `MERGE` logic regresses.
+    Update: both the constraint creation and the merge semantics were manually verified once
+    against live Neo4j Aura at the end of Story 2.4 (repeated entity across two writes -> one node;
+    "TechCorp" vs "TechCorp Supplies" -> distinct nodes; repeated relationship -> one edge). That
+    closes the "never actually run" concern, but it was a one-off manual check, not a repeatable
+    test -- a regression would still ship silently.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-extract-entities-into-the-unified-graph-with-compensating-ro.md`
+  summary: >
+    `llm_client.DEFAULT_MODEL` pins a free-tier OpenRouter slug, and free slugs get withdrawn
+    without notice -- the story's original default (`meta-llama/llama-3.3-70b-instruct:free`) was
+    already dead by the first live upload, returning 404 "unavailable for free". Worth either a
+    startup health-check that surfaces a dead model as a visible warning rather than as every
+    document failing at the Graphing step, or a documented fallback chain across two or three free
+    slugs.
+  evidence: >
+    Every test in `test_entity_extraction.py` mocks `httpx.post`, so no automated check can ever
+    catch a withdrawn slug -- the story shipped with a default that could not work, and only a real
+    upload revealed it. `OPENROUTER_MODEL` is an env override (documented in `.env.example`) so the
+    immediate fix is configuration, but the failure mode is loud and late rather than early.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-4-extract-entities-into-the-unified-graph-with-compensating-ro.md`
   summary: >
