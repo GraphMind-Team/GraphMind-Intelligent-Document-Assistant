@@ -1,16 +1,18 @@
 """Documents module routes.
 
-Two endpoints this story needs: `POST /documents` (single-file multipart
-upload) and `GET /documents` (minimal list -- just enough to prove a row
-appears post-upload; the real list/detail UI is Story 2.2's job). Both
-require `Depends(get_current_user)` so `user_id` never comes from
-client-supplied input (AD-2).
+Three endpoints: `POST /documents` (single-file multipart upload) and
+`GET /documents` (list) from Story 2.1, plus `GET /documents/{document_id}`
+(Story 2.2) behind the Document Detail view. All three require
+`Depends(get_current_user)` so `user_id` never comes from client-supplied
+input (AD-2).
 
 Upload is one file per request by design (per the story's Boundaries) --
 the frontend fires one `XMLHttpRequest` per queued file in parallel, which
 is what makes each row's progress genuinely independent rather than
 synthetic.
 """
+
+import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session
@@ -85,3 +87,27 @@ def list_documents(
 ) -> list[DocumentResponse]:
     documents = service.list_documents(db, current_user)
     return [DocumentResponse.model_validate(document) for document in documents]
+
+
+@router.get("/{document_id}", response_model=DocumentResponse)
+def get_document(
+    document_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: User = Depends(get_current_user),
+) -> DocumentResponse:
+    """The by-id read behind Story 2.2's Document Detail.
+
+    The codebase's first by-id document endpoint, so its first IDOR
+    surface: `document_id` is client-supplied, `current_user` comes only
+    from the JWT (AD-2), and the two are combined in a single user-scoped
+    query in the repository -- never a bare primary-key fetch followed by
+    an ownership `if`. Annotating `document_id` as `uuid.UUID` also means a
+    non-uuid path segment is rejected by FastAPI as a 422 before any query
+    runs.
+
+    Responds with `DocumentResponse`, the same schema list/upload use --
+    so the raw `content` bytes and `user_id` cannot be serialized here by
+    accident.
+    """
+    document = service.get_document(db, current_user, document_id)
+    return DocumentResponse.model_validate(document)

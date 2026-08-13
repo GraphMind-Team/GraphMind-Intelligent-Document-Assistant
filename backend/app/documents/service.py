@@ -134,3 +134,18 @@ def upload_document(
 
 def list_documents(db: Session, current_user: User) -> list[Document]:
     return repository.list_documents_for_user(db, current_user.id)
+
+
+def get_document(db: Session, current_user: User, document_id: uuid.UUID) -> Document:
+    """One document by id, or `HTTPException(404)`.
+
+    404 -- not 403 -- for another account's document: a 403 would confirm
+    the id exists, which is itself a disclosure. The repository's
+    user-scoped query returns `None` for both "no such document" and "not
+    yours", so the two cases are indistinguishable from here by
+    construction, not by a remembered convention.
+    """
+    document = repository.get_document_for_user(db, current_user.id, document_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    return document

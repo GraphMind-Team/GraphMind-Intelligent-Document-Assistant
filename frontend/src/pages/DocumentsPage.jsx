@@ -1,18 +1,58 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { listDocuments } from '../api/documentsClient'
+import DocumentCard from '../components/DocumentCard'
+import { DOCUMENT_STATUSES } from '../components/StatusPill'
 import UploadModal from '../components/UploadModal'
 
-// Documents page (Story 2.1): Upload button + minimal table + the upload
-// modal. Full list/detail UI (search, filters, row click-through, delete)
-// is Story 2.2/2.7's job -- this table only needs to prove a row appears
-// post-upload with the right status.
+// Documents library (Story 2.2): a card grid (file-type tile, title,
+// status pill, uploaded date, trash icon per card), a toolbar above it,
+// and card click-through to `/documents/:documentId`. The grid replaces
+// the reference mockup's `.doclist` table at the human's request -- see
+// the spec's Change Log; the same five facts are carried per card.
+//
+// Sort and filter are applied **client-side** over the already-fetched
+// list, deliberately: sending a client-chosen sort field to the server is
+// the classic path to an `order_by` injection, and there is no server-side
+// sort/filter parameter to reach for here precisely because this story
+// doesn't add one. Changing either control re-derives the rows from state
+// -- it never refetches.
+const SORT_OPTIONS = [
+  { value: 'recent', label: 'Sort: Most recent' },
+  { value: 'title', label: 'Sort: Title A–Z' },
+  { value: 'status', label: 'Sort: Status' },
+]
+
+const TYPE_FILTER_OPTIONS = [
+  { value: 'all', label: 'Filter: All types' },
+  { value: 'pdf', label: 'PDF' },
+  { value: 'markdown', label: 'Markdown' },
+  { value: 'html', label: 'HTML' },
+]
+
+function byMostRecent(a, b) {
+  return new Date(b.created_at) - new Date(a.created_at)
+}
+
+// Position in the FR-4 pipeline vocabulary, so "Sort: Status" groups by
+// where a document actually is in ingestion rather than by the alphabet.
+// A status outside the vocabulary sorts last instead of first (which is
+// what a raw `indexOf` returning -1 would do).
+function statusRank(status) {
+  const index = DOCUMENT_STATUSES.indexOf(status)
+  return index === -1 ? DOCUMENT_STATUSES.length : index
+}
+
 export default function DocumentsPage() {
   const { authFetch } = useAuth()
+  const navigate = useNavigate()
   const [documents, setDocuments] = useState([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [sortBy, setSortBy] = useState('recent')
+  const [typeFilter, setTypeFilter] = useState('all')
   const uploadButtonRef = useRef(null)
 
   const fetchDocuments = useCallback(async () => {
@@ -32,8 +72,24 @@ export default function DocumentsPage() {
     fetchDocuments()
   }, [fetchDocuments])
 
+  const visibleDocuments = useMemo(() => {
+    const filtered =
+      typeFilter === 'all' ? documents : documents.filter((doc) => doc.file_type === typeFilter)
+
+    // Copy before sorting -- `documents` is state, and Array#sort mutates.
+    const sorted = [...filtered]
+    if (sortBy === 'title') {
+      sorted.sort((a, b) => a.filename.localeCompare(b.filename))
+    } else if (sortBy === 'status') {
+      sorted.sort((a, b) => statusRank(a.status) - statusRank(b.status) || byMostRecent(a, b))
+    } else {
+      sorted.sort(byMostRecent)
+    }
+    return sorted
+  }, [documents, sortBy, typeFilter])
+
   // Single boolean gate, one <UploadModal/> ever rendered -- structurally
-  // no second modal can open on top of it (AC1).
+  // no second modal can open on top of it (Story 2.1 AC1).
   function handleOpenModal() {
     setIsModalOpen(true)
   }
@@ -45,6 +101,25 @@ export default function DocumentsPage() {
     // captured on open -- this is the trigger it captured.
     fetchDocuments()
   }
+
+  // Card click-through (UX-DR7). The trash icon and the title link are
+  // separate hit targets inside the same card, so a click that originated
+  // on either is skipped here rather than double-handled: without this
+  // guard, activating the trash button (mouse *or* Enter/Space, since
+  // button activation dispatches a bubbling click) would navigate, and
+  // clicking the title link would push two identical history entries.
+  function handleCardClick(event, documentId) {
+    if (event.target.closest('a, button')) return
+    navigate(`/documents/${documentId}`)
+  }
+
+  const hasDocuments = documents.length > 0
+  const showGrid = !error && !isLoading && visibleDocuments.length > 0
+  // Two genuinely different situations, so two different sentences: an
+  // account with nothing in it vs. a filter that happens to exclude
+  // everything. Same copy for both would tell the user the wrong thing.
+  const showEmptyLibrary = !error && !isLoading && !hasDocuments
+  const showFilteredEmpty = !error && !isLoading && hasDocuments && visibleDocuments.length === 0
 
   return (
     <>
@@ -60,6 +135,46 @@ export default function DocumentsPage() {
         </button>
       </div>
 
+      {/* Real <select> elements with real labels -- not custom listbox
+          widgets -- so keyboard/screen-reader/mobile behavior is the
+          platform's, not something re-implemented here. The visible
+          option text carries the "Sort:"/"Filter:" prefix exactly as the
+          mockup does, so the labels themselves are screen-reader-only
+          rather than duplicating that prefix on screen. */}
+      <div className="mb-4 flex flex-wrap items-center gap-2.5">
+        <label className="sr-only" htmlFor="documents-sort">
+          Sort documents
+        </label>
+        <select
+          id="documents-sort"
+          value={sortBy}
+          onChange={(event) => setSortBy(event.target.value)}
+          className="rounded-md border border-border bg-input-bg px-2.5 py-2 text-[13px] text-text"
+        >
+          {SORT_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+
+        <label className="sr-only" htmlFor="documents-type-filter">
+          Filter documents by type
+        </label>
+        <select
+          id="documents-type-filter"
+          value={typeFilter}
+          onChange={(event) => setTypeFilter(event.target.value)}
+          className="rounded-md border border-border bg-input-bg px-2.5 py-2 text-[13px] text-text"
+        >
+          {TYPE_FILTER_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
       {error && (
         <p role="alert" className="mb-4 text-sm text-danger">
           {error}
@@ -68,41 +183,24 @@ export default function DocumentsPage() {
 
       {!error && isLoading && <p className="text-sm text-text2">Loading documents...</p>}
 
-      {!error && !isLoading && documents.length === 0 && (
-        <p className="text-sm text-text2">No documents uploaded yet.</p>
-      )}
+      {showEmptyLibrary && <p className="text-sm text-text2">No documents yet.</p>}
 
-      {!error && !isLoading && documents.length > 0 && (
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr>
-              <th className="border-b border-border bg-surface px-4 py-3 text-left text-[11px] font-bold uppercase tracking-[0.04em] text-text2">
-                Title
-              </th>
-              <th className="border-b border-border bg-surface px-4 py-3 text-left text-[11px] font-bold uppercase tracking-[0.04em] text-text2">
-                Type
-              </th>
-              <th className="border-b border-border bg-surface px-4 py-3 text-left text-[11px] font-bold uppercase tracking-[0.04em] text-text2">
-                Status
-              </th>
-              <th className="border-b border-border bg-surface px-4 py-3 text-left text-[11px] font-bold uppercase tracking-[0.04em] text-text2">
-                Uploaded
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {documents.map((document) => (
-              <tr key={document.id}>
-                <td className="border-b border-border px-4 py-3 text-text">{document.filename}</td>
-                <td className="border-b border-border px-4 py-3 text-text">{document.file_type}</td>
-                <td className="border-b border-border px-4 py-3 text-text">{document.status}</td>
-                <td className="border-b border-border px-4 py-3 text-text">
-                  {new Date(document.created_at).toLocaleString()}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {showFilteredEmpty && <p className="text-sm text-text2">No documents match this filter.</p>}
+
+      {/* Card grid rather than the mockup's `.doclist` table -- a
+          human-requested design change, recorded in the spec's Change Log.
+          `auto-fill` + `minmax` reflows by itself as the content area
+          narrows (including at 200% zoom), which is also what retires the
+          table's clipping problem structurally rather than by patching an
+          overflow rule: there is no fixed min-content width to clip.
+          A <ul> because this is a list of things, not a grid of layout
+          boxes -- screen readers announce the count. */}
+      {showGrid && (
+        <ul className="grid list-none grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-4 p-0">
+          {visibleDocuments.map((doc) => (
+            <DocumentCard key={doc.id} document={doc} onCardClick={handleCardClick} />
+          ))}
+        </ul>
       )}
 
       {isModalOpen && <UploadModal onClose={handleCloseModal} />}

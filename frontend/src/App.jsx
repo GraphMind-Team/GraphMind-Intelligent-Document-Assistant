@@ -6,6 +6,7 @@ import RegisterPage from './pages/RegisterPage'
 import LoginPage from './pages/LoginPage'
 import HealthPage from './pages/HealthPage'
 import DocumentsPage from './pages/DocumentsPage'
+import DocumentDetailPage from './pages/DocumentDetailPage'
 import ChatPage from './pages/ChatPage'
 import GraphPage from './pages/GraphPage'
 import SettingsPage from './pages/SettingsPage'
@@ -38,6 +39,12 @@ function App() {
         <Route element={<ProtectedRoute />}>
           <Route element={<Shell />}>
             <Route path="/documents" element={<DocumentsPage />} />
+            {/* Document Detail as a nested route rather than in-page state
+                (Story 2.2): back button and deep links come for free, and
+                the sidebar's `/documents` NavLink stays the single active
+                item on this URL too (UX-DR1), since NavLink matches
+                descendant paths by default. */}
+            <Route path="/documents/:documentId" element={<DocumentDetailPage />} />
             <Route path="/chat" element={<ChatPage />} />
             <Route path="/graph" element={<GraphPage />} />
             <Route path="/settings" element={<SettingsPage />} />

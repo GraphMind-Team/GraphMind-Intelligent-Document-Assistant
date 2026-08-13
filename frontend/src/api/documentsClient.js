@@ -96,3 +96,26 @@ export async function listDocuments(authFetch) {
 
   return data
 }
+
+// One document by id, behind Document Detail (Story 2.2). A document that
+// isn't yours comes back as a 404 (the backend deliberately never answers
+// 403 here -- that would confirm the id exists), so the caller renders the
+// backend's own "Document not found." for both cases and doesn't try to
+// distinguish them.
+export async function getDocument(authFetch, documentId) {
+  const response = await authFetch(`/documents/${encodeURIComponent(documentId)}`)
+  const data = await response.json().catch(() => null)
+
+  if (!response.ok) {
+    const message = formatDetail(data?.detail)
+    throw new Error(message || `Failed to load document (${response.status}).`)
+  }
+
+  // Mirrors listDocuments' shape guard: fail loudly rather than handing
+  // the caller a null to read fields off.
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new Error('Failed to load document: unexpected response.')
+  }
+
+  return data
+}
