@@ -14,7 +14,7 @@ colors:
   warning: '#E08600'
   danger: '#E01E1E'
   citation: '#D1EEFE'
-  citation-text: '#4A7FE0'
+  citation-text: '#3064C6'
   robot-a: '#5B8DEF'
   robot-b: '#D1EEFE'
   bg-dark: '#1E222B'
@@ -157,7 +157,7 @@ The light theme's original Bold High-Contrast blue read too saturated in practic
 - **Border `{colors.border}` (#C7D2E6)** — the only hairline color. Every card, input, table, and modal edge uses this one value; consistency here is what makes the bold primary fills read as intentional rather than noisy.
 - **Text `{colors.text}` (#10131A)** primary / **Text2 `{colors.text2}` (#454E60)** secondary — near-black for headings and body copy, a cooled charcoal-gray for labels, metadata, and captions.
 - **Success `{colors.success}` (#0A9E5C)**, **Warning `{colors.warning}` (#E08600)**, **Danger `{colors.danger}` (#E01E1E)** — reserved strictly for ingestion status and destructive actions (Ready/Uploaded pills, delete confirmation, trash-icon hover). Never used decoratively.
-- **Citation `{colors.citation}` (#D1EEFE) / citation text (#4A7FE0)** — `{colors.citation}` is literally `var(--sky)`: the sky-blue token's *sole* sanctioned use is as this citation-chip background (it is not the sidebar background, not the primary, and not used as a general tint anywhere else — that was a rejected experiment, see Do's and Don'ts). Citations are GraphMind's core differentiator made visible, so the chip that carries a citation reference gets its own color identity rather than reusing a generic badge style — it must be instantly recognizable as "this is a proof point," everywhere it appears (chat answers `.cite`, file-type icon tiles in upload rows, doc detail).
+- **Citation `{colors.citation}` (#D1EEFE) / citation text (#3064C6)** — `{colors.citation}` is literally `var(--sky)`: the sky-blue token's *sole* sanctioned use is as this citation-chip background (it is not the sidebar background, not the primary, and not used as a general tint anywhere else — that was a rejected experiment, see Do's and Don'ts). Citations are GraphMind's core differentiator made visible, so the chip that carries a citation reference gets its own color identity rather than reusing a generic badge style — it must be instantly recognizable as "this is a proof point," everywhere it appears (chat answers `.cite`, file-type icon tiles in upload rows, doc detail). Darkened from an earlier `#4A7FE0` (UX-DR21): that original pair cleared only 3.22:1 against a 4.5:1 requirement — the chip text is 11.5px/700, which doesn't qualify for WCAG's large-text exception, so 2026-08-11's "accepted deviation" call was based on an exception that didn't actually apply. Closed in Story 3.1 (2026-08-13) by darkening to `#3064C6`, clearing 4.62:1; the mock's other files were never updated to match and should be treated as stale on this one token.
 
 **Dark mode ("Soft Dark")**
 
@@ -174,6 +174,7 @@ Avoid: introducing a third brand hue beyond primary/accent; using citation color
 **Contrast exceptions (documented, intentional):** two places use a color that is *not* a raw token value, specifically to clear AA contrast on a colored background:
 - The sidebar's inactive nav-link text in light mode is `#E4ECFA` (was `#C9D8EE`) — lighter than the raw value previously used, for AA contrast against the `{colors.primary}` sidebar fill.
 - Status-pill text is `#0C7A47` for the `ready`/success state and `#8A5200` for the `uploaded`/warning state — both darker than the raw `{colors.success}` (#0A9E5C) / `{colors.warning}` (#E08600) tokens, specifically tuned for AA contrast against their respective pill background tints. Do not substitute the raw `success`/`warning` token values as pill text color.
+- Light-mode citation text is `#3064C6`, not the `#4A7FE0` this doc originally shipped with — see the Citation entry above (UX-DR21) for why.
 
 ## Typography
 

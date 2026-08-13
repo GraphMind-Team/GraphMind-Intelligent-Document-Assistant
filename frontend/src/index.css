@@ -47,9 +47,11 @@
      exception only starts at ~18.7px bold, so this is normal text and
      needs 4.5:1, not 3:1. The original #4A7FE0 only cleared 3.22:1 here;
      re-tuned darker until it clears 4.5:1 against --citation's #D1EEFE
-     (4.62:1 here). Story 3.1's CitationChip.jsx is this pair's first real
-     consumer -- the prior "accepted AA deviation" note assumed the large-
-     text exception applied, which it doesn't at this size. */
+     (4.62:1 here). The 2026-08-11 decision to ship the gap as-is was made
+     knowingly, with the same numbers -- not on a misread of the exemption;
+     Epic 3's own scoping always left UX-DR21 open for closure, and Story
+     3.1 (this pair's first real consumer, CitationChip.jsx) is it. See the
+     UX-DR21 row in epics.md. */
   --citation: #D1EEFE;
   --citation-text: #3064C6;
 
