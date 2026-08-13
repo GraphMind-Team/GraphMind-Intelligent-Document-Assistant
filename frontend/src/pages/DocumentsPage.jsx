@@ -44,6 +44,22 @@ function statusRank(status) {
   return index === -1 ? DOCUMENT_STATUSES.length : index
 }
 
+// Story 2.3: nothing refetches after mount/modal-close today, so the
+// Uploaded -> Extracting transition (which happens asynchronously, in a
+// background task, shortly after upload) would never appear without a
+// manual reload. Only `Uploaded` triggers polling -- not `Extracting`/
+// `Graphing` -- because after this story every successfully-parsed
+// document parks at `Extracting` forever (Story 2.4 is what advances it
+// further); including those statuses would mean every account with any
+// document polls forever. `Uploaded` is the one status this story's own
+// background task actually clears, within seconds, so polling for it is
+// bounded by construction. MAX_POLL_ATTEMPTS is a defensive backstop, not
+// the primary mechanism -- cheap insurance if a future story widens the
+// trigger set without revisiting this file.
+const POLLABLE_STATUSES = ['Uploaded']
+const POLL_INTERVAL_MS = 4000
+const MAX_POLL_ATTEMPTS = 15
+
 export default function DocumentsPage() {
   const { authFetch } = useAuth()
   const navigate = useNavigate()
@@ -55,22 +71,75 @@ export default function DocumentsPage() {
   const [typeFilter, setTypeFilter] = useState('all')
   const uploadButtonRef = useRef(null)
 
-  const fetchDocuments = useCallback(async () => {
-    setIsLoading(true)
-    setError(null)
-    try {
-      const data = await listDocuments(authFetch)
-      setDocuments(data)
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setIsLoading(false)
-    }
-  }, [authFetch])
+  // `silent` skips the loading/error UI churn -- used by the polling
+  // effect below so a background re-check every few seconds doesn't blank
+  // out the already-rendered grid on every tick.
+  const fetchDocuments = useCallback(
+    async ({ silent = false } = {}) => {
+      if (!silent) {
+        setIsLoading(true)
+        setError(null)
+      }
+      try {
+        const data = await listDocuments(authFetch)
+        setDocuments(data)
+      } catch (err) {
+        if (!silent) setError(err.message)
+      } finally {
+        if (!silent) setIsLoading(false)
+      }
+    },
+    [authFetch],
+  )
 
   useEffect(() => {
     fetchDocuments()
   }, [fetchDocuments])
+
+  // A key identifying *which* documents are currently pollable, not just
+  // whether any are -- a plain boolean would mean a document stuck at
+  // `Uploaded` forever (e.g. the process restarted between upload and its
+  // background task ever running) permanently exhausts MAX_POLL_ATTEMPTS
+  // and then never polls again for the rest of the session, silently
+  // eating every later upload's polling too, since the effect below only
+  // restarts on a *change* to its dependency and "stuck document present"
+  // never changes. Keying on the sorted id list instead means a fresh
+  // upload landing at `Uploaded` changes the key even while the stuck one
+  // remains, so the effect restarts and the budget resets for it.
+  const pollableDocumentIdsKey = useMemo(
+    () =>
+      documents
+        .filter((doc) => POLLABLE_STATUSES.includes(doc.status))
+        .map((doc) => doc.id)
+        .sort()
+        .join(','),
+    [documents],
+  )
+
+  // Gated on the derived key, not `documents` itself -- depending on the
+  // array would tear down and rebuild the interval on every single poll
+  // tick (each fetch produces a new array reference), degrading a true
+  // periodic timer into something closer to a setTimeout chain.
+  const pollAttemptsRef = useRef(0)
+  useEffect(() => {
+    pollAttemptsRef.current = 0
+    if (!pollableDocumentIdsKey) return undefined
+
+    const intervalId = setInterval(() => {
+      // Checked *before* incrementing/fetching, so exactly
+      // MAX_POLL_ATTEMPTS fetches happen -- checking after incrementing
+      // would skip the fetch on the very tick the cap exists to still
+      // allow (an off-by-one that quietly shrinks the budget by one).
+      if (pollAttemptsRef.current >= MAX_POLL_ATTEMPTS) {
+        clearInterval(intervalId)
+        return
+      }
+      pollAttemptsRef.current += 1
+      fetchDocuments({ silent: true })
+    }, POLL_INTERVAL_MS)
+
+    return () => clearInterval(intervalId)
+  }, [pollableDocumentIdsKey, fetchDocuments])
 
   const visibleDocuments = useMemo(() => {
     const filtered =

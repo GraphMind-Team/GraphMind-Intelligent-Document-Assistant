@@ -5,8 +5,10 @@ Raises `HTTPException` directly (AD-3: no custom error envelope), mirroring
 the route layer stays thin and a rejected file never reaches the DB.
 """
 
+import logging
 import pathlib
 import uuid
+from collections.abc import Callable
 from typing import Final
 
 from sqlalchemy.orm import Session
@@ -14,7 +16,18 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException
 
 from app.documents import repository
+from app.documents.parsing import parse_document
+from app.shared.data_access.session import get_session_factory
+from app.shared.data_access.shapes import WeaviatePassage
+from app.shared.data_access.weaviate_client import (
+    PASSAGE_BATCH_SIZE,
+    delete_passages_for_document,
+    write_passages,
+)
+from app.shared.embeddings import embed_texts
 from app.shared.models import Document, User
+
+logger = logging.getLogger(__name__)
 
 # 20MB per the story's Boundaries -- named here once so the reason cited in
 # a rejection message and the actual enforced limit can never drift apart.
@@ -130,6 +143,132 @@ def upload_document(
     db.commit()
     db.refresh(document)
     return document
+
+
+def ingest_document(
+    document_id: uuid.UUID,
+    *,
+    session_factory: Callable[[], Session] | None = None,
+) -> None:
+    """Parse, embed, and index one document's passages (Story 2.3).
+
+    Runs as a `BackgroundTasks` job scheduled by the upload route, after
+    the request's own `db` session has already been closed -- this opens
+    its own session via `session_factory` (defaulting to the real
+    `get_session_factory`). The explicit parameter, not just monkeypatching
+    the shared factory, is what lets tests call this function directly
+    with a controlled session rather than depending on a patched global.
+
+    A plain `def`, not `async def`: Starlette runs sync background tasks in
+    a threadpool, off the event loop -- `async def` here would block the
+    loop for the seconds an embedding call takes, stalling every other
+    in-flight request.
+
+    Sets `status="Extracting"` before parsing starts (AC3's "when parsing
+    runs, then it advances" is about to happen, not already done) and
+    leaves it there on success -- `Graphing`/`Ready` belong to Story 2.4's
+    entity-extraction pipeline, not this one. Any failure anywhere in
+    parse/embed/write is caught and marks the row `Failed`: AD-1's
+    documented retry-lock ("retry only accepted from Failed") would
+    otherwise have no way to ever unlock a row that failed mid-parse. This
+    only covers in-process exceptions -- a hard process crash/restart
+    mid-task still leaves a row stuck at `Extracting` with no safety net;
+    a known, accepted gap for this story (would need a heartbeat/lease or
+    a startup reconciliation pass to close).
+
+    Embeds and writes in batches of `PASSAGE_BATCH_SIZE` rather than
+    embedding every chunk up front into one `vectors` list: a large
+    document (the 20MB upload cap) can run to thousands of chunks, and
+    holding every chunk's 384-dim vector in memory simultaneously before
+    the first one even reaches Weaviate is the more likely OOM path on a
+    512MB instance -- the batched `write_passages` call on the Weaviate
+    side alone doesn't help if everything already piled up in Python
+    memory before any of it got sent.
+    """
+    session_factory = session_factory or get_session_factory()
+    db = session_factory()
+    try:
+        document = db.get(Document, document_id)
+        if document is None:
+            return  # deleted between upload and background-task run
+
+        # Captured before the try block, not read off `document` again in
+        # the except block: after a DB-caused failure, `db.rollback()`
+        # can leave the session's objects expired, and re-accessing
+        # `document.id`/`document.user_id` at that point would try to
+        # re-fetch from a session that may itself be why this failed in
+        # the first place -- precisely the case where the cleanup delete
+        # below matters most, and precisely the case an attribute access
+        # could quietly skip it in. Both are already loaded by the time
+        # parsing starts, so capturing them here costs nothing.
+        document_id_str = str(document.id)
+        user_id_str = str(document.user_id)
+
+        try:
+            document.status = "Extracting"
+            db.commit()
+
+            chunks = parse_document(document.file_type, document.content)
+            delete_passages_for_document(document_id_str, user_id_str)
+            for batch_start in range(0, len(chunks), PASSAGE_BATCH_SIZE):
+                batch = chunks[batch_start : batch_start + PASSAGE_BATCH_SIZE]
+                vectors = embed_texts([chunk.text for chunk in batch])
+                passages = [
+                    WeaviatePassage(
+                        chunk_id=str(
+                            uuid.uuid5(uuid.NAMESPACE_URL, f"{document_id_str}:{chunk.chunk_index}")
+                        ),
+                        document_id=document_id_str,
+                        user_id=user_id_str,
+                        chapter=chunk.chapter,
+                        chunk_index=chunk.chunk_index,
+                        text=chunk.text,
+                        embedding=vector,
+                    )
+                    for chunk, vector in zip(batch, vectors, strict=True)
+                ]
+                write_passages(passages)
+        except Exception:
+            logger.exception("Ingestion failed for document %s", document_id)
+            try:
+                # Best-effort: a failure partway through the batch loop
+                # above (say batch 30 of 50) leaves the first 29 batches'
+                # passages sitting in Weaviate under a document that's
+                # about to be marked Failed. Epic 3's retrieval filters by
+                # user_id only, not status, so an orphaned partial set
+                # would otherwise be read as a complete, valid document.
+                # Idempotent and safe to call even if the failure happened
+                # before any passage was ever written (deletes zero rows).
+                # Uses the locals captured above, not `document.id`/
+                # `document.user_id` again -- see the comment there.
+                delete_passages_for_document(document_id_str, user_id_str)
+            except Exception:
+                # If Weaviate is what's unreachable, this cleanup attempt
+                # fails too -- logged, not re-raised, since the primary
+                # failure below still needs to be recorded either way.
+                logger.exception(
+                    "Failed to clean up partially-written passages for document %s",
+                    document_id,
+                )
+            try:
+                db.rollback()
+                document.status = "Failed"
+                db.commit()
+            except Exception:
+                # The recovery path itself can fail -- e.g. the DB
+                # connection dropped, quite plausibly the very reason
+                # ingestion failed in the first place. Left unguarded, that
+                # second exception would propagate out of this background
+                # task unhandled, leaving the row stuck at `Extracting`:
+                # exactly the outcome this whole except block exists to
+                # prevent. Logged and swallowed rather than re-raised --
+                # there's no caller here to hand it to.
+                logger.exception(
+                    "Failed to mark document %s as Failed after an ingestion error",
+                    document_id,
+                )
+    finally:
+        db.close()
 
 
 def list_documents(db: Session, current_user: User) -> list[Document]:

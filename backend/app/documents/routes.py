@@ -14,7 +14,7 @@ synthetic.
 
 import uuid
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_user
@@ -54,6 +54,7 @@ async def _read_bounded(file: UploadFile) -> bytes:
 
 @router.post("", response_model=DocumentResponse, status_code=201)
 async def upload_document(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: Session = Depends(get_db_session),
     current_user: User = Depends(get_current_user),
@@ -77,6 +78,14 @@ async def upload_document(
             file_type=file_type,
             content=content,
         )
+    # Scheduled after the response is prepared, not awaited here -- Story
+    # 2.3's parse/embed/index pipeline runs after the upload response is
+    # sent, so upload latency stays independent of parsing time. Only
+    # `document.id` is passed; `ingest_document` re-derives everything else
+    # (file_type, content, user_id) from the row it just wrote, so there's
+    # no separate parameter that could ever drift from what was durably
+    # persisted under the JWT-derived `current_user.id` above (AC4).
+    background_tasks.add_task(service.ingest_document, document.id)
     return DocumentResponse.model_validate(document)
 
 

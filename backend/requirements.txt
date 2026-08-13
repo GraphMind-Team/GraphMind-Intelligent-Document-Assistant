@@ -29,6 +29,20 @@ email-validator==2.2.0
 # stdlib hmac/hashlib -- no extra cryptography backend to pull in.
 PyJWT==2.13.0
 
+# Document parsing (Story 2.3): PDF text/outline extraction and HTML
+# tag-stripping. beautifulsoup4 uses the stdlib `html.parser` backend at
+# call sites -- no `lxml` dependency needed.
+pypdf==6.15.0
+beautifulsoup4==4.15.0
+
+# Local passage embeddings (Story 2.3), via ONNX Runtime rather than
+# sentence-transformers/torch -- torch's install size (~800MB-1GB) and
+# runtime RSS (~400-600MB for a loaded MiniLM) don't comfortably fit
+# Render's 512MB free-tier instance; fastembed runs the same
+# sentence-transformers/all-MiniLM-L6-v2 model (384-dim) far lighter on
+# both axes. See shared/embeddings/model.py.
+fastembed==0.8.0
+
 # Test tooling.
 pytest==8.4.1
 httpx==0.28.1

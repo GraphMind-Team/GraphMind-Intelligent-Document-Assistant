@@ -10,7 +10,9 @@ var fails fast with a clear error naming it, rather than surfacing later
 as a confusing runtime error.
 """
 
+import logging
 import os
+from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 
@@ -29,6 +31,9 @@ from app.auth.routes import router as auth_router
 from app.chat.routes import router as chat_router
 from app.documents.routes import router as documents_router
 from app.kg.routes import router as kg_router
+from app.shared.data_access.weaviate_client import close_weaviate_client, ensure_ready
+
+logger = logging.getLogger(__name__)
 
 REQUIRED_ENV_VARS = ["DATABASE_URL", "JWT_SECRET"]
 
@@ -45,7 +50,27 @@ def _validate_env() -> None:
 
 _validate_env()
 
-app = FastAPI(title="GraphMind API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Best-effort: connects and ensures the Passage collection exists
+    # once, before the app starts serving requests, so concurrent uploads
+    # racing to create it can't happen in the common case (see
+    # weaviate_client.ensure_ready's docstring). Not required for the app
+    # to boot -- Weaviate being unconfigured/unreachable here must not
+    # crash startup, since ingestion already degrades to `Failed` per
+    # document rather than needing Weaviate up-front.
+    try:
+        ensure_ready()
+    except Exception:
+        logger.exception("Weaviate not ready at startup -- ingestion will degrade to Failed")
+
+    yield
+
+    close_weaviate_client()
+
+
+app = FastAPI(title="GraphMind API", lifespan=lifespan)
 
 # Without this, `request.client.host` (the login/register rate limiters'
 # key -- see app.auth.routes) is always the reverse proxy's own IP once
