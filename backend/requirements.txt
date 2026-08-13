@@ -14,6 +14,10 @@ uvicorn[standard]==0.34.0
 python-dotenv==1.0.1
 psycopg2-binary==2.9.12
 
+# Multipart form parsing, required by FastAPI's `UploadFile` (Story 2.1's
+# document upload endpoint).
+python-multipart==0.0.20
+
 # Password hashing (Story 1.3, FR-1): bcrypt_sha256 is a passlib scheme.
 # bcrypt is pinned below 4.1 because passlib 1.7.4 reads bcrypt.__about__,
 # which bcrypt>=4.1 removed -- newer bcrypt breaks passlib's hash/verify.

@@ -43,8 +43,8 @@ development_status:
   1-5-authenticated-shell-and-tenancy-enforced-data-access: done
   epic-1-retrospective: optional
 
-  epic-2: backlog
-  2-1-upload-documents-with-drag-and-drop-and-per-file-progress: backlog
+  epic-2: in-progress
+  2-1-upload-documents-with-drag-and-drop-and-per-file-progress: review
   2-2-document-library-and-detail-view: backlog
   2-3-parse-and-index-documents-into-the-vector-store: backlog
   2-4-extract-entities-into-the-unified-graph-with-compensating-ro: backlog

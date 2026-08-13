@@ -75,18 +75,24 @@ def client(db_session):
 
 
 @pytest.fixture(autouse=True)
-def _fresh_auth_rate_limiters(client):
-    """Overrides both module-level rate-limiter singletons (login, register)
-    with fresh instances per test, so attempt counts from one test -- or
-    from an earlier test file in the same run -- never leak into the next.
-    Depends on `client` (not standalone) so it composes correctly with the
-    `client` fixture above, which clears `app.dependency_overrides` in its
-    own `finally` block on teardown. Autouse + defined here (not per test
-    file) because every test that hits `/auth/register` or `/auth/login`
-    -- not just the rate-limit-specific tests -- would otherwise share one
-    process-wide budget across the whole test run."""
-    from app.auth.rate_limiter import RateLimiter, get_login_rate_limiter, get_register_rate_limiter
+def _fresh_rate_limiters(client):
+    """Overrides every module-level limiter singleton (login, register,
+    upload rate, upload concurrency) with fresh instances per test, so
+    counts from one test -- or from an earlier test file in the same run
+    -- never leak into the next. Depends on `client` (not standalone) so
+    it composes correctly with the `client` fixture above, which clears
+    `app.dependency_overrides` in its own `finally` block on teardown.
+    Autouse + defined here (not per test file) because every test that
+    hits `/auth/register`, `/auth/login`, or `POST /documents` -- not just
+    the limit-specific tests -- would otherwise share one process-wide
+    budget across the whole test run."""
+    from app.auth.rate_limiter import get_login_rate_limiter, get_register_rate_limiter
+    from app.documents.rate_limiter import (
+        get_upload_concurrency_limiter,
+        get_upload_rate_limiter,
+    )
     from app.main import app
+    from app.shared.rate_limiter import ConcurrencyLimiter, RateLimiter
 
     login_limiter = RateLimiter(
         max_attempts=5, window_seconds=60.0, detail="Too many login attempts. Try again later."
@@ -94,8 +100,20 @@ def _fresh_auth_rate_limiters(client):
     register_limiter = RateLimiter(
         max_attempts=5, window_seconds=60.0, detail="Too many registration attempts. Try again later."
     )
+    upload_rate_limiter = RateLimiter(
+        max_attempts=30, window_seconds=60.0, detail="Too many uploads. Try again in a minute."
+    )
+    upload_concurrency_limiter = ConcurrencyLimiter(max_concurrent=5)
+
     app.dependency_overrides[get_login_rate_limiter] = lambda: login_limiter
     app.dependency_overrides[get_register_rate_limiter] = lambda: register_limiter
-    yield login_limiter, register_limiter
-    app.dependency_overrides.pop(get_login_rate_limiter, None)
-    app.dependency_overrides.pop(get_register_rate_limiter, None)
+    app.dependency_overrides[get_upload_rate_limiter] = lambda: upload_rate_limiter
+    app.dependency_overrides[get_upload_concurrency_limiter] = lambda: upload_concurrency_limiter
+    yield login_limiter, register_limiter, upload_rate_limiter, upload_concurrency_limiter
+    for dependency in (
+        get_login_rate_limiter,
+        get_register_rate_limiter,
+        get_upload_rate_limiter,
+        get_upload_concurrency_limiter,
+    ):
+        app.dependency_overrides.pop(dependency, None)

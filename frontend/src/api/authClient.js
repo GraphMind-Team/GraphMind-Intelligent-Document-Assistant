@@ -4,7 +4,9 @@ export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localho
 // 409 duplicate-email case) but a list of {msg, loc, type} objects for
 // Pydantic validation errors (422s). Handle both so the user always sees
 // the real reason, not a status-code dump.
-function formatDetail(detail) {
+// Exported so other clients (documentsClient.js) reuse the same
+// string-or-Pydantic-validation-list handling instead of re-implementing it.
+export function formatDetail(detail) {
   if (typeof detail === 'string') return detail
   if (Array.isArray(detail)) {
     const messages = detail
