@@ -135,4 +135,32 @@ describe('UploadModal file handling', () => {
     // sibling erroring didn't touch it.
     expect(screen.getByRole('progressbar', { name: /slow\.pdf/i })).toBeInTheDocument()
   })
+
+  it('does not cancel an in-flight upload when the modal closes (UX-DR6)', async () => {
+    useAuth.mockReturnValue({ token: 'a-token' })
+
+    // Held open so the upload is genuinely still in flight at unmount,
+    // then resolved afterwards. Guards UX-DR6 against a future "cleanup"
+    // that adds xhr.abort() on unmount: the upload must survive the close
+    // and still write its row, which the parent picks up on refetch.
+    let resolveUpload
+    let abortCalled = false
+    const uploadSpy = vi.spyOn(documentsClient, 'uploadDocument').mockImplementation(() => {
+      const promise = new Promise((resolve) => { resolveUpload = resolve })
+      promise.abort = () => { abortCalled = true }
+      return promise
+    })
+    const user = userEvent.setup()
+
+    const { unmount } = render(<UploadModal onClose={vi.fn()} />)
+    await user.upload(screen.getByLabelText(/choose files to upload/i), makeFile('slow.pdf'))
+    await screen.findByRole('progressbar', { name: /slow\.pdf/i })
+
+    unmount()
+    resolveUpload({ id: 'doc-1' })
+    await Promise.resolve()
+
+    expect(uploadSpy).toHaveBeenCalledTimes(1)
+    expect(abortCalled).toBe(false)
+  })
 })

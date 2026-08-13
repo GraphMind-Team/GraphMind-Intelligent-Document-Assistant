@@ -93,18 +93,6 @@
   summary: Sanitize/validate `filename` if it's ever used as a filesystem path (e.g. a future export or download feature) -- it's currently stored and rendered verbatim (safe today, since it's only ever rendered as escaped React text, never used as a path).
   evidence: Story 2.1 review (blind-hunter) flagged that an uploaded filename can contain path separators or `..` segments; not exploitable by any code that exists today, but worth catching before a future feature trusts it as a path.
 
-- source_spec: `_bmad-output/implementation-artifacts/spec-2-1-upload-documents-with-drag-and-drop-and-per-file-progress.md`
-  summary: >
-    Call `xhr.abort()` in `UploadModal.jsx` when the component unmounts (Cancel/Escape/auto-close
-    while an upload is still in flight), instead of only stopping render.
-  evidence: >
-    Story 2.1 review (verification-gap, "Other findings") traced that closing the modal mid-upload
-    lets the in-flight `XMLHttpRequest`'s `.then`/`.catch` handlers call `setFiles` on an
-    already-unmounted component once it settles. Harmless in practice today (React 18 warns in dev,
-    doesn't crash; the request completes and writes its row regardless), but real cleanup hygiene
-    the component doesn't currently have -- worth an `AbortController`-style guard when this file is
-    next touched.
-
 - source_spec: `_bmad-output/planning-artifacts/epics.md` (Story 2.2: Document library and detail view)
   summary: Add pagination (or a cap + "load more") to `GET /documents` and the Documents table once accounts realistically accumulate more than a page's worth of documents.
   evidence: Story 2.1 review (blind-hunter) noted the endpoint returns every document for a user with no `limit`/`offset`. Not a problem yet (fresh accounts, few documents), but epics.md explicitly leaves document count per user unbounded, so this will matter before Story 2.2's real list UI ships.

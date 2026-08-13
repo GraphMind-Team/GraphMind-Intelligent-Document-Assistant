@@ -51,6 +51,30 @@ export default function UploadModal({ onClose }) {
   const dropzoneRef = useRef(null)
   const fileInputRef = useRef(null)
   const previouslyFocusedRef = useRef(null)
+  const isMountedRef = useRef(true)
+
+  // Tracks whether this component is still mounted, so an upload that
+  // outlives the modal skips its state update on the way back.
+  //
+  // Deliberately NOT an `xhr.abort()`: UX-DR6 requires that closing the
+  // modal never cancels an upload already in flight, so the request must
+  // be allowed to finish and write its row. Only the React state update
+  // is skipped; the request itself is untouched.
+  //
+  // Worth being honest about the scope: React 18 removed the
+  // "state update on an unmounted component" warning and treats such an
+  // update as a silent no-op, so on React 19 this guard prevents no bug
+  // and silences no warning. It's kept as intent documentation -- the
+  // fire-and-forget upload outliving its modal is deliberate, not an
+  // oversight -- and to avoid the pointless map over stale rows. The
+  // load-bearing protection for UX-DR6 is the test asserting the upload
+  // is never aborted, not this ref.
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
 
   // Initial focus + return focus (UX-DR25). Runs once on mount/unmount.
   useEffect(() => {
@@ -112,25 +136,27 @@ export default function UploadModal({ onClose }) {
     return () => document.removeEventListener('keydown', handleKeyDown, true)
   }, [onClose])
 
+  // Every state update below can land after the modal is gone (an upload
+  // outliving its modal is expected here, per UX-DR6 -- see isMountedRef).
+  // Dropping the update rather than applying it to a dead component is the
+  // whole point; the upload itself still completes and still writes a row,
+  // which the parent picks up on its post-close refetch.
+  function updateRowIfMounted(rowId, patch) {
+    if (!isMountedRef.current) return
+    setFiles((prev) => prev.map((item) => (item.id === rowId ? { ...item, ...patch } : item)))
+  }
+
   function startUpload(row) {
-    setFiles((prev) =>
-      prev.map((item) => (item.id === row.id ? { ...item, status: 'uploading', progress: 0 } : item)),
-    )
+    updateRowIfMounted(row.id, { status: 'uploading', progress: 0 })
 
     uploadDocument(token, row.file, (progress) => {
-      setFiles((prev) => prev.map((item) => (item.id === row.id ? { ...item, progress } : item)))
+      updateRowIfMounted(row.id, { progress })
     })
       .then(() => {
-        setFiles((prev) =>
-          prev.map((item) => (item.id === row.id ? { ...item, status: 'success', progress: 100 } : item)),
-        )
+        updateRowIfMounted(row.id, { status: 'success', progress: 100 })
       })
       .catch((err) => {
-        setFiles((prev) =>
-          prev.map((item) =>
-            item.id === row.id ? { ...item, status: 'error', error: err.message } : item,
-          ),
-        )
+        updateRowIfMounted(row.id, { status: 'error', error: err.message })
       })
   }
 
