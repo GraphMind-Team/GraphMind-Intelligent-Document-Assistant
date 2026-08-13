@@ -88,6 +88,20 @@ def test_close_weaviate_client_closes_and_clears_the_singleton(monkeypatch):
     assert weaviate_client_module._client_instance is None
 
 
+def test_close_weaviate_client_also_resets_collection_ready(monkeypatch):
+    """`_collection_ready` describes readiness over the client being
+    closed, not over the process -- leaving it True past `close()` would
+    make a future reconnect skip `_ensure_passage_collection` entirely on
+    a client that's never actually confirmed anything."""
+    monkeypatch.setattr(weaviate_client_module, "_collection_ready", True)
+    fake_client = MagicMock()
+    monkeypatch.setattr(weaviate_client_module, "_client_instance", fake_client)
+
+    close_weaviate_client()
+
+    assert weaviate_client_module._collection_ready is False
+
+
 def test_write_passages_empty_list_never_touches_the_client():
     with patch("app.shared.data_access.weaviate_client.get_weaviate_client") as fake_getter:
         write_passages([])

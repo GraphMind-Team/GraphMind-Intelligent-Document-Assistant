@@ -192,22 +192,34 @@ def ingest_document(
         if document is None:
             return  # deleted between upload and background-task run
 
+        # Captured before the try block, not read off `document` again in
+        # the except block: after a DB-caused failure, `db.rollback()`
+        # can leave the session's objects expired, and re-accessing
+        # `document.id`/`document.user_id` at that point would try to
+        # re-fetch from a session that may itself be why this failed in
+        # the first place -- precisely the case where the cleanup delete
+        # below matters most, and precisely the case an attribute access
+        # could quietly skip it in. Both are already loaded by the time
+        # parsing starts, so capturing them here costs nothing.
+        document_id_str = str(document.id)
+        user_id_str = str(document.user_id)
+
         try:
             document.status = "Extracting"
             db.commit()
 
             chunks = parse_document(document.file_type, document.content)
-            delete_passages_for_document(str(document.id), str(document.user_id))
+            delete_passages_for_document(document_id_str, user_id_str)
             for batch_start in range(0, len(chunks), PASSAGE_BATCH_SIZE):
                 batch = chunks[batch_start : batch_start + PASSAGE_BATCH_SIZE]
                 vectors = embed_texts([chunk.text for chunk in batch])
                 passages = [
                     WeaviatePassage(
                         chunk_id=str(
-                            uuid.uuid5(uuid.NAMESPACE_URL, f"{document.id}:{chunk.chunk_index}")
+                            uuid.uuid5(uuid.NAMESPACE_URL, f"{document_id_str}:{chunk.chunk_index}")
                         ),
-                        document_id=str(document.id),
-                        user_id=str(document.user_id),
+                        document_id=document_id_str,
+                        user_id=user_id_str,
                         chapter=chunk.chapter,
                         chunk_index=chunk.chunk_index,
                         text=chunk.text,
@@ -227,7 +239,9 @@ def ingest_document(
                 # would otherwise be read as a complete, valid document.
                 # Idempotent and safe to call even if the failure happened
                 # before any passage was ever written (deletes zero rows).
-                delete_passages_for_document(str(document.id), str(document.user_id))
+                # Uses the locals captured above, not `document.id`/
+                # `document.user_id` again -- see the comment there.
+                delete_passages_for_document(document_id_str, user_id_str)
             except Exception:
                 # If Weaviate is what's unreachable, this cleanup attempt
                 # fails too -- logged, not re-raised, since the primary

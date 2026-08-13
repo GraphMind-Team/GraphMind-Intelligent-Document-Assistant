@@ -84,12 +84,22 @@ def close_weaviate_client() -> None:
     """Closes the client singleton, if one was ever built. Safe to call
     unconditionally (e.g. from `app.main`'s shutdown) whether or not
     ingestion ever ran -- calling this never itself opens a connection
-    just to immediately close it."""
-    global _client_instance
+    just to immediately close it.
+
+    Also resets `_collection_ready`: that flag describes "the collection
+    was confirmed to exist over the client we currently hold" -- it
+    belongs to the connection being closed here, not to the process. No
+    caller reconnects after closing today, so this is a no-op in
+    practice, but leaving it True would describe a world that no longer
+    exists the moment a future reconnect path is added.
+    """
+    global _client_instance, _collection_ready
     with _client_lock:
         if _client_instance is not None:
             _client_instance.close()
             _client_instance = None
+        with _collection_lock:
+            _collection_ready = False
 
 
 _collection_lock = threading.Lock()
