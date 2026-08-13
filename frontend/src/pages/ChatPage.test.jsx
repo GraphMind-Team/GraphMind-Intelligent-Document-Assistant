@@ -1,0 +1,143 @@
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import ChatPage from './ChatPage'
+import { useAuth } from '../context/AuthContext'
+import * as chatClient from '../api/chatClient'
+
+vi.mock('../context/AuthContext', () => ({ useAuth: vi.fn() }))
+vi.mock('../components/chat/DocumentsScopePanel', () => ({
+  default: () => <div>scope panel stub</div>,
+}))
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
+function renderChatPage() {
+  useAuth.mockReturnValue({ authFetch: vi.fn() })
+  return render(<ChatPage />)
+}
+
+const ANSWER_RESULT = {
+  segments: [
+    {
+      text: "TechCorp's refund window is 30 days.",
+      citations: [{ chapter: 'Chapter 4', document_filename: 'Vendor_Agreement_2026.pdf' }],
+    },
+  ],
+  empty_reason: null,
+}
+
+describe('ChatPage', () => {
+  it('submits via clicking Ask', async () => {
+    vi.spyOn(chatClient, 'askQuestion').mockResolvedValue(ANSWER_RESULT)
+    const user = userEvent.setup()
+    renderChatPage()
+
+    await user.type(screen.getByLabelText(/ask a question/i), 'What is the refund window?')
+    await user.click(screen.getByRole('button', { name: 'Ask' }))
+
+    expect(screen.getByText('What is the refund window?')).toBeInTheDocument()
+    expect(await screen.findByText('Ch. Chapter 4, Vendor_Agreement_2026.pdf')).toBeInTheDocument()
+  })
+
+  it('submits via pressing Enter', async () => {
+    vi.spyOn(chatClient, 'askQuestion').mockResolvedValue(ANSWER_RESULT)
+    const user = userEvent.setup()
+    renderChatPage()
+
+    await user.type(screen.getByLabelText(/ask a question/i), 'What is the refund window?{Enter}')
+
+    expect(screen.getByText('What is the refund window?')).toBeInTheDocument()
+    expect(await screen.findByText('Ch. Chapter 4, Vendor_Agreement_2026.pdf')).toBeInTheDocument()
+  })
+
+  it('renders the user message before the assistant reply arrives', async () => {
+    let resolveAsk
+    vi.spyOn(chatClient, 'askQuestion').mockReturnValue(
+      new Promise((resolve) => {
+        resolveAsk = resolve
+      }),
+    )
+    const user = userEvent.setup()
+    renderChatPage()
+
+    await user.type(screen.getByLabelText(/ask a question/i), 'A question{Enter}')
+
+    expect(screen.getByText('A question')).toBeInTheDocument()
+    expect(screen.queryByText(/Ch\./)).not.toBeInTheDocument()
+
+    resolveAsk({ segments: [], empty_reason: null })
+  })
+
+  it('renders a real <cite> chip with the exact citation text on success', async () => {
+    vi.spyOn(chatClient, 'askQuestion').mockResolvedValue(ANSWER_RESULT)
+    const user = userEvent.setup()
+    renderChatPage()
+
+    await user.type(screen.getByLabelText(/ask a question/i), 'q{Enter}')
+
+    const chip = await screen.findByText('Ch. Chapter 4, Vendor_Agreement_2026.pdf')
+    expect(chip.tagName).toBe('CITE')
+  })
+
+  it('renders a distinct service banner for a 503, never as an assistant message', async () => {
+    const error = new Error('Answer generation is temporarily unavailable. Please try again.')
+    error.isServiceError = true
+    vi.spyOn(chatClient, 'askQuestion').mockRejectedValue(error)
+    const user = userEvent.setup()
+    renderChatPage()
+
+    await user.type(screen.getByLabelText(/ask a question/i), 'q{Enter}')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Something went wrong generating an answer. Please try again.',
+    )
+    // Never appended to the message thread as an assistant bubble.
+    expect(screen.queryByText('Answer generation is temporarily unavailable. Please try again.')).not.toBeInTheDocument()
+  })
+
+  it('renders the generic error path for a non-503 failure', async () => {
+    const error = new Error('The request timed out or the network failed. Please try again.')
+    vi.spyOn(chatClient, 'askQuestion').mockRejectedValue(error)
+    const user = userEvent.setup()
+    renderChatPage()
+
+    await user.type(screen.getByLabelText(/ask a question/i), 'q{Enter}')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The request timed out or the network failed. Please try again.',
+    )
+  })
+
+  it('renders distinct plain notices for "no_documents" vs "no_answer", neither as a bubble', async () => {
+    vi.spyOn(chatClient, 'askQuestion').mockResolvedValueOnce({ segments: [], empty_reason: 'no_documents' })
+    const user = userEvent.setup()
+    renderChatPage()
+
+    await user.type(screen.getByLabelText(/ask a question/i), 'q1{Enter}')
+    const noDocumentsNotice = await screen.findByText('No documents are available to search yet.')
+    expect(noDocumentsNotice.tagName).toBe('P')
+    expect(noDocumentsNotice).not.toHaveClass('bg-surface')
+
+    vi.spyOn(chatClient, 'askQuestion').mockResolvedValueOnce({ segments: [], empty_reason: 'no_answer' })
+    await user.type(screen.getByLabelText(/ask a question/i), 'q2{Enter}')
+    const noAnswerNotice = await screen.findByText('GraphMind could not generate an answer for this question.')
+    expect(noAnswerNotice.tagName).toBe('P')
+    expect(noAnswerNotice).not.toHaveClass('bg-surface')
+
+    // The two notices are distinguishable from each other...
+    expect(noDocumentsNotice.textContent).not.toBe(noAnswerNotice.textContent)
+    // ...and the earlier notice is still present (persists in the thread).
+    expect(screen.getByText('No documents are available to search yet.')).toBeInTheDocument()
+  })
+
+  it('carries aria-live="polite" on the message list', () => {
+    renderChatPage()
+
+    const liveRegion = document.querySelector('[aria-live="polite"]')
+    expect(liveRegion).toBeInTheDocument()
+    expect(liveRegion).toHaveAttribute('aria-atomic', 'false')
+  })
+})

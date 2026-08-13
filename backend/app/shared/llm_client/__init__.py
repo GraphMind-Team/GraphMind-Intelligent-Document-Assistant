@@ -29,6 +29,8 @@ from dataclasses import dataclass, field
 
 import httpx
 
+from app.shared.data_access.shapes import WeaviateSearchResult
+
 logger = logging.getLogger(__name__)
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -86,6 +88,39 @@ _TIMEOUT_SECONDS = 120.0
 # threadpool, off the event loop, with no user waiting synchronously.
 _RETRY_DELAY_SECONDS = 3.0
 _MAX_RETRY_DELAY_SECONDS = 30.0
+
+# Timeout/retry budget for chat-answer generation (Story 3.1) -- deliberately
+# different numbers from extraction's above, not a copy-paste. Extraction runs
+# in a background ingestion task with no user waiting synchronously, hence its
+# generous 120s/3-attempt budget. A chat answer is requested synchronously by
+# a waiting user, which argues for a *tighter* budget -- but DEFAULT_MODEL's
+# own docstring below records that this same free-tier model took ~32s even
+# for a short prompt. An aggressively tight timeout tuned only against NFR-1's
+# 8s p95 target would make the happy path fail almost every time (retry then
+# 503), which defeats the point of this story. 45s/attempt is chosen against
+# that measured reality instead: generous enough for a real call to actually
+# complete, still bounded (2 attempts, retry delay capped at
+# _MAX_RETRY_DELAY_SECONDS above) rather than open-ended. NFR-1 (p95 < 8s) is
+# knowingly NOT met by this configuration -- worst case across both attempts
+# is ~120s (45s + up to 30s of a 429's own Retry-After + 45s). The real fix is
+# a faster model via OPENROUTER_CHAT_MODEL below, once one is chosen; this
+# story documents the deviation rather than pretending a tighter number would
+# have solved it.
+_CHAT_TIMEOUT_SECONDS = 45.0
+_CHAT_MAX_ATTEMPTS = 2
+_CHAT_RETRY_DELAY_SECONDS = 3.0
+
+# Budgets ONLY the assembled passage block handed to the model -- not the
+# surrounding instruction/numbering scaffolding, and not the question itself
+# (bounded separately by chat/schemas.py's AskRequest.max_length=2000). Both
+# sit on top of this budget as unaccounted-for reserve; a future increase to
+# that max_length should revisit this number too, since together they bound
+# the effective prompt size sent to the free 20b model's context window.
+# Passages are dropped wholesale from the tail of the (already
+# nearest-first-ordered) list once the next one wouldn't fit -- never
+# truncated mid-passage, since a half-sentence passage is worse context than
+# one fewer whole passage.
+_MAX_PROMPT_CHARS = 6000
 
 _SYSTEM_PROMPT = (
     "You extract entities and relationships from a document's text for a "
@@ -374,3 +409,272 @@ def _parse_and_validate(content: str) -> ExtractionResult:
         )
 
     return ExtractionResult(entities=entities, relationships=relationships)
+
+
+# ---------------------------------------------------------------------------
+# Chat-answer generation (Story 3.1) -- this module's own docstring above
+# anticipated this addition living here ("chat/refusal-short-circuit logic
+# is Epic 3's later addition to this same package"). Kept in the same file
+# as extraction rather than split into a submodule: the addition is small
+# enough (one public function, one exception type, a prompt builder, a
+# parse/validate helper) that a split isn't yet earning its keep.
+# ---------------------------------------------------------------------------
+
+_CHAT_SYSTEM_PROMPT_TEMPLATE = (
+    "You answer a question using ONLY the numbered passages below. Respond "
+    "with strict JSON only -- no prose, no markdown code fences -- matching "
+    'exactly this shape: {{"segments": [{{"text": "...", "passage_numbers": '
+    '[1, 2]}}]}}. Each "text" is one claim-bearing sentence or clause of your '
+    "answer. Every segment's \"passage_numbers\" must list every passage (by "
+    "its number below) that supports that segment's claim -- never leave "
+    "this list empty for a claim-bearing segment. Use only information "
+    "present in the passages; do not invent facts. If the passages do not "
+    'support any answer at all, respond with {{"segments": []}}.\n\n{passages}'
+)
+
+
+@dataclass(frozen=True)
+class AnswerSegment:
+    """One piece of a generated chat answer, as parsed from the LLM's JSON
+    response and already validated against the passages it was given --
+    never an out-of-range passage reference, and never a claim-bearing
+    segment left without at least one valid citation (this is where FR-9/
+    the story's AC6 guarantee is actually enforced, in code, not just in
+    the prompt)."""
+
+    text: str
+    passage_numbers: list[int]  # 1-based, indexes into the passages `generate_answer` was called with
+
+
+@dataclass(frozen=True)
+class AnswerResult:
+    """Return shape of `generate_answer`. An empty result (`segments=[]`)
+    is a valid, non-error outcome -- the model finding nothing in the
+    given passages worth answering with mirrors `ExtractionResult`'s "no
+    notable entities" precedent, not a failure this function should raise
+    for."""
+
+    segments: list[AnswerSegment] = field(default_factory=list)
+
+
+class ChatCompletionError(Exception):
+    """Raised when OpenRouter can't be reached, times out, or returns a
+    malformed/unparseable response to a chat-answer request, after the
+    retry budget is exhausted -- or immediately for a non-retryable
+    failure. Distinct from `ExtractionError`: `chat/service.py` catches
+    ONLY this exception and turns it into `HTTPException(503, ...)` per
+    AD-3/AD-6 -- the two call sites (background document ingestion vs.
+    synchronous live chat) must never be conflated by a shared except
+    clause, since a 503 belongs only to the synchronous chat path.
+
+    `generate_answer` is only ever called with at least one passage
+    (`chat/service.py`'s own responsibility, enforced before this
+    function is ever reached) -- so this exception can never mean "there
+    was nothing to answer from"; that's a distinct, earlier branch in the
+    service layer, never this wrapper's concern."""
+
+
+class _RetryableChatError(Exception):
+    """Internal: mirrors `_RetryableExtractionError`'s triggers exactly
+    (a transport-level failure, a 429 rate limit, or a malformed/wrong-
+    shape response), but is a separate class -- a future change to
+    extraction's retry semantics must never silently affect chat's
+    independently-tuned budget via a shared base class."""
+
+    def __init__(self, message: str, *, retry_after: float | None = None):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+def _select_passages_within_budget(passages: list[WeaviateSearchResult]) -> list[WeaviateSearchResult]:
+    """Passages that fit inside `_MAX_PROMPT_CHARS`, preserving the
+    caller's (nearest-first) order. Drops whole passages from the tail
+    once the next one wouldn't fit -- see `_MAX_PROMPT_CHARS`'s own
+    comment for why this never truncates a passage's text mid-way."""
+    selected: list[WeaviateSearchResult] = []
+    used_chars = 0
+    for index, passage in enumerate(passages, start=1):
+        line_len = len(f"Passage {index} (Chapter: {passage.chapter}): {passage.text}\n")
+        if used_chars + line_len > _MAX_PROMPT_CHARS:
+            break
+        selected.append(passage)
+        used_chars += line_len
+    return selected
+
+
+def _build_chat_system_prompt(passages: list[WeaviateSearchResult]) -> str:
+    passage_block = "\n".join(
+        f"Passage {index} (Chapter: {passage.chapter}): {passage.text}"
+        for index, passage in enumerate(passages, start=1)
+    )
+    return _CHAT_SYSTEM_PROMPT_TEMPLATE.format(passages=passage_block)
+
+
+def generate_answer(question: str, passages: list[WeaviateSearchResult]) -> AnswerResult:
+    """A question plus its retrieved passages -> a structured, citable
+    answer. Callers (`chat/service.py`) must only call this with a
+    non-empty `passages` list -- an empty-library/no-retrieval-results
+    case is that caller's own degenerate branch, never this function's.
+
+    Retries up to `_CHAT_MAX_ATTEMPTS` total on a timeout, a 5xx, a 429,
+    or a malformed/unparseable response -- the same treatment
+    `extract_entities_and_relationships` gives those conditions, on a
+    much tighter, chat-appropriate budget (see `_CHAT_TIMEOUT_SECONDS`'s
+    comment for why the numbers differ). A 429's own `Retry-After` header
+    overrides the local backoff schedule, same as extraction.
+
+    Raises `ChatCompletionError` once attempts are exhausted (or
+    immediately for a non-retryable failure) -- callers never see the
+    underlying `httpx`/`json` exception directly.
+    """
+    included_passages = _select_passages_within_budget(passages)
+    system_prompt = _build_chat_system_prompt(included_passages)
+
+    last_error: Exception | None = None
+    for attempt in range(1, _CHAT_MAX_ATTEMPTS + 1):
+        try:
+            content = _call_openrouter_for_chat(system_prompt, question)
+            return _parse_and_validate_answer(content, len(included_passages))
+        except _RetryableChatError as exc:
+            last_error = exc
+            logger.warning(
+                "generate_answer: attempt %s/%s failed: %s", attempt, _CHAT_MAX_ATTEMPTS, exc
+            )
+            if attempt < _CHAT_MAX_ATTEMPTS:
+                delay = exc.retry_after
+                if delay is None:
+                    delay = min(
+                        _CHAT_RETRY_DELAY_SECONDS * (2 ** (attempt - 1)),
+                        _MAX_RETRY_DELAY_SECONDS,
+                    )
+                logger.info("Retrying chat generation in %.1fs", delay)
+                time.sleep(delay)
+    raise ChatCompletionError(
+        f"OpenRouter chat generation failed after {_CHAT_MAX_ATTEMPTS} attempts"
+    ) from last_error
+
+
+def _call_openrouter_for_chat(system_prompt: str, question: str) -> str:
+    """Issues the chat-completion call for a generated answer and returns
+    the raw message content -- not parsed here, mirrors `_call_openrouter`'s
+    split so the retry loop can treat "the network failed" and "the
+    response body was garbage" uniformly via `_RetryableChatError`."""
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "Missing required environment variable: OPENROUTER_API_KEY. "
+            "See backend/.env.example."
+        )
+    # Independent of OPENROUTER_MODEL (extraction's own override, above) --
+    # lets a faster model be swapped in for chat generation later purely via
+    # configuration, without touching extraction's separately-tuned choice.
+    model = os.environ.get("OPENROUTER_CHAT_MODEL", DEFAULT_MODEL)
+
+    try:
+        response = httpx.post(
+            OPENROUTER_URL,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": question},
+                ],
+                "response_format": {"type": "json_object"},
+            },
+            timeout=_CHAT_TIMEOUT_SECONDS,
+        )
+    except httpx.TimeoutException as exc:
+        raise _RetryableChatError(f"OpenRouter chat request timed out: {exc}") from exc
+    except httpx.TransportError as exc:
+        raise _RetryableChatError(f"OpenRouter chat request failed: {exc}") from exc
+
+    if response.status_code >= 500:
+        raise _RetryableChatError(
+            f"OpenRouter returned {response.status_code}: {response.text[:500]}"
+        )
+    # 429 is retried and honors Retry-After, same reasoning as extraction's
+    # own handling above -- free-tier rate-limiting is the more likely
+    # failure mode here than a genuine 5xx/timeout.
+    if response.status_code == 429:
+        raise _RetryableChatError(
+            f"OpenRouter rate-limited the chat request (429): {response.text[:500]}",
+            retry_after=_parse_retry_after(response),
+        )
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise ChatCompletionError(
+            f"OpenRouter returned a non-retryable {response.status_code}: {response.text[:500]}"
+        ) from exc
+
+    try:
+        body = response.json()
+        return body["choices"][0]["message"]["content"]
+    except (json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
+        raise _RetryableChatError(
+            f"OpenRouter chat response missing choices[0].message.content: {exc}"
+        ) from exc
+
+
+def _parse_and_validate_answer(content: str, passage_count: int) -> AnswerResult:
+    """Parses the model's JSON string and enforces, in code, that every
+    segment reaching the caller carries at least one valid citation --
+    never trusting the prompt's own instruction alone to hold (mirrors
+    `_parse_and_validate`'s OD-1 enforcement for extraction). An
+    out-of-range `passage_numbers` entry is dropped individually
+    (logged); a segment left with zero valid numbers after filtering is
+    dropped entirely -- an uncited claim-bearing sentence must never
+    reach the frontend, since that's exactly the guarantee FR-9/AC6
+    require. `{"segments": []}` is a valid, non-error outcome (mirrors
+    extraction's "empty is not a failure")."""
+    try:
+        payload = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise _RetryableChatError(f"OpenRouter returned malformed JSON: {exc}") from exc
+
+    if not isinstance(payload, dict):
+        raise _RetryableChatError("OpenRouter JSON response was not a JSON object")
+
+    raw_segments = payload.get("segments", [])
+    if not isinstance(raw_segments, list):
+        raise _RetryableChatError("OpenRouter JSON response's segments was not a list")
+
+    segments: list[AnswerSegment] = []
+    for item in raw_segments:
+        if not isinstance(item, dict):
+            logger.warning("Dropping malformed answer segment (not an object): %r", item)
+            continue
+        text = item.get("text")
+        raw_numbers = item.get("passage_numbers", [])
+        if not isinstance(text, str) or not text.strip():
+            logger.warning("Dropping answer segment with missing/blank text: %r", item)
+            continue
+        if not isinstance(raw_numbers, list):
+            logger.warning("Dropping answer segment with non-list passage_numbers: %r", item)
+            continue
+
+        valid_numbers = [
+            n
+            for n in raw_numbers
+            if isinstance(n, int) and not isinstance(n, bool) and 1 <= n <= passage_count
+        ]
+        invalid_numbers = [n for n in raw_numbers if n not in valid_numbers]
+        if invalid_numbers:
+            logger.warning(
+                "Dropping out-of-range passage_numbers %r from answer segment %r "
+                "(valid range: 1-%s)",
+                invalid_numbers,
+                text,
+                passage_count,
+            )
+        if not valid_numbers:
+            logger.warning("Dropping answer segment with no valid citations: %r", item)
+            continue
+
+        segments.append(AnswerSegment(text=text.strip(), passage_numbers=valid_numbers))
+
+    return AnswerResult(segments=segments)

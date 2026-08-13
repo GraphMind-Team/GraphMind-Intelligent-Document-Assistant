@@ -1,0 +1,297 @@
+"""`shared/llm_client.generate_answer` tests (Story 3.1): the structured-
+citation JSON contract, out-of-range/uncited-segment dropping, the empty-
+result-is-not-an-error outcome, the chat-tuned retry budget (timeout/5xx/
+429/malformed JSON, honoring Retry-After), the non-retryable-4xx path, the
+prompt-size budget dropping whole trailing passages, and the
+OPENROUTER_CHAT_MODEL override. Mirrors `test_entity_extraction.py`'s
+approach: mocks `httpx.post`, builds real `httpx.Response` objects so
+`raise_for_status` behaves correctly, and monkeypatches `time.sleep`.
+"""
+
+import json
+
+import httpx
+import pytest
+
+from app.shared import llm_client as llm_client_module
+from app.shared.data_access.shapes import WeaviateSearchResult
+from app.shared.llm_client import (
+    AnswerResult,
+    ChatCompletionError,
+    generate_answer,
+)
+
+_REQUEST = httpx.Request("POST", llm_client_module.OPENROUTER_URL)
+
+
+def _openrouter_response(status_code, *, content=None, body=None, headers=None):
+    if body is None:
+        body = {"choices": [{"message": {"content": content}}]}
+    return httpx.Response(status_code, json=body, request=_REQUEST, headers=headers)
+
+
+@pytest.fixture(autouse=True)
+def _openrouter_api_key(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.delenv("OPENROUTER_CHAT_MODEL", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_sleeping(monkeypatch):
+    slept = []
+    monkeypatch.setattr(llm_client_module.time, "sleep", slept.append)
+    return slept
+
+
+def _passage(chunk_id="chunk-0", document_id="doc-1", chapter="Chapter One", text="passage text"):
+    return WeaviateSearchResult(
+        chunk_id=chunk_id,
+        document_id=document_id,
+        chapter=chapter,
+        chunk_index=0,
+        text=text,
+        distance=0.1,
+    )
+
+
+def _valid_content(passage_numbers=(1,)):
+    return json.dumps(
+        {"segments": [{"text": "TechCorp's refund window is 30 days.", "passage_numbers": list(passage_numbers)}]}
+    )
+
+
+def test_generate_answer_raises_when_api_key_missing(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    with pytest.raises(RuntimeError, match="OPENROUTER_API_KEY"):
+        generate_answer("What is the refund window?", [_passage()])
+
+
+def test_generate_answer_returns_segments_with_resolved_citations_on_success(monkeypatch):
+    monkeypatch.setattr(
+        llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content=_valid_content())
+    )
+
+    result = generate_answer("What is the refund window?", [_passage()])
+
+    assert isinstance(result, AnswerResult)
+    assert len(result.segments) == 1
+    assert result.segments[0].text == "TechCorp's refund window is 30 days."
+    assert result.segments[0].passage_numbers == [1]
+
+
+def test_generate_answer_empty_segments_is_a_valid_outcome_not_an_error(monkeypatch):
+    monkeypatch.setattr(
+        llm_client_module.httpx,
+        "post",
+        lambda *a, **k: _openrouter_response(200, content=json.dumps({"segments": []})),
+    )
+
+    result = generate_answer("An unanswerable question", [_passage()])
+
+    assert result.segments == []
+
+
+def test_generate_answer_drops_out_of_range_passage_number_but_keeps_valid_ones(monkeypatch, caplog):
+    content = json.dumps(
+        {"segments": [{"text": "A claim.", "passage_numbers": [1, 99]}]}
+    )
+    monkeypatch.setattr(llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content=content))
+
+    with caplog.at_level("WARNING"):
+        result = generate_answer("q", [_passage()])
+
+    assert len(result.segments) == 1
+    assert result.segments[0].passage_numbers == [1]
+    assert "out-of-range" in caplog.text
+
+
+def test_generate_answer_drops_segment_with_no_valid_citations(monkeypatch):
+    content = json.dumps(
+        {
+            "segments": [
+                {"text": "Uncited claim.", "passage_numbers": [99]},
+                {"text": "Cited claim.", "passage_numbers": [1]},
+            ]
+        }
+    )
+    monkeypatch.setattr(llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content=content))
+
+    result = generate_answer("q", [_passage()])
+
+    assert [s.text for s in result.segments] == ["Cited claim."]
+
+
+def test_generate_answer_drops_segment_with_blank_text(monkeypatch):
+    content = json.dumps({"segments": [{"text": "  ", "passage_numbers": [1]}]})
+    monkeypatch.setattr(llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content=content))
+
+    result = generate_answer("q", [_passage()])
+
+    assert result.segments == []
+
+
+def test_generate_answer_retries_once_on_a_5xx_then_succeeds(monkeypatch):
+    calls = []
+
+    def _fake_post(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            return _openrouter_response(503, body={"error": "unavailable"})
+        return _openrouter_response(200, content=_valid_content())
+
+    monkeypatch.setattr(llm_client_module.httpx, "post", _fake_post)
+
+    result = generate_answer("q", [_passage()])
+
+    assert len(calls) == 2
+    assert len(result.segments) == 1
+
+
+def test_generate_answer_retries_once_on_a_timeout_then_succeeds(monkeypatch):
+    calls = []
+
+    def _fake_post(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise httpx.TimeoutException("timed out")
+        return _openrouter_response(200, content=_valid_content())
+
+    monkeypatch.setattr(llm_client_module.httpx, "post", _fake_post)
+
+    result = generate_answer("q", [_passage()])
+
+    assert len(calls) == 2
+    assert len(result.segments) == 1
+
+
+def test_generate_answer_retries_once_on_malformed_json_then_succeeds(monkeypatch):
+    calls = []
+
+    def _fake_post(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            return _openrouter_response(200, content="not valid json{{{")
+        return _openrouter_response(200, content=_valid_content())
+
+    monkeypatch.setattr(llm_client_module.httpx, "post", _fake_post)
+
+    result = generate_answer("q", [_passage()])
+
+    assert len(calls) == 2
+    assert len(result.segments) == 1
+
+
+def test_generate_answer_raises_chat_completion_error_after_retries_exhausted(monkeypatch):
+    calls = []
+
+    def _fake_post(*args, **kwargs):
+        calls.append(1)
+        return _openrouter_response(503, body={"error": "unavailable"})
+
+    monkeypatch.setattr(llm_client_module.httpx, "post", _fake_post)
+
+    with pytest.raises(ChatCompletionError):
+        generate_answer("q", [_passage()])
+
+    assert len(calls) == llm_client_module._CHAT_MAX_ATTEMPTS
+
+
+def test_generate_answer_a_4xx_response_is_not_retried(monkeypatch):
+    calls = []
+
+    def _fake_post(*args, **kwargs):
+        calls.append(1)
+        return _openrouter_response(401, body={"error": "invalid api key"})
+
+    monkeypatch.setattr(llm_client_module.httpx, "post", _fake_post)
+
+    with pytest.raises(ChatCompletionError):
+        generate_answer("q", [_passage()])
+
+    assert len(calls) == 1
+
+
+def test_generate_answer_retries_a_429_rate_limit_and_can_still_succeed(monkeypatch):
+    calls = []
+
+    def _fake_post(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            return _openrouter_response(429, body={"error": {"message": "rate-limited", "code": 429}})
+        return _openrouter_response(200, content=_valid_content())
+
+    monkeypatch.setattr(llm_client_module.httpx, "post", _fake_post)
+
+    result = generate_answer("q", [_passage()])
+
+    assert len(calls) == 2
+    assert len(result.segments) == 1
+
+
+def test_generate_answer_honours_a_429_retry_after_header(monkeypatch, _no_real_sleeping):
+    def _fake_post(*args, **kwargs):
+        return _openrouter_response(429, body={"error": "slow down"}, headers={"Retry-After": "12"})
+
+    monkeypatch.setattr(llm_client_module.httpx, "post", _fake_post)
+
+    with pytest.raises(ChatCompletionError):
+        generate_answer("q", [_passage()])
+
+    assert _no_real_sleeping == [12.0]
+
+
+def test_generate_answer_uses_default_model_when_chat_model_env_unset(monkeypatch):
+    captured = {}
+
+    def _fake_post(*args, **kwargs):
+        captured["model"] = kwargs["json"]["model"]
+        return _openrouter_response(200, content=_valid_content())
+
+    monkeypatch.setattr(llm_client_module.httpx, "post", _fake_post)
+
+    generate_answer("q", [_passage()])
+
+    assert captured["model"] == llm_client_module.DEFAULT_MODEL
+
+
+def test_generate_answer_uses_openrouter_chat_model_override_when_set(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_CHAT_MODEL", "some/faster-model:free")
+    captured = {}
+
+    def _fake_post(*args, **kwargs):
+        captured["model"] = kwargs["json"]["model"]
+        return _openrouter_response(200, content=_valid_content())
+
+    monkeypatch.setattr(llm_client_module.httpx, "post", _fake_post)
+
+    generate_answer("q", [_passage()])
+
+    assert captured["model"] == "some/faster-model:free"
+
+
+def test_generate_answer_prompt_budget_drops_whole_trailing_passages(monkeypatch):
+    """A passage too large to fit is dropped wholesale (not truncated
+    mid-passage), and the numbering the model is shown -- and validated
+    against on the way back -- only covers the passages actually
+    included."""
+    monkeypatch.setattr(llm_client_module, "_MAX_PROMPT_CHARS", 200)
+    small_passage = _passage(chunk_id="chunk-0", text="short")
+    huge_passage = _passage(chunk_id="chunk-1", text="x" * 500)
+
+    captured = {}
+
+    def _fake_post(*args, **kwargs):
+        captured["system_prompt"] = kwargs["json"]["messages"][0]["content"]
+        # The model is asked to cite passage 2 -- which doesn't exist in the
+        # trimmed prompt, since only passage 1 fit the budget.
+        return _openrouter_response(200, content=_valid_content(passage_numbers=[2]))
+
+    monkeypatch.setattr(llm_client_module.httpx, "post", _fake_post)
+
+    result = generate_answer("q", [small_passage, huge_passage])
+
+    assert "Passage 2" not in captured["system_prompt"]
+    # passage_numbers=[2] is out of range against only 1 included passage,
+    # so the segment citing it is dropped entirely.
+    assert result.segments == []

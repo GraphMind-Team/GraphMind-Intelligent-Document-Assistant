@@ -13,13 +13,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.shared.data_access import weaviate_client as weaviate_client_module
-from app.shared.data_access.shapes import WeaviatePassage
+from app.shared.data_access.shapes import WeaviatePassage, WeaviateSearchResult
 from app.shared.data_access.weaviate_client import (
     PASSAGE_BATCH_SIZE,
     close_weaviate_client,
     delete_passages_for_document,
     ensure_ready,
     get_weaviate_client,
+    search_passages,
     write_passages,
 )
 
@@ -326,3 +327,80 @@ def test_write_passages_batches_insert_many_for_large_documents(monkeypatch):
     assert inserted_total == passage_count
     for call in fake_collection.data.insert_many.call_args_list:
         assert len(call.args[0]) <= PASSAGE_BATCH_SIZE
+
+
+def _fake_weaviate_object(chunk_id, document_id="doc-1", chapter="Chapter One", chunk_index=0, text="text", distance=0.1):
+    obj = MagicMock()
+    obj.properties = {
+        "chunk_id": chunk_id,
+        "document_id": document_id,
+        "chapter": chapter,
+        "chunk_index": chunk_index,
+        "text": text,
+    }
+    obj.metadata = MagicMock(distance=distance)
+    return obj
+
+
+def test_search_passages_filters_on_user_id_and_returns_mapped_results(monkeypatch):
+    fake_client, fake_collection = _fake_client(exists=True)
+    fake_collection.query.near_vector.return_value = MagicMock(
+        objects=[_fake_weaviate_object("chunk-0", distance=0.05), _fake_weaviate_object("chunk-1", distance=0.2)]
+    )
+    monkeypatch.setattr(
+        "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: fake_client
+    )
+
+    results = search_passages([0.1, 0.2, 0.3], "user-1", limit=8)
+
+    fake_collection.query.near_vector.assert_called_once()
+    call_kwargs = fake_collection.query.near_vector.call_args.kwargs
+    assert call_kwargs["near_vector"] == [0.1, 0.2, 0.3]
+    assert call_kwargs["limit"] == 8
+    assert "filters" in call_kwargs
+    assert "return_metadata" in call_kwargs
+
+    assert len(results) == 2
+    assert isinstance(results[0], WeaviateSearchResult)
+    assert results[0].chunk_id == "chunk-0"
+    assert results[0].document_id == "doc-1"
+    assert results[0].distance == 0.05
+
+
+def test_search_passages_returns_empty_list_for_no_matches(monkeypatch):
+    fake_client, fake_collection = _fake_client(exists=True)
+    fake_collection.query.near_vector.return_value = MagicMock(objects=[])
+    monkeypatch.setattr(
+        "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: fake_client
+    )
+
+    results = search_passages([0.1], "user-1")
+
+    assert results == []
+
+
+def test_search_passages_creates_collection_when_missing(monkeypatch):
+    fake_client, fake_collection = _fake_client(exists=False)
+    fake_collection.query.near_vector.return_value = MagicMock(objects=[])
+    monkeypatch.setattr(
+        "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: fake_client
+    )
+
+    search_passages([0.1], "user-1")
+
+    fake_client.collections.create.assert_called_once()
+
+
+def test_search_passages_default_limit_is_top_k_passages(monkeypatch):
+    fake_client, fake_collection = _fake_client(exists=True)
+    fake_collection.query.near_vector.return_value = MagicMock(objects=[])
+    monkeypatch.setattr(
+        "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: fake_client
+    )
+
+    search_passages([0.1], "user-1")
+
+    assert (
+        fake_collection.query.near_vector.call_args.kwargs["limit"]
+        == weaviate_client_module.TOP_K_PASSAGES
+    )
