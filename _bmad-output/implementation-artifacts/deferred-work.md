@@ -114,3 +114,32 @@
 - source_spec: `_bmad-output/planning-artifacts/epics.md` (Story 2.3: Parse and index documents into the vector store)
   summary: Author a `spec-2-3-parse-and-index-documents-into-the-vector-store.md` under `_bmad-output/implementation-artifacts/`, matching the pattern every other shipped story (1.1/1.2/1.5/2.1/2.2) has -- 2.3 was implemented directly against `epics.md`'s acceptance criteria plus `epic-2-context.md`, with no dedicated spec file of its own.
   evidence: Noted during a Story 2.3 review round; `sprint-status.yaml` and `deferred-work.md`'s own entries for 2.3 both reference `epics.md` directly rather than a spec file, unlike every neighboring story. Not a code defect -- a process/documentation gap worth closing before 2.4 sets the same precedent.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-extract-entities-into-the-unified-graph-with-compensating-ro.md`
+  summary: >
+    Benchmark `documents/service.py`'s `EXTRACTION_CHAR_BUDGET` (12,000 characters, ~3k tokens) against
+    a real long document, and reconsider the truncation strategy if it's cutting off entities/
+    relationships that matter -- today it's a straight head-of-document truncation (the first
+    12,000 characters of concatenated chapter text, in parse order), so any content past that point
+    is invisible to entity extraction even though it's still fully indexed (untruncated) in Weaviate.
+  evidence: >
+    Design Notes explicitly flag this as "not benchmarked against a real long document" -- the
+    budget was picked as a conservative fit under free-tier OpenRouter context limits alongside the
+    extraction prompt itself, not derived from measuring extraction quality on an actual large
+    upload. A document whose most graph-relevant content sits late (e.g. an appendix, a contacts
+    list, a conclusion) would silently lose that content to extraction with no error or warning.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-extract-entities-into-the-unified-graph-with-compensating-ro.md`
+  summary: >
+    `neo4j_client.py`'s AD-4 exact-match/near-match `MERGE` claims (`test_neo4j_client.py`) are
+    verified against a fake transaction recorder that asserts the Cypher/params sent, not against a
+    real or embedded Neo4j engine actually executing a `MERGE`. A regression that changed `MERGE` to
+    `CREATE` would only be caught by one general test asserting `"MERGE (e:Entity" in query`, not by
+    the exact-match/near-match tests themselves -- they'd still pass. No integration test against a
+    real Neo4j instance exists anywhere in the suite (CI has no Neo4j service).
+  evidence: >
+    Raised independently by two of three adversarial review passes on Story 2.4. Mitigated, not
+    eliminated: `ensure_ready()` now creates a `(name, type, user_id)` uniqueness constraint at
+    startup (best-effort, logged not fatal) specifically so a real Neo4j instance enforces the
+    "one node, not two" guarantee even if application-level `MERGE` logic regresses -- but that
+    constraint itself is untested against a live database for the same CI reason.

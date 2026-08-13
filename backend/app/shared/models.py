@@ -8,7 +8,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, LargeBinary, String, Uuid, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, LargeBinary, String, Uuid, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -49,6 +49,17 @@ class Document(Base):
     (`Uploaded`/`Extracting`/`Graphing`/`Ready`/`Failed`) as a plain string,
     not a DB enum -- this story only ever writes `Uploaded`; Story 2.3+
     advances it.
+
+    `chapter_breakdown` (Story 2.4, deferred from 2.2/2.3 -- see the spec
+    change log in `spec-2-4-...md`) is `dict[chapter_name] -> passage_count`,
+    populated once, only in the same commit that sets `status = "Ready"`.
+    `sa.JSON` (the dialect-agnostic generic type), not `postgresql.JSONB`:
+    `backend/tests/conftest.py` runs the suite against `sqlite:///:memory:`,
+    which has no JSONB support, but both dialects support `JSON`. Nullable,
+    defaulting to `None` -- a document that never reaches `Ready` (still
+    `Extracting`/`Graphing`, or `Failed`) keeps this column `None`, never a
+    fabricated `{}` (mirrors UX-DR8's "Pending, never a fabricated 0" rule
+    on the frontend).
     """
 
     __tablename__ = "documents"
@@ -63,3 +74,4 @@ class Document(Base):
     status: Mapped[str] = mapped_column(String, nullable=False)
     content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    chapter_breakdown: Mapped[dict | None] = mapped_column(JSON, nullable=True)

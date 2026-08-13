@@ -66,6 +66,36 @@ describe('DocumentDetailPage', () => {
     expect(screen.getByText(/chapter breakdown appears once/i)).toBeInTheDocument()
   })
 
+  it('renders real chapter and passage values, not Pending, once the document is Ready', async () => {
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    vi.spyOn(documentsClient, 'getDocument').mockResolvedValue({
+      ...UPLOADED_DOC,
+      status: 'Ready',
+      chapter_breakdown: { 'Chapter One': 5, 'Chapter Two': 7, 'Chapter Three': 9 },
+    })
+
+    renderDetail()
+
+    expect(await screen.findByText('Chapters')).toBeInTheDocument()
+    // 3 chapters, 21 passages total (5 + 7 + 9) -- derived client-side from
+    // chapter_breakdown, not separately stored/fetched. Values chosen with
+    // no collisions against each other or against the per-chapter counts
+    // below, so each `getByText` match is unambiguous.
+    expect(screen.getByText('3')).toBeInTheDocument()
+    expect(screen.getByText('21')).toBeInTheDocument()
+    expect(screen.queryByText('Pending')).not.toBeInTheDocument()
+
+    // The chapter breakdown list itself, in the backend's insertion order,
+    // each with its own passage count.
+    expect(screen.getByText('Chapter One')).toBeInTheDocument()
+    expect(screen.getByText('5')).toBeInTheDocument()
+    expect(screen.getByText('Chapter Two')).toBeInTheDocument()
+    expect(screen.getByText('7')).toBeInTheDocument()
+    expect(screen.getByText('Chapter Three')).toBeInTheDocument()
+    expect(screen.getByText('9')).toBeInTheDocument()
+    expect(screen.queryByText(/chapter breakdown appears once/i)).not.toBeInTheDocument()
+  })
+
   it('renders the document title as plain text, never as markup', async () => {
     useAuth.mockReturnValue({ authFetch: vi.fn() })
     const hostileName = '<img src=x onerror="alert(1)">.md'

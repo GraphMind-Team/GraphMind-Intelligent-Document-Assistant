@@ -21,3 +21,8 @@ class DocumentResponse(BaseModel):
     file_size_bytes: int
     status: str
     created_at: datetime
+    # Story 2.4: `dict[chapter_name] -> passage_count`, only ever populated
+    # in the same commit that sets `status = "Ready"`. `None` for every
+    # other status -- the frontend's Document Detail page renders "Pending"
+    # rather than treating `None`/missing as zero (UX-DR8).
+    chapter_breakdown: dict[str, int] | None = None

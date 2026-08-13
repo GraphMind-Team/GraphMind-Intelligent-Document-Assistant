@@ -31,6 +31,7 @@ from app.auth.routes import router as auth_router
 from app.chat.routes import router as chat_router
 from app.documents.routes import router as documents_router
 from app.kg.routes import router as kg_router
+from app.shared.data_access.neo4j_client import close_neo4j_driver, ensure_ready as ensure_neo4j_ready
 from app.shared.data_access.weaviate_client import close_weaviate_client, ensure_ready
 
 logger = logging.getLogger(__name__)
@@ -65,9 +66,23 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Weaviate not ready at startup -- ingestion will degrade to Failed")
 
+    # Same best-effort treatment as Weaviate above: creates the `:Entity`
+    # (name, type, user_id) uniqueness constraint if the deployment
+    # supports it. Not required for the app to boot -- Neo4j being
+    # unconfigured/unreachable, or the constraint being unsupported on a
+    # Community-tier deployment, must not crash startup (see
+    # neo4j_client.ensure_ready's docstring).
+    try:
+        ensure_neo4j_ready()
+    except Exception:
+        logger.exception("Neo4j not ready at startup -- ingestion will degrade to Failed")
+
     yield
 
     close_weaviate_client()
+    # Symmetric with the Weaviate client above -- safe to call unconditionally
+    # even if no document ever reached Story 2.4's Graphing step this run.
+    close_neo4j_driver()
 
 
 app = FastAPI(title="GraphMind API", lifespan=lifespan)

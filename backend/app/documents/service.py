@@ -8,6 +8,7 @@ the route layer stays thin and a rejected file never reaches the DB.
 import logging
 import pathlib
 import uuid
+from collections import Counter
 from collections.abc import Callable
 from typing import Final
 
@@ -17,17 +18,26 @@ from fastapi import HTTPException
 
 from app.documents import repository
 from app.documents.parsing import parse_document
+from app.shared.data_access.neo4j_client import write_entities_and_relationships
 from app.shared.data_access.session import get_session_factory
-from app.shared.data_access.shapes import WeaviatePassage
+from app.shared.data_access.shapes import Neo4jEntity, Neo4jRelationship, WeaviatePassage
 from app.shared.data_access.weaviate_client import (
     PASSAGE_BATCH_SIZE,
     delete_passages_for_document,
     write_passages,
 )
 from app.shared.embeddings import embed_texts
+from app.shared.llm_client import extract_entities_and_relationships
 from app.shared.models import Document, User
 
 logger = logging.getLogger(__name__)
+
+# Story 2.4, Design Notes: a conservative fit under free-tier context
+# limits alongside the extraction prompt itself -- not benchmarked against
+# a real long document (see deferred-work.md). Truncation is for
+# extraction only; Weaviate already holds every passage untruncated by
+# the time this budget is applied.
+EXTRACTION_CHAR_BUDGET: Final = 12_000
 
 # 20MB per the story's Boundaries -- named here once so the reason cited in
 # a rejection message and the actual enforced limit can never drift apart.
@@ -145,12 +155,30 @@ def upload_document(
     return document
 
 
+def _build_extraction_text(chunks: list, budget: int = EXTRACTION_CHAR_BUDGET) -> str:
+    """Concatenates the already-parsed `chunks`' text (Story 2.4) into one
+    string for entity extraction, in parse order, truncated to `budget`
+    characters -- the same `chunks` list already produced for the Weaviate
+    write above, never re-parsed. One extraction call per document over
+    this text (Design Notes), not per-passage."""
+    parts: list[str] = []
+    remaining = budget
+    for chunk in chunks:
+        if remaining <= 0:
+            break
+        piece = chunk.text[:remaining]
+        parts.append(piece)
+        remaining -= len(piece)
+    return "\n\n".join(parts)
+
+
 def ingest_document(
     document_id: uuid.UUID,
     *,
     session_factory: Callable[[], Session] | None = None,
 ) -> None:
-    """Parse, embed, and index one document's passages (Story 2.3).
+    """Parse, embed, and index one document's passages, then extract its
+    entities/relationships into the graph (Story 2.3 + Story 2.4).
 
     Runs as a `BackgroundTasks` job scheduled by the upload route, after
     the request's own `db` session has already been closed -- this opens
@@ -161,20 +189,28 @@ def ingest_document(
 
     A plain `def`, not `async def`: Starlette runs sync background tasks in
     a threadpool, off the event loop -- `async def` here would block the
-    loop for the seconds an embedding call takes, stalling every other
+    loop for the seconds an embedding/LLM call takes, stalling every other
     in-flight request.
 
-    Sets `status="Extracting"` before parsing starts (AC3's "when parsing
-    runs, then it advances" is about to happen, not already done) and
-    leaves it there on success -- `Graphing`/`Ready` belong to Story 2.4's
-    entity-extraction pipeline, not this one. Any failure anywhere in
-    parse/embed/write is caught and marks the row `Failed`: AD-1's
-    documented retry-lock ("retry only accepted from Failed") would
-    otherwise have no way to ever unlock a row that failed mid-parse. This
+    Sets `status="Extracting"` before parsing starts, then `status=
+    "Graphing"` once the Weaviate write has fully succeeded and before the
+    entity-extraction call starts (AC3's "when parsing/graphing runs, then
+    it advances" is about to happen, not already done), and finally
+    `status="Ready"` -- with `chapter_breakdown` populated in the *same*
+    commit -- once the Neo4j write has fully succeeded too. Any failure
+    anywhere in parse/embed/write/extract/graph-write is caught by the same
+    `except` block and marks the row `Failed` (after deleting this
+    document's Weaviate passages, AD-1's compensating rollback -- a Neo4j
+    write failure leaves the identical broken state a Weaviate failure
+    would, so it needs identical cleanup): AD-1's documented retry-lock
+    ("retry only accepted from Failed") would otherwise have no way to ever
+    unlock a row that failed mid-pipeline. `chapter_breakdown` is only ever
+    assigned on the `Ready` line below -- any failure before that point
+    leaves it at its column default (`None`), never a partial value. This
     only covers in-process exceptions -- a hard process crash/restart
-    mid-task still leaves a row stuck at `Extracting` with no safety net;
-    a known, accepted gap for this story (would need a heartbeat/lease or
-    a startup reconciliation pass to close).
+    mid-task still leaves a row stuck at `Extracting`/`Graphing` with no
+    safety net; a known, accepted gap from Story 2.3 (would need a
+    heartbeat/lease or a startup reconciliation pass to close).
 
     Embeds and writes in batches of `PASSAGE_BATCH_SIZE` rather than
     embedding every chunk up front into one `vectors` list: a large
@@ -228,6 +264,40 @@ def ingest_document(
                     for chunk, vector in zip(batch, vectors, strict=True)
                 ]
                 write_passages(passages)
+
+            # Story 2.4: the Weaviate write has fully succeeded by this
+            # point -- advance to Graphing before the extraction call, per
+            # AD-1's fixed write order (Weaviate first, Neo4j second).
+            document.status = "Graphing"
+            db.commit()
+
+            extraction_text = _build_extraction_text(chunks)
+            extraction_result = extract_entities_and_relationships(extraction_text)
+
+            neo4j_entities = [
+                Neo4jEntity(name=entity.name, type=entity.type, user_id=user_id_str)
+                for entity in extraction_result.entities
+            ]
+            neo4j_relationships = [
+                Neo4jRelationship(
+                    source_entity_name=relationship.source,
+                    target_entity_name=relationship.target,
+                    relationship_type=relationship.type,
+                    user_id=user_id_str,
+                )
+                for relationship in extraction_result.relationships
+            ]
+            write_entities_and_relationships(neo4j_entities, neo4j_relationships, user_id_str)
+
+            # `chapter_breakdown` is built from the same `chunks` list the
+            # Weaviate write already used above -- no re-parsing. Counter
+            # preserves insertion order of first appearance, matching
+            # document reading order with no server-side sort needed later.
+            chapter_breakdown = dict(Counter(chunk.chapter for chunk in chunks))
+
+            document.status = "Ready"
+            document.chapter_breakdown = chapter_breakdown
+            db.commit()
         except Exception:
             logger.exception("Ingestion failed for document %s", document_id)
             try:
