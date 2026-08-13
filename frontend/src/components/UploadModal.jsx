@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { ALLOWED_EXTENSIONS, uploadDocument, validateFile } from '../api/documentsClient'
+import { formatFileSize } from '../utils/documentFormat'
 
 const HEADING_ID = 'upload-modal-heading'
 
@@ -21,12 +22,6 @@ function isSettled(status) {
 
 function makeRowId(file) {
   return `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2)}`
-}
-
-function formatBytes(bytes) {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 const FOCUSABLE_SELECTOR =
@@ -267,7 +262,7 @@ export default function UploadModal({ onClose }) {
                   <div className="flex items-center justify-between gap-3">
                     <span className="min-w-0 flex-1 truncate text-sm text-text">{row.name}</span>
                     <span className="shrink-0 text-xs text-text2">
-                      {row.status === 'queued' ? 'Queued' : formatBytes(row.size)}
+                      {row.status === 'queued' ? 'Queued' : formatFileSize(row.size)}
                     </span>
                   </div>
 

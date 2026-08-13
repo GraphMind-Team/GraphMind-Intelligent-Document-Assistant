@@ -31,3 +31,18 @@ def create_document(db: Session, document: Document) -> Document:
 def list_documents_for_user(db: Session, user_id: uuid.UUID) -> list[Document]:
     stmt = user_scoped_select(Document, user_id).order_by(desc(Document.created_at))
     return list(db.execute(stmt).scalars().all())
+
+
+def get_document_for_user(db: Session, user_id: uuid.UUID, document_id: uuid.UUID) -> Document | None:
+    """One document by id, scoped to its owner (Story 2.2).
+
+    Deliberately *not* `db.get(Document, document_id)` -- a bare primary-key
+    fetch would return another account's row and leave tenancy to a
+    hand-written check the caller could forget. Narrowing
+    `user_scoped_select` by id instead makes "not yours" and "doesn't
+    exist" the same result (`None`) by construction, which is what lets the
+    service layer answer both with an identical 404 rather than a 403 that
+    would confirm the id exists.
+    """
+    stmt = user_scoped_select(Document, user_id).where(Document.id == document_id)
+    return db.execute(stmt).scalars().first()

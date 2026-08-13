@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { listDocuments, uploadDocument, validateFile } from './documentsClient'
+import { getDocument, listDocuments, uploadDocument, validateFile } from './documentsClient'
 
 describe('validateFile', () => {
   function makeFile(name, size, type = 'application/octet-stream') {
@@ -50,6 +50,41 @@ describe('listDocuments', () => {
       .fn()
       .mockResolvedValue(new Response(JSON.stringify({ detail: 'Not authenticated.' }), { status: 401 }))
     await expect(listDocuments(authFetch)).rejects.toThrow('Not authenticated.')
+  })
+})
+
+describe('getDocument', () => {
+  it('requests the by-id path and returns the parsed body', async () => {
+    const authFetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ id: 'doc-1' }), { status: 200 }))
+
+    await expect(getDocument(authFetch, 'doc-1')).resolves.toEqual({ id: 'doc-1' })
+    expect(authFetch).toHaveBeenCalledWith('/documents/doc-1')
+  })
+
+  it('encodes the id rather than interpolating it into the path raw', async () => {
+    const authFetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ id: 'x' }), { status: 200 }))
+
+    await getDocument(authFetch, '../auth/me')
+
+    expect(authFetch).toHaveBeenCalledWith('/documents/..%2Fauth%2Fme')
+  })
+
+  it('throws the backend detail on a 404 (another account, or no such document)', async () => {
+    const authFetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ detail: 'Document not found.' }), { status: 404 }))
+
+    await expect(getDocument(authFetch, 'doc-1')).rejects.toThrow('Document not found.')
+  })
+
+  it('throws on a 2xx body that is not an object', async () => {
+    const authFetch = vi.fn().mockResolvedValue(new Response('null', { status: 200 }))
+
+    await expect(getDocument(authFetch, 'doc-1')).rejects.toThrow('unexpected response')
   })
 })
 
