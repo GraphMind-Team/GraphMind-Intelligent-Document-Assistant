@@ -27,12 +27,29 @@ def _reset_module_singleton(monkeypatch):
     monkeypatch.setattr(neo4j_client_module, "_driver_instance", None)
 
 
+class _FakeResult:
+    """`tx.run(...)` returns a result the production code `.consume()`s --
+    a bare `None` return here would `AttributeError` instead of exercising
+    that call."""
+
+    def __init__(self):
+        self.consumed = False
+
+    def consume(self):
+        self.consumed = True
+        return self
+
+
 class _FakeTx:
     def __init__(self):
         self.calls: list[tuple[str, dict]] = []
+        self.results: list[_FakeResult] = []
 
     def run(self, query, **params):
         self.calls.append((query, params))
+        result = _FakeResult()
+        self.results.append(result)
+        return result
 
 
 class _FakeSession:
@@ -156,19 +173,23 @@ def test_write_entities_and_relationships_merges_each_entity(monkeypatch):
 
     write_entities_and_relationships(entities, [], "user-1")
 
-    assert len(fake_driver.tx.calls) == 2
-    for query, params in fake_driver.tx.calls:
-        assert "MERGE (e:Entity" in query
-        assert params["user_id"] == "user-1"
-    names = {params["name"] for _, params in fake_driver.tx.calls}
-    assert names == {"Maria Ivanova", "TechCorp"}
+    # One batched UNWIND for every entity, not one round-trip each.
+    assert len(fake_driver.tx.calls) == 1
+    query, params = fake_driver.tx.calls[0]
+    assert "UNWIND $rows AS row" in query
+    assert "MERGE (e:Entity" in query
+    assert params["user_id"] == "user-1"
+    assert {row["name"] for row in params["rows"]} == {"Maria Ivanova", "TechCorp"}
+    # The result is consumed, so a per-statement failure surfaces here
+    # rather than later at commit.
+    assert all(result.consumed for result in fake_driver.tx.results)
 
 
 def test_write_entities_and_relationships_exact_match_issues_the_identical_merge(monkeypatch):
     """Two entities sharing `(name, type, user_id)` -- the story's "repeat
-    entity across documents" scenario -- must issue Cypher calls with
-    identical parameters, which is what makes them land on the same
-    `MERGE`d node in a real database."""
+    entity across documents" scenario -- must produce identical `MERGE`
+    rows, which is what makes them land on the same node in a real
+    database."""
     fake_driver = _FakeDriver()
     monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: fake_driver)
 
@@ -179,15 +200,16 @@ def test_write_entities_and_relationships_exact_match_issues_the_identical_merge
 
     write_entities_and_relationships(entities, [], "user-1")
 
-    assert len(fake_driver.tx.calls) == 2
-    (_, first_params), (_, second_params) = fake_driver.tx.calls
-    assert first_params == second_params
+    assert len(fake_driver.tx.calls) == 1
+    _, params = fake_driver.tx.calls[0]
+    first_row, second_row = params["rows"]
+    assert first_row == second_row
 
 
 def test_write_entities_and_relationships_near_match_name_stays_distinct(monkeypatch):
-    """AD-4: no fuzzy merge -- "TechCorp" and "TechCorp Supplies" must issue
-    Cypher calls with different `name` parameters, so they land on distinct
-    nodes rather than merging."""
+    """AD-4: no fuzzy merge -- "TechCorp" and "TechCorp Supplies" must be
+    merged under different `name` values, so they land on distinct nodes
+    rather than merging."""
     fake_driver = _FakeDriver()
     monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: fake_driver)
 
@@ -198,7 +220,8 @@ def test_write_entities_and_relationships_near_match_name_stays_distinct(monkeyp
 
     write_entities_and_relationships(entities, [], "user-1")
 
-    names = [params["name"] for _, params in fake_driver.tx.calls]
+    _, params = fake_driver.tx.calls[0]
+    names = [row["name"] for row in params["rows"]]
     assert names == ["TechCorp", "TechCorp Supplies"]
 
 
@@ -221,15 +244,59 @@ def test_write_entities_and_relationships_merges_a_relationship_between_two_enti
 
     write_entities_and_relationships(entities, relationships, "user-1")
 
-    # 2 entity MERGEs + 1 relationship MERGE.
-    assert len(fake_driver.tx.calls) == 3
+    # 1 batched entity MERGE + 1 batched relationship MERGE for the single
+    # relationship type present.
+    assert len(fake_driver.tx.calls) == 2
     relationship_query, relationship_params = fake_driver.tx.calls[-1]
     assert "WORKS_AT" in relationship_query
-    assert relationship_params["source_name"] == "Maria Ivanova"
-    assert relationship_params["source_type"] == "Person"
-    assert relationship_params["target_name"] == "TechCorp"
-    assert relationship_params["target_type"] == "Organization"
     assert relationship_params["user_id"] == "user-1"
+    (row,) = relationship_params["rows"]
+    assert row["source_name"] == "Maria Ivanova"
+    assert row["source_type"] == "Person"
+    assert row["target_name"] == "TechCorp"
+    assert row["target_type"] == "Organization"
+
+
+def test_write_entities_and_relationships_batches_relationships_by_type(monkeypatch):
+    """The relationship *type* is the one thing Cypher can't parameterize,
+    so it's the only reason more than one relationship statement is needed.
+    Relationships must therefore be grouped by type -- 5 relationships
+    across 2 types is 2 statements, not 5. With OD-1 closing the vocabulary
+    at five types, this bounds the whole write at six queries regardless of
+    document size."""
+    fake_driver = _FakeDriver()
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: fake_driver)
+
+    entities = [
+        Neo4jEntity(name="Maria Ivanova", type="Person", user_id="user-1"),
+        Neo4jEntity(name="Ivan Petrov", type="Person", user_id="user-1"),
+        Neo4jEntity(name="TechCorp", type="Organization", user_id="user-1"),
+        Neo4jEntity(name="Sofia", type="Location", user_id="user-1"),
+    ]
+    relationships = [
+        Neo4jRelationship(
+            source_entity_name="Maria Ivanova", target_entity_name="TechCorp",
+            relationship_type="WORKS_AT", user_id="user-1",
+        ),
+        Neo4jRelationship(
+            source_entity_name="Ivan Petrov", target_entity_name="TechCorp",
+            relationship_type="WORKS_AT", user_id="user-1",
+        ),
+        Neo4jRelationship(
+            source_entity_name="TechCorp", target_entity_name="Sofia",
+            relationship_type="LOCATED_IN", user_id="user-1",
+        ),
+    ]
+
+    write_entities_and_relationships(entities, relationships, "user-1")
+
+    # 1 entity statement + 1 per distinct relationship type (2), not 4 + 3.
+    assert len(fake_driver.tx.calls) == 3
+    rows_by_query = {query: params["rows"] for query, params in fake_driver.tx.calls}
+    works_at = next(rows for query, rows in rows_by_query.items() if "WORKS_AT" in query)
+    located_in = next(rows for query, rows in rows_by_query.items() if "LOCATED_IN" in query)
+    assert len(works_at) == 2
+    assert len(located_in) == 1
 
 
 def test_write_entities_and_relationships_skips_a_relationship_whose_entity_is_unresolved(
@@ -254,8 +321,10 @@ def test_write_entities_and_relationships_skips_a_relationship_whose_entity_is_u
     with caplog.at_level("WARNING"):
         write_entities_and_relationships(entities, relationships, "user-1")
 
-    # Only the one entity MERGE -- the relationship was never sent.
+    # Only the batched entity MERGE -- no relationship statement was
+    # issued at all, since the one relationship was dropped.
     assert len(fake_driver.tx.calls) == 1
+    assert "MERGE (e:Entity" in fake_driver.tx.calls[0][0]
     assert "Ghost Corp" in caplog.text
 
 
@@ -287,9 +356,11 @@ def test_write_entities_and_relationships_skips_a_relationship_whose_source_name
     with caplog.at_level("WARNING"):
         write_entities_and_relationships(entities, relationships, "user-1")
 
-    # 3 entity MERGEs, but the relationship was never sent -- "Washington"
-    # is ambiguous, not absent, and must be dropped the same way.
-    assert len(fake_driver.tx.calls) == 3
+    # The batched entity MERGE still carries all 3 entities, but no
+    # relationship statement was issued -- "Washington" is ambiguous, not
+    # absent, and must be dropped the same way.
+    assert len(fake_driver.tx.calls) == 1
+    assert len(fake_driver.tx.calls[0][1]["rows"]) == 3
     assert "Washington" in caplog.text
 
 
@@ -319,6 +390,8 @@ def test_write_entities_and_relationships_skips_an_unsafe_relationship_type(monk
     with caplog.at_level("WARNING"):
         write_entities_and_relationships(entities, relationships, "user-1")
 
-    # Only the two entity MERGEs -- the unsafe relationship was never sent.
-    assert len(fake_driver.tx.calls) == 2
+    # Only the batched entity MERGE -- the unsafe relationship never
+    # reached Cypher interpolation, so no relationship statement exists.
+    assert len(fake_driver.tx.calls) == 1
+    assert "DETACH DELETE" not in fake_driver.tx.calls[0][0]
     assert "unsafe" in caplog.text.lower()

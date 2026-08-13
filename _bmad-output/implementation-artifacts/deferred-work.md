@@ -143,3 +143,31 @@
     startup (best-effort, logged not fatal) specifically so a real Neo4j instance enforces the
     "one node, not two" guarantee even if application-level `MERGE` logic regresses -- but that
     constraint itself is untested against a live database for the same CI reason.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-extract-entities-into-the-unified-graph-with-compensating-ro.md`
+  summary: >
+    Run one real end-to-end ingestion against the live OpenRouter API before relying on Story 2.4 in
+    production. The default model is a `:free` tier (`meta-llama/llama-3.3-70b-instruct:free`) and
+    the request sends `response_format: {"type": "json_object"}`, which not every free model on
+    OpenRouter honours -- a provider that rejects the parameter returns a 4xx, which is
+    (correctly) non-retryable and would mark every document `Failed`. `OPENROUTER_MODEL` is already
+    an env override, so the fix if this happens is configuration, not code.
+  evidence: >
+    No test in the suite makes a live OpenRouter call (all mock `httpx.post`), so the request shape
+    is verified only against the code's own assumptions about what the provider accepts. The spec's
+    own "Manual checks" section calls for exactly this run; recorded here so it isn't lost if the
+    story merges before someone performs it.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-extract-entities-into-the-unified-graph-with-compensating-ro.md`
+  summary: >
+    `DocumentsPage`'s ingestion-status polling is a fixed 4s interval capped at 45 attempts (3
+    minutes). It is a stopgap sized against a guess at the slow path, not a measurement: a document
+    that legitimately takes longer than 3 minutes stops updating and needs a manual reload, and
+    every polling client re-fetches the whole document list each tick. Worth replacing with
+    server-sent events / websockets, or at minimum an exponential-backoff interval, once Epic 3's
+    chat work establishes whether this app wants a push channel at all.
+  evidence: >
+    Raised during Story 2.4's review, when polling `Uploaded` only was found to stop the loop before
+    a document ever reached `Ready`. Widening the status set fixed the correctness bug; the
+    poll-based mechanism itself remains the crude part, and the 3-minute ceiling is an assumption
+    about ingestion duration that no benchmark backs (see also the `EXTRACTION_CHAR_BUDGET` entry).

@@ -24,6 +24,7 @@ delay reaching that same terminal state.
 import json
 import logging
 import os
+import time
 from dataclasses import dataclass, field
 
 import httpx
@@ -49,6 +50,14 @@ RELATIONSHIP_TYPES = frozenset({"WORKS_AT", "SUPPLIES", "PART_OF", "LOCATED_IN",
 # not an open-ended retry loop.
 _MAX_ATTEMPTS = 2
 _TIMEOUT_SECONDS = 30.0
+
+# Retrying a transient provider failure in the same microsecond mostly
+# just re-hits whatever is still failing, spending the second attempt for
+# nothing. A short fixed pause (not exponential backoff -- there's only
+# ever one retry) makes the budget mean something. Safe to sleep here:
+# `ingest_document` runs this in Starlette's background threadpool, off
+# the event loop, with no user waiting synchronously on the response.
+_RETRY_DELAY_SECONDS = 2.0
 
 _SYSTEM_PROMPT = (
     "You extract entities and relationships from a document's text for a "
@@ -143,6 +152,8 @@ def extract_entities_and_relationships(text: str) -> ExtractionResult:
                 _MAX_ATTEMPTS,
                 exc,
             )
+            if attempt < _MAX_ATTEMPTS:
+                time.sleep(_RETRY_DELAY_SECONDS)
     raise ExtractionError(
         f"OpenRouter entity extraction failed after {_MAX_ATTEMPTS} attempts"
     ) from last_error

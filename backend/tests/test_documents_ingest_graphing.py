@@ -17,6 +17,8 @@ from unittest.mock import Mock
 
 from sqlalchemy.orm import sessionmaker
 
+from app.documents.parsing import CHUNK_OVERLAP_WORDS, ParsedChunk
+from app.documents.service import _build_extraction_text
 from app.documents.service import ingest_document as real_ingest_document
 from app.shared.llm_client import ExtractedEntity, ExtractedRelationship, ExtractionError, ExtractionResult
 from app.shared.models import Document
@@ -88,6 +90,61 @@ def _stub_pipeline(monkeypatch, *, write_passages=None, extract=None, write_grap
     )
     monkeypatch.setattr(service_module, "write_entities_and_relationships", write_graph or Mock())
     return fake_delete
+
+
+def test_extraction_text_drops_the_chunk_overlap_within_a_chapter():
+    """Chunks overlap by `CHUNK_OVERLAP_WORDS` on purpose (Story 2.3, so a
+    passage straddling a boundary stays retrievable whole), but re-sending
+    those words to the LLM would spend ~16% of the extraction budget
+    re-reading text the model already saw. The overlap must be stripped
+    back off exactly once per same-chapter boundary."""
+    first_words = [f"w{i}" for i in range(CHUNK_OVERLAP_WORDS + 5)]
+    # How the chunker builds it: chunk 2 restarts `CHUNK_OVERLAP_WORDS`
+    # words back into chunk 1's tail.
+    overlap = first_words[-CHUNK_OVERLAP_WORDS:]
+    second_only = ["fresh1", "fresh2", "fresh3"]
+
+    chunks = [
+        ParsedChunk(chapter="Chapter One", chunk_index=0, text=" ".join(first_words)),
+        ParsedChunk(chapter="Chapter One", chunk_index=1, text=" ".join(overlap + second_only)),
+    ]
+
+    text = _build_extraction_text(chunks)
+
+    # The duplicated words appear once (from chunk 1), not twice.
+    assert text.count("w%d" % (CHUNK_OVERLAP_WORDS + 4)) == 1
+    # The genuinely new words in chunk 2 all survive.
+    for word in second_only:
+        assert word in text
+
+
+def test_extraction_text_keeps_a_new_chapters_first_chunk_intact():
+    """Only chunks *after the first in the same chapter* carry overlap --
+    a new chapter starts fresh. Stripping its opening words would silently
+    delete real content (and, for a chapter shorter than the overlap, most
+    of it)."""
+    chunks = [
+        ParsedChunk(chapter="Chapter One", chunk_index=0, text="alpha beta gamma"),
+        ParsedChunk(chapter="Chapter Two", chunk_index=1, text="delta epsilon zeta"),
+    ]
+
+    text = _build_extraction_text(chunks)
+
+    for word in ("alpha", "beta", "gamma", "delta", "epsilon", "zeta"):
+        assert word in text
+
+
+def test_extraction_text_respects_the_character_budget():
+    chunks = [
+        ParsedChunk(chapter="Chapter One", chunk_index=0, text="x" * 500),
+        ParsedChunk(chapter="Chapter Two", chunk_index=1, text="y" * 500),
+    ]
+
+    text = _build_extraction_text(chunks, budget=600)
+
+    # The joiner adds a couple of characters per boundary on top of the
+    # sliced content; the budget bounds the content itself.
+    assert len(text.replace("\n\n", "")) == 600
 
 
 def test_full_pipeline_reaches_ready_with_populated_chapter_breakdown(client, db_session, monkeypatch):

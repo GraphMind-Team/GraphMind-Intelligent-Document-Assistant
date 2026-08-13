@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException
 
 from app.documents import repository
-from app.documents.parsing import parse_document
+from app.documents.parsing import CHUNK_OVERLAP_WORDS, parse_document
 from app.shared.data_access.neo4j_client import write_entities_and_relationships
 from app.shared.data_access.session import get_session_factory
 from app.shared.data_access.shapes import Neo4jEntity, Neo4jRelationship, WeaviatePassage
@@ -160,13 +160,38 @@ def _build_extraction_text(chunks: list, budget: int = EXTRACTION_CHAR_BUDGET) -
     string for entity extraction, in parse order, truncated to `budget`
     characters -- the same `chunks` list already produced for the Weaviate
     write above, never re-parsed. One extraction call per document over
-    this text (Design Notes), not per-passage."""
+    this text (Design Notes), not per-passage.
+
+    Consecutive chunks *within a chapter* deliberately overlap by
+    `parsing.CHUNK_OVERLAP_WORDS` words, so that a passage straddling a
+    chunk boundary is still retrievable whole (Story 2.3). That overlap
+    earns its keep in the vector index, but concatenating chunks naively
+    here would re-send those words to the LLM -- ~16% of the character
+    budget spent re-reading text the model already saw, for a budget whose
+    entire purpose is fitting as much *distinct* document content as
+    possible into one call. The overlap is dropped back off, so the budget
+    buys real coverage instead.
+
+    Dropped by word count rather than by matching text: the overlap is
+    defined in words by the chunker, and `" ".join` on a word slice is not
+    guaranteed to reproduce the original whitespace byte-for-byte, so a
+    string-suffix comparison would silently fail to strip anything.
+    """
     parts: list[str] = []
     remaining = budget
+    previous_chapter: str | None = None
     for chunk in chunks:
         if remaining <= 0:
             break
-        piece = chunk.text[:remaining]
+        text = chunk.text
+        # Only chunks after the first *in the same chapter* overlap --
+        # a new chapter starts a fresh chunk with no carried-over words.
+        if chunk.chapter == previous_chapter:
+            text = " ".join(text.split(" ")[CHUNK_OVERLAP_WORDS:])
+        previous_chapter = chunk.chapter
+        if not text:
+            continue
+        piece = text[:remaining]
         parts.append(piece)
         remaining -= len(piece)
     return "\n\n".join(parts)
@@ -245,6 +270,16 @@ def ingest_document(
             db.commit()
 
             chunks = parse_document(document.file_type, document.content)
+            # Release the raw upload (up to the 20MB cap) as soon as it's
+            # been parsed: the session's identity map would otherwise hold
+            # those bytes resident until `db.close()` in the `finally`,
+            # which since Story 2.4 spans the embedding loop *and* the LLM
+            # extraction call (up to 2x30s on retries) -- the longest,
+            # least memory-headroom part of the pipeline, on a 512MB
+            # instance that also allows concurrent uploads. Expired, not
+            # `del`'d: the attribute stays valid and would simply re-load
+            # from the DB if anything below touched it. Nothing does.
+            db.expire(document, ["content"])
             delete_passages_for_document(document_id_str, user_id_str)
             for batch_start in range(0, len(chunks), PASSAGE_BATCH_SIZE):
                 batch = chunks[batch_start : batch_start + PASSAGE_BATCH_SIZE]

@@ -97,10 +97,15 @@ def ensure_ready() -> None:
     """
     driver = get_neo4j_driver()
     with driver.session() as session:
+        # `.consume()` rather than leaving the result unread: an
+        # auto-commit result is lazy enough that an unconsumed failure
+        # would surface at session close instead of here, which is the
+        # difference between "the constraint statement failed" and a
+        # confusing error from the `with` block's exit.
         session.run(
             "CREATE CONSTRAINT entity_name_type_user_unique IF NOT EXISTS "
             "FOR (e:Entity) REQUIRE (e.name, e.type, e.user_id) IS UNIQUE"
-        )
+        ).consume()
 
 
 def close_neo4j_driver() -> None:
@@ -195,14 +200,38 @@ def write_entities_and_relationships(
 
 
 def _write_entities_and_relationships_tx(tx, entities, relationships, entity_type_by_name, user_id) -> None:
-    for entity in entities:
-        tx.run(
-            "MERGE (e:Entity {name: $name, type: $type, user_id: $user_id})",
-            name=entity.name,
-            type=entity.type,
-            user_id=user_id,
-        )
+    """Batched via `UNWIND` rather than one `tx.run` per item.
 
+    A per-item loop is one network round-trip to Aura each: a document
+    yielding 50 entities and 40 relationships would spend ~90 sequential
+    round-trips (seconds of pure latency from a Render instance) on a write
+    whose actual work is trivial. `UNWIND` collapses all entities into a
+    single query.
+
+    Relationships can't go in one query with the entities, because a
+    relationship *type* is part of Cypher's syntax and can't be
+    parameterized (only property values can) -- it has to be interpolated,
+    so each distinct type needs its own statement. Grouping by type bounds
+    that at one query per type actually present, and OD-1 closes the
+    vocabulary at five types, so the whole write is at most six queries no
+    matter how large the document is.
+
+    Results are explicitly `.consume()`d: inside a transaction function the
+    driver would otherwise buffer them, and a per-statement failure is
+    clearer raised at its own statement than surfaced later at commit.
+    """
+    if entities:
+        tx.run(
+            "UNWIND $rows AS row "
+            "MERGE (e:Entity {name: row.name, type: row.type, user_id: $user_id})",
+            rows=[{"name": entity.name, "type": entity.type} for entity in entities],
+            user_id=user_id,
+        ).consume()
+
+    # Grouped by relationship type -- the one part of the query that can't
+    # be a parameter, so it's also the only thing forcing more than one
+    # statement here.
+    rows_by_type: dict[str, list[dict[str, str]]] = {}
     for relationship in relationships:
         source_type = entity_type_by_name.get(relationship.source_entity_name)
         target_type = entity_type_by_name.get(relationship.target_entity_name)
@@ -224,16 +253,23 @@ def _write_entities_and_relationships_tx(tx, entities, relationships, entity_typ
                 relationship.target_entity_name,
             )
             continue
+        rows_by_type.setdefault(relationship.relationship_type, []).append(
+            {
+                "source_name": relationship.source_entity_name,
+                "source_type": source_type,
+                "target_name": relationship.target_entity_name,
+                "target_type": target_type,
+            }
+        )
+
+    for relationship_type, rows in rows_by_type.items():
+        # `relationship_type` reaches interpolation only after passing
+        # `_SAFE_RELATIONSHIP_TYPE_RE` above -- every other value in this
+        # query is a bound parameter.
         query = (
-            "MATCH (a:Entity {name: $source_name, type: $source_type, user_id: $user_id}) "
-            "MATCH (b:Entity {name: $target_name, type: $target_type, user_id: $user_id}) "
-            f"MERGE (a)-[:{relationship.relationship_type}]->(b)"
+            "UNWIND $rows AS row "
+            "MATCH (a:Entity {name: row.source_name, type: row.source_type, user_id: $user_id}) "
+            "MATCH (b:Entity {name: row.target_name, type: row.target_type, user_id: $user_id}) "
+            f"MERGE (a)-[:{relationship_type}]->(b)"
         )
-        tx.run(
-            query,
-            source_name=relationship.source_entity_name,
-            source_type=source_type,
-            target_name=relationship.target_entity_name,
-            target_type=target_type,
-            user_id=user_id,
-        )
+        tx.run(query, rows=rows, user_id=user_id).consume()
