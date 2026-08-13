@@ -117,3 +117,31 @@ def _fresh_rate_limiters(client):
         get_upload_concurrency_limiter,
     ):
         app.dependency_overrides.pop(dependency, None)
+
+
+@pytest.fixture(autouse=True)
+def _stub_ingestion_pipeline(monkeypatch):
+    """Every document upload now schedules `service.ingest_document` as a
+    background task (Story 2.3). `TestClient` runs background tasks
+    synchronously to completion before `client.post(...)` returns, so left
+    un-stubbed, EVERY test that uploads a document -- not just this
+    story's own -- would exercise real parsing/embedding/Weaviate-writing,
+    and would move `status` off `"Uploaded"` (breaking pre-2.3 tests that
+    assert the row stays `Uploaded` after upload).
+
+    Route-triggered ingestion is a no-op `Mock` by default: pre-2.3 tests
+    keep their original "nothing happens after upload" behavior with no
+    changes of their own needed. The dedicated ingestion test file
+    (`test_documents_parse_and_index.py`) imports `service.ingest_document`
+    at module load time -- a plain name binding, captured before this
+    per-test patch ever runs -- and calls that real function directly with
+    its own `session_factory`, bypassing `BackgroundTasks` (and this stub)
+    entirely rather than trying to un-mock a shared global.
+    """
+    from unittest.mock import Mock
+
+    from app.documents import service
+
+    fake_ingest_document = Mock()
+    monkeypatch.setattr(service, "ingest_document", fake_ingest_document)
+    return fake_ingest_document

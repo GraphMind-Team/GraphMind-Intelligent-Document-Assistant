@@ -5,8 +5,10 @@ Raises `HTTPException` directly (AD-3: no custom error envelope), mirroring
 the route layer stays thin and a rejected file never reaches the DB.
 """
 
+import logging
 import pathlib
 import uuid
+from collections.abc import Callable
 from typing import Final
 
 from sqlalchemy.orm import Session
@@ -14,7 +16,14 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException
 
 from app.documents import repository
+from app.documents.parsing import parse_document
+from app.shared.data_access.session import get_session_factory
+from app.shared.data_access.shapes import WeaviatePassage
+from app.shared.data_access.weaviate_client import write_passages
+from app.shared.embeddings import embed_texts
 from app.shared.models import Document, User
+
+logger = logging.getLogger(__name__)
 
 # 20MB per the story's Boundaries -- named here once so the reason cited in
 # a rejection message and the actual enforced limit can never drift apart.
@@ -130,6 +139,74 @@ def upload_document(
     db.commit()
     db.refresh(document)
     return document
+
+
+def ingest_document(
+    document_id: uuid.UUID,
+    *,
+    session_factory: Callable[[], Session] | None = None,
+) -> None:
+    """Parse, embed, and index one document's passages (Story 2.3).
+
+    Runs as a `BackgroundTasks` job scheduled by the upload route, after
+    the request's own `db` session has already been closed -- this opens
+    its own session via `session_factory` (defaulting to the real
+    `get_session_factory`). The explicit parameter, not just monkeypatching
+    the shared factory, is what lets tests call this function directly
+    with a controlled session rather than depending on a patched global.
+
+    A plain `def`, not `async def`: Starlette runs sync background tasks in
+    a threadpool, off the event loop -- `async def` here would block the
+    loop for the seconds an embedding call takes, stalling every other
+    in-flight request.
+
+    Sets `status="Extracting"` before parsing starts (AC3's "when parsing
+    runs, then it advances" is about to happen, not already done) and
+    leaves it there on success -- `Graphing`/`Ready` belong to Story 2.4's
+    entity-extraction pipeline, not this one. Any failure anywhere in
+    parse/embed/write is caught and marks the row `Failed`: AD-1's
+    documented retry-lock ("retry only accepted from Failed") would
+    otherwise have no way to ever unlock a row that failed mid-parse. This
+    only covers in-process exceptions -- a hard process crash/restart
+    mid-task still leaves a row stuck at `Extracting` with no safety net;
+    a known, accepted gap for this story (would need a heartbeat/lease or
+    a startup reconciliation pass to close).
+    """
+    session_factory = session_factory or get_session_factory()
+    db = session_factory()
+    try:
+        document = db.get(Document, document_id)
+        if document is None:
+            return  # deleted between upload and background-task run
+
+        try:
+            document.status = "Extracting"
+            db.commit()
+
+            chunks = parse_document(document.file_type, document.content)
+            vectors = embed_texts([chunk.text for chunk in chunks])
+            passages = [
+                WeaviatePassage(
+                    chunk_id=str(
+                        uuid.uuid5(uuid.NAMESPACE_URL, f"{document.id}:{chunk.chunk_index}")
+                    ),
+                    document_id=str(document.id),
+                    user_id=str(document.user_id),
+                    chapter=chunk.chapter,
+                    chunk_index=chunk.chunk_index,
+                    text=chunk.text,
+                    embedding=vector,
+                )
+                for chunk, vector in zip(chunks, vectors, strict=True)
+            ]
+            write_passages(passages)
+        except Exception:
+            logger.exception("Ingestion failed for document %s", document_id)
+            db.rollback()
+            document.status = "Failed"
+            db.commit()
+    finally:
+        db.close()
 
 
 def list_documents(db: Session, current_user: User) -> list[Document]:

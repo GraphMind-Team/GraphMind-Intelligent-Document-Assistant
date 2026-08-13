@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -206,5 +206,90 @@ describe('DocumentsPage', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Not authenticated.')
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  })
+
+  describe('Story 2.3 status polling', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('polls while a document is Uploaded, and stops once it leaves Uploaded', async () => {
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      const listSpy = vi
+        .spyOn(documentsClient, 'listDocuments')
+        .mockResolvedValueOnce([{ ...PDF_DOC, status: 'Uploaded' }])
+        .mockResolvedValueOnce([{ ...PDF_DOC, status: 'Uploaded' }])
+        .mockResolvedValue([{ ...PDF_DOC, status: 'Extracting' }])
+
+      vi.useFakeTimers()
+      renderPage()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(listSpy).toHaveBeenCalledTimes(1)
+
+      // Still Uploaded -> another poll fires after the interval.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4000)
+      })
+      expect(listSpy).toHaveBeenCalledTimes(2)
+
+      // This poll's response flips status to Extracting.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4000)
+      })
+      expect(listSpy).toHaveBeenCalledTimes(3)
+
+      // No document is Uploaded anymore -- no further polls, even after
+      // more time passes.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4000)
+      })
+      expect(listSpy).toHaveBeenCalledTimes(3)
+    })
+
+    it('does not poll when no document is Uploaded', async () => {
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      const listSpy = vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([MD_DOC])
+
+      vi.useFakeTimers()
+      renderPage()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(listSpy).toHaveBeenCalledTimes(1)
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10000)
+      })
+      expect(listSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('stops polling after the attempt cap even if status never changes', async () => {
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      const listSpy = vi
+        .spyOn(documentsClient, 'listDocuments')
+        .mockResolvedValue([{ ...PDF_DOC, status: 'Uploaded' }])
+
+      vi.useFakeTimers()
+      renderPage()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+
+      // Advance far past what the attempt cap allows -- the count must
+      // stop growing well before this, not keep polling forever.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4000 * 30)
+      })
+
+      const cappedCount = listSpy.mock.calls.length
+      expect(cappedCount).toBeLessThan(30)
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4000 * 10)
+      })
+      expect(listSpy).toHaveBeenCalledTimes(cappedCount)
+    })
   })
 })

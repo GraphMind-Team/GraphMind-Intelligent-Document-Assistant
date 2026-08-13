@@ -11,6 +11,7 @@ as a confusing runtime error.
 """
 
 import os
+from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 
@@ -29,6 +30,7 @@ from app.auth.routes import router as auth_router
 from app.chat.routes import router as chat_router
 from app.documents.routes import router as documents_router
 from app.kg.routes import router as kg_router
+from app.shared.data_access.weaviate_client import get_weaviate_client
 
 REQUIRED_ENV_VARS = ["DATABASE_URL", "JWT_SECRET"]
 
@@ -45,7 +47,20 @@ def _validate_env() -> None:
 
 _validate_env()
 
-app = FastAPI(title="GraphMind API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    # get_weaviate_client is a `@lru_cache`d singleton (Story 2.3) -- only
+    # close it if a real connection was ever opened. Calling the getter
+    # here unconditionally would itself open a fresh connection just to
+    # immediately close it on every shutdown, including ones where no
+    # ingestion ever ran.
+    if get_weaviate_client.cache_info().currsize:
+        get_weaviate_client().close()
+
+
+app = FastAPI(title="GraphMind API", lifespan=lifespan)
 
 # Without this, `request.client.host` (the login/register rate limiters'
 # key -- see app.auth.routes) is always the reverse proxy's own IP once

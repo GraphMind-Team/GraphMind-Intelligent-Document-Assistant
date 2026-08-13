@@ -96,3 +96,15 @@
 - source_spec: `_bmad-output/planning-artifacts/epics.md` (Story 2.2: Document library and detail view)
   summary: Add pagination (or a cap + "load more") to `GET /documents` and the Documents table once accounts realistically accumulate more than a page's worth of documents.
   evidence: Story 2.1 review (blind-hunter) noted the endpoint returns every document for a user with no `limit`/`offset`. Not a problem yet (fresh accounts, few documents), but epics.md explicitly leaves document count per user unbounded, so this will matter before Story 2.2's real list UI ships.
+
+- source_spec: `_bmad-output/planning-artifacts/epics.md` (Story 2.3: Parse and index documents into the vector store)
+  summary: >
+    Render's free tier has an ephemeral filesystem -- `fastembed`'s on-disk model-weight cache
+    (`shared/embeddings/model.py`) doesn't survive a restart/redeploy/spin-down. Every time the
+    instance comes back cold, the first ingestion after that pays a ~90MB model download before
+    it can embed anything, so production ingestion latency will be periodically, and correctly,
+    spiky -- not a bug if/when this is noticed later.
+  evidence: Chosen deliberately over `sentence-transformers`/`torch` (which wouldn't fit the
+    512MB free-tier instance at all) during Story 2.3's planning review. Verification for that
+    story is local (persistent disk), so this won't surface in testing -- worth this recorded
+    line so a later cold-start latency spike isn't debugged as a mystery.
