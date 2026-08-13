@@ -41,6 +41,17 @@ def ask_question(db: Session, current_user: User, question: str) -> AskResponse:
     exactly where the `if not passages:` branch sits below, which 3.2
     will extend to also check each passage's `.distance` against OD-2's
     (still-unset) threshold.
+
+    Capacity note: this is a sync `def` route, so FastAPI runs it in
+    Starlette's anyio threadpool (a fixed-size worker pool, not the async
+    event loop) -- `generate_answer`'s retry backoff (`time.sleep`,
+    `shared/llm_client`) blocks whichever worker is running this request
+    for the full ~45s/attempt, up to ~120s worst case on a retry, with
+    that worker doing nothing else meanwhile. Fine at demo scale; under
+    real concurrent load the threadpool's worker count becomes a hard
+    ceiling on simultaneous in-flight chat questions, not just a latency
+    number -- worth knowing before this is mistaken for a scaling bug
+    found the hard way rather than a known, documented limit.
     """
     query_vector = embed_texts([question])[0]
     passages = search_passages(query_vector, str(current_user.id), limit=TOP_K_PASSAGES)
@@ -68,6 +79,13 @@ def ask_question(db: Session, current_user: User, question: str) -> AskResponse:
     segments: list[AnswerSegmentResponse] = []
     for seg in answer.segments:
         citations: list[CitationResponse] = []
+        # (chapter, document_filename) pairs already added to this segment
+        # -- two different chunks from the same chapter of the same
+        # document (routine at TOP_K_PASSAGES=8, or a model repeating a
+        # passage_number like [1, 1]) must render as one chip, not two
+        # identical ones sitting side by side. Order-preserving: first
+        # occurrence wins the citation's position in the rendered list.
+        seen_citations: set[tuple[str, str]] = set()
         for number in seg.passage_numbers:
             source = passages_by_number.get(number)
             if source is None:
@@ -78,6 +96,10 @@ def ask_question(db: Session, current_user: User, question: str) -> AskResponse:
                 # Document deleted/inaccessible since indexing -- drop this
                 # citation, never fabricate a filename.
                 continue
+            citation_key = (source.chapter, filename)
+            if citation_key in seen_citations:
+                continue
+            seen_citations.add(citation_key)
             citations.append(CitationResponse(chapter=source.chapter, document_filename=filename))
         if not citations:
             # A segment that lost every citation (e.g. all its source

@@ -499,6 +499,16 @@ def _select_passages_within_budget(passages: list[WeaviateSearchResult]) -> list
             break
         selected.append(passage)
         used_chars += line_len
+    if len(selected) < len(passages):
+        # The first thing worth checking when investigating "why wasn't
+        # this document cited" -- silent truncation here would otherwise
+        # look identical to the model simply not finding it relevant.
+        logger.debug(
+            "_select_passages_within_budget: included %s/%s passages (_MAX_PROMPT_CHARS=%s)",
+            len(selected),
+            len(passages),
+            _MAX_PROMPT_CHARS,
+        )
     return selected
 
 
@@ -657,12 +667,20 @@ def _parse_and_validate_answer(content: str, passage_count: int) -> AnswerResult
             logger.warning("Dropping answer segment with non-list passage_numbers: %r", item)
             continue
 
-        valid_numbers = [
-            n
-            for n in raw_numbers
-            if isinstance(n, int) and not isinstance(n, bool) and 1 <= n <= passage_count
-        ]
-        invalid_numbers = [n for n in raw_numbers if n not in valid_numbers]
+        # A single-pass partition, not "invalid = raw_numbers minus valid
+        # via `in`" -- `True == 1` in Python, so a membership test against
+        # `valid_numbers` would silently swallow a stray boolean into
+        # neither list rather than logging it as dropped (no functional
+        # effect on the response either way, since it's excluded from
+        # `valid_numbers` regardless -- this only affects whether the
+        # drop is visible in the log).
+        valid_numbers: list[int] = []
+        invalid_numbers: list = []
+        for n in raw_numbers:
+            if isinstance(n, int) and not isinstance(n, bool) and 1 <= n <= passage_count:
+                valid_numbers.append(n)
+            else:
+                invalid_numbers.append(n)
         if invalid_numbers:
             logger.warning(
                 "Dropping out-of-range passage_numbers %r from answer segment %r "

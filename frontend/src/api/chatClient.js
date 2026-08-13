@@ -19,12 +19,24 @@ export async function askQuestion(authFetch, question) {
       body: JSON.stringify({ question }),
       signal: AbortSignal.timeout(ASK_TIMEOUT_MS),
     })
-  } catch {
-    // A client-side abort/timeout or network failure is NOT the backend's
-    // AD-6 503 -- it never reached (or never heard back from) the service
-    // at all, so it must fall into the generic 'other' error path, never
-    // the service banner (that's reserved for a real 503 response body).
-    throw new Error('The request timed out or the network failed. Please try again.')
+  } catch (err) {
+    // Only relabel the two failure shapes this fetch call can actually
+    // produce on its own: AbortSignal.timeout expiring (DOMException
+    // "TimeoutError"), and the browser's own network-failure signature
+    // (fetch rejects with a plain TypeError for DNS/connection/offline
+    // failures -- never for an HTTP error status, which is handled below
+    // via response.ok instead). Anything else -- e.g. a future authFetch
+    // change that throws for an expired-session/token-refresh failure --
+    // must not be swallowed and relabeled as "network failed"; rethrow it
+    // as-is so its real message reaches the user instead of a misleading
+    // network-error banner.
+    if (err.name === 'TimeoutError' || err.name === 'AbortError') {
+      throw new Error('The request timed out. Please try again.')
+    }
+    if (err instanceof TypeError) {
+      throw new Error('The network failed. Please check your connection and try again.')
+    }
+    throw err
   }
 
   const data = await response.json().catch(() => null)

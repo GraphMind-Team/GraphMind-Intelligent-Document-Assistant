@@ -106,6 +106,42 @@ def test_generate_answer_drops_out_of_range_passage_number_but_keeps_valid_ones(
     assert "out-of-range" in caplog.text
 
 
+def test_generate_answer_logs_a_stray_boolean_as_invalid_not_silently(monkeypatch, caplog):
+    """`True == 1` in Python -- a naive `n not in valid_numbers` membership
+    check would silently drop a stray boolean into neither the valid nor
+    the logged-invalid list. It's excluded from the response either way
+    (booleans are never valid passage numbers), but it must still show up
+    in the warning log rather than vanishing untraced."""
+    content = json.dumps({"segments": [{"text": "A claim.", "passage_numbers": [1, True]}]})
+    monkeypatch.setattr(llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content=content))
+
+    with caplog.at_level("WARNING"):
+        result = generate_answer("q", [_passage()])
+
+    assert result.segments[0].passage_numbers == [1]
+    assert "out-of-range" in caplog.text
+    assert "True" in caplog.text
+
+
+def test_select_passages_within_budget_logs_when_it_truncates(monkeypatch, caplog):
+    monkeypatch.setattr(llm_client_module, "_MAX_PROMPT_CHARS", 200)
+    small_passage = _passage(chunk_id="chunk-0", text="short")
+    huge_passage = _passage(chunk_id="chunk-1", text="x" * 500)
+
+    with caplog.at_level("DEBUG"):
+        selected = llm_client_module._select_passages_within_budget([small_passage, huge_passage])
+
+    assert len(selected) == 1
+    assert "included 1/2 passages" in caplog.text
+
+
+def test_select_passages_within_budget_logs_nothing_when_everything_fits(caplog):
+    with caplog.at_level("DEBUG"):
+        llm_client_module._select_passages_within_budget([_passage()])
+
+    assert caplog.text == ""
+
+
 def test_generate_answer_drops_segment_with_no_valid_citations(monkeypatch):
     content = json.dumps(
         {

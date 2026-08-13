@@ -157,6 +157,44 @@ def test_ask_success_resolves_real_chapter_and_filename_citations(client, monkey
     ]
 
 
+def test_ask_deduplicates_repeated_chapter_and_filename_citations(client, monkeypatch):
+    """Two different chunks from the same chapter of the same document
+    (routine at TOP_K_PASSAGES=8) -- or a model repeating a
+    passage_number, e.g. [1, 1] -- must render as one citation chip, not
+    two identical ones side by side."""
+    token = _register_and_login(client, full_name="Maria", email="maria-chat-dedup@example.com", password="password12345")
+    document = _upload(client, token, filename="Vendor_Agreement_2026.pdf")
+    _stub_embed(monkeypatch)
+    monkeypatch.setattr(
+        chat_service_module,
+        "search_passages",
+        lambda *a, **k: [
+            _passage(document["id"], chapter="Chapter 4", chunk_id="chunk-a", text="first chunk"),
+            _passage(document["id"], chapter="Chapter 4", chunk_id="chunk-b", text="second chunk"),
+        ],
+    )
+    monkeypatch.setattr(
+        chat_service_module,
+        "generate_answer",
+        lambda *a, **k: AnswerResult(
+            segments=[
+                AnswerSegment(text="A claim supported by both chunks.", passage_numbers=[1, 2]),
+            ]
+        ),
+    )
+
+    response = client.post(
+        "/chat/ask", headers=_auth_headers(token), json={"question": "What does it say?"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["segments"]) == 1
+    assert body["segments"][0]["citations"] == [
+        {"chapter": "Chapter 4", "document_filename": "Vendor_Agreement_2026.pdf"}
+    ]
+
+
 def test_ask_cross_tenant_citation_is_dropped_not_leaked(client, monkeypatch):
     """Account B's request must never resolve a filename that belongs to
     account A -- even if a (mocked) retrieval result names account A's
