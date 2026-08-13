@@ -2,6 +2,7 @@
 that don't need the full upload/ingest flow to reproduce or pin down.
 """
 
+from app.documents import parsing
 from app.documents.parsing import parse_document
 
 _MINIMAL_PDF_WITH_PREAMBLE = b"""%PDF-1.4
@@ -83,3 +84,30 @@ def test_html_comment_before_first_heading_does_not_leak_into_preamble():
     all_text = " ".join(c.text for c in chunks)
     assert "internal note" not in all_text
     assert "Real preamble text" in all_text
+
+
+def test_chunk_word_count_stays_within_the_embedding_model_s_token_budget():
+    # Sized against shared/embeddings/model.py's 512-token multilingual
+    # limit -- not re-asserting the exact constant, but that whatever it
+    # is stays comfortably under a budget that would otherwise mean most
+    # of a chunk's stored, citable text was never actually embedded.
+    text = " ".join(f"word{i}" for i in range(1000))
+    chunks = parse_document("markdown", text.encode())
+
+    for chunk in chunks:
+        assert len(chunk.text.split()) <= parsing._CHUNK_WORD_COUNT
+
+
+def test_markdown_heading_inside_a_code_fence_is_not_treated_as_a_chapter():
+    md = (
+        b"# Real Heading\n\n"
+        b"Some intro text.\n\n"
+        b"```bash\n# install deps\npip install foo\n```\n\n"
+        b"## Another Real Heading\n\nFinal text."
+    )
+
+    chunks = parse_document("markdown", md)
+
+    chapters = {c.chapter for c in chunks}
+    assert chapters == {"Real Heading", "Another Real Heading"}
+    assert "install deps" not in chapters

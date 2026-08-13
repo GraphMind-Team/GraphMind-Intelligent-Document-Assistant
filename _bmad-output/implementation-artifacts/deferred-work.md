@@ -101,10 +101,16 @@
   summary: >
     Render's free tier has an ephemeral filesystem -- `fastembed`'s on-disk model-weight cache
     (`shared/embeddings/model.py`) doesn't survive a restart/redeploy/spin-down. Every time the
-    instance comes back cold, the first ingestion after that pays a ~90MB model download before
-    it can embed anything, so production ingestion latency will be periodically, and correctly,
-    spiky -- not a bug if/when this is noticed later.
+    instance comes back cold, the first ingestion after that pays a model download before it can
+    embed anything (~0.22GB for `paraphrase-multilingual-MiniLM-L12-v2`, the model actually
+    shipped -- swapped in during review from the smaller English-only `all-MiniLM-L6-v2`,
+    ~0.09GB, specifically so Bulgarian documents get real embeddings), so production ingestion
+    latency will be periodically, and correctly, spiky -- not a bug if/when this is noticed later.
   evidence: Chosen deliberately over `sentence-transformers`/`torch` (which wouldn't fit the
     512MB free-tier instance at all) during Story 2.3's planning review. Verification for that
     story is local (persistent disk), so this won't surface in testing -- worth this recorded
     line so a later cold-start latency spike isn't debugged as a mystery.
+
+- source_spec: `_bmad-output/planning-artifacts/epics.md` (Story 2.3: Parse and index documents into the vector store)
+  summary: Author a `spec-2-3-parse-and-index-documents-into-the-vector-store.md` under `_bmad-output/implementation-artifacts/`, matching the pattern every other shipped story (1.1/1.2/1.5/2.1/2.2) has -- 2.3 was implemented directly against `epics.md`'s acceptance criteria plus `epic-2-context.md`, with no dedicated spec file of its own.
+  evidence: Noted during a Story 2.3 review round; `sprint-status.yaml` and `deferred-work.md`'s own entries for 2.3 both reference `epics.md` directly rather than a spec file, unlike every neighboring story. Not a code defect -- a process/documentation gap worth closing before 2.4 sets the same precedent.

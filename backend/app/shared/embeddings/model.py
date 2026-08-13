@@ -5,9 +5,18 @@ Runs entirely offline via `fastembed` (ONNX Runtime) rather than
 zero-cost/free-tier-only constraint, and Render's free-tier instance
 (512MB RAM) doesn't comfortably fit torch's install size (~800MB-1GB) or
 a loaded MiniLM's runtime footprint (~400-600MB RSS) under
-sentence-transformers. `fastembed` runs the same
-`sentence-transformers/all-MiniLM-L6-v2` model (384-dim) far lighter on
-both axes.
+sentence-transformers.
+
+Model: `paraphrase-multilingual-MiniLM-L12-v2` (384-dim, 512-token input
+limit), not the English-only `all-MiniLM-L6-v2` this started on --
+switched deliberately so documents in Bulgarian (or any non-English
+language) get real embeddings rather than ones computed from a model that
+was never trained on that text. Also the reason `parsing.py`'s chunk word
+count can be smaller *and* the model can still see (almost) all of it:
+the English-only model's 256-token limit was already less than half of
+what a 400-word chunk produced, so most of every chunk's text was being
+silently truncated before it ever reached the embedding -- the 512-token
+limit here gives real headroom instead.
 
 The `fastembed` import is deliberately inside `_get_model`'s body, not at
 module top level: `service.py` imports `embed_texts` at module scope, and
@@ -31,7 +40,7 @@ the `is None` check and returns immediately, lock-free.
 
 import threading
 
-MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 EMBEDDING_DIM = 384
 
 _model_lock = threading.Lock()

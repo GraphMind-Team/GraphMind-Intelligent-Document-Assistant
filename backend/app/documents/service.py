@@ -219,6 +219,24 @@ def ingest_document(
         except Exception:
             logger.exception("Ingestion failed for document %s", document_id)
             try:
+                # Best-effort: a failure partway through the batch loop
+                # above (say batch 30 of 50) leaves the first 29 batches'
+                # passages sitting in Weaviate under a document that's
+                # about to be marked Failed. Epic 3's retrieval filters by
+                # user_id only, not status, so an orphaned partial set
+                # would otherwise be read as a complete, valid document.
+                # Idempotent and safe to call even if the failure happened
+                # before any passage was ever written (deletes zero rows).
+                delete_passages_for_document(str(document.id), str(document.user_id))
+            except Exception:
+                # If Weaviate is what's unreachable, this cleanup attempt
+                # fails too -- logged, not re-raised, since the primary
+                # failure below still needs to be recorded either way.
+                logger.exception(
+                    "Failed to clean up partially-written passages for document %s",
+                    document_id,
+                )
+            try:
                 db.rollback()
                 document.status = "Failed"
                 db.commit()

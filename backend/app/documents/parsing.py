@@ -20,17 +20,34 @@ from bs4 import BeautifulSoup, NavigableString
 from bs4.element import PreformattedString
 from pypdf import PdfReader
 
-# ~400 words per chunk with a ~50-word overlap between consecutive chunks
+# ~250 words per chunk with a ~40-word overlap between consecutive chunks
 # -- cheap, and avoids losing a passage that straddles a chunk boundary.
 # chunk_index is sequential across the whole document, not reset per
 # chapter.
-_CHUNK_WORD_COUNT = 400
-_CHUNK_OVERLAP_WORDS = 50
+#
+# Sized against the embedding model's 512-token input limit
+# (shared/embeddings/model.py), not picked independently of it: English
+# text tokenizes at roughly 1.3 tokens/word, but this model is
+# multilingual, and Cyrillic (Bulgarian) text can tokenize considerably
+# denser under a shared multilingual vocabulary -- 250 words leaves real
+# headroom under 512 tokens even at a pessimistic ~2 tokens/word, rather
+# than assuming the English ratio holds for every document. Getting this
+# wrong is silent, not an error: the model truncates instead of failing,
+# so an oversized chunk just means the tail of its (stored, citable) text
+# was never actually seen by its own embedding.
+_CHUNK_WORD_COUNT = 250
+_CHUNK_OVERLAP_WORDS = 40
 
 _FULL_DOCUMENT_CHAPTER = "Full Document"
 _HEADING_TAGS = ("h1", "h2", "h3")
 
 _MARKDOWN_HEADING_RE = re.compile(r"^#{1,6}\s+(.*)$", re.MULTILINE)
+
+# Fenced code blocks (```...```) can contain lines that look like ATX
+# headings (e.g. a `# install deps` comment in a bash snippet) but aren't
+# -- matched separately so heading detection can skip anything inside one.
+# Non-greedy DOTALL match from an opening ``` line to the next ``` line.
+_MARKDOWN_CODE_FENCE_RE = re.compile(r"^```.*?^```[ \t]*$", re.MULTILINE | re.DOTALL)
 
 
 @dataclass(frozen=True)
@@ -98,7 +115,18 @@ def _parse_markdown(content: bytes) -> list[tuple[str, str]]:
     except UnicodeDecodeError as exc:
         raise UnparseableDocument("Could not decode Markdown as UTF-8.") from exc
 
-    matches = list(_MARKDOWN_HEADING_RE.finditer(text))
+    fenced_spans = [(m.start(), m.end()) for m in _MARKDOWN_CODE_FENCE_RE.finditer(text)]
+
+    def _inside_a_fence(position: int) -> bool:
+        return any(start <= position < end for start, end in fenced_spans)
+
+    # A `# heading`-shaped line inside a fenced code block (e.g. a `#
+    # install deps` comment in a bash snippet) is code, not a real
+    # section boundary -- README-style uploads with shell examples hit
+    # this often enough that it's worth filtering rather than ignoring.
+    matches = [
+        m for m in _MARKDOWN_HEADING_RE.finditer(text) if not _inside_a_fence(m.start())
+    ]
     if not matches:
         return [(_FULL_DOCUMENT_CHAPTER, text)]
 

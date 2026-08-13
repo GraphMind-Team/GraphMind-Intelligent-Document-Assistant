@@ -5,15 +5,18 @@ constructed and the sole place a Weaviate query is written -- `documents/`
 (and any future reader, e.g. Epic 3's chat retrieval) calls `write_passages`
 (or a future `search_passages`) rather than importing `weaviate` itself.
 
-Mirrors `session.py`'s lazy-`@lru_cache`-singleton pattern: the client is
-built on first use, not at import time, so importing this module never
-opens a real network connection on its own (needed for tests, and for
-`app.main` importing every route module at startup regardless of whether
-Weaviate is configured).
+The client is built on first use, not at import time, so importing this
+module never opens a real network connection on its own (needed for
+tests, and for `app.main` importing every route module at startup
+regardless of whether Weaviate is configured). Deliberately *not*
+`@lru_cache` (see `_get_client`'s docstring) -- same reasoning, and same
+double-checked-locking shape, as `shared/embeddings/model.py`'s
+`_get_model`.
 """
 
+import logging
 import os
-from functools import lru_cache
+import threading
 
 import weaviate
 from weaviate.classes.config import Configure, DataType, Property
@@ -23,6 +26,8 @@ from weaviate.classes.query import Filter
 from weaviate.client import WeaviateClient
 
 from app.shared.data_access.shapes import WeaviatePassage
+
+logger = logging.getLogger(__name__)
 
 PASSAGE_COLLECTION = "Passage"
 
@@ -41,39 +46,127 @@ PASSAGE_COLLECTION = "Passage"
 PASSAGE_BATCH_SIZE = 100
 
 
-@lru_cache
+_client_lock = threading.Lock()
+_client_instance: WeaviateClient | None = None
+
+
 def get_weaviate_client() -> WeaviateClient:
-    url = os.environ.get("WEAVIATE_URL")
-    api_key = os.environ.get("WEAVIATE_API_KEY")
-    if not url or not api_key:
-        raise RuntimeError(
-            "Missing required environment variable(s): WEAVIATE_URL, WEAVIATE_API_KEY. "
-            "See backend/.env.example."
-        )
-    return weaviate.connect_to_weaviate_cloud(
-        cluster_url=url,
-        auth_credentials=Auth.api_key(api_key),
-    )
+    """The process-wide Weaviate client singleton.
+
+    A hand-rolled double-checked-locking singleton, not `@lru_cache`: like
+    `shared/embeddings/model.py`'s model singleton, this is built inside
+    Starlette's background-task threadpool, where two uploads processed
+    concurrently could both miss an empty `lru_cache` before either
+    finishes connecting -- `lru_cache` holds no lock across the wrapped
+    call itself. Two live clients here isn't just wasted memory the way a
+    duplicate embedding model is: the second one would leak, unclosed,
+    past `close_weaviate_client()`'s single `close()` call at shutdown.
+    """
+    global _client_instance
+    if _client_instance is None:
+        with _client_lock:
+            if _client_instance is None:  # re-check: lost the race, not the need
+                url = os.environ.get("WEAVIATE_URL")
+                api_key = os.environ.get("WEAVIATE_API_KEY")
+                if not url or not api_key:
+                    raise RuntimeError(
+                        "Missing required environment variable(s): WEAVIATE_URL, "
+                        "WEAVIATE_API_KEY. See backend/.env.example."
+                    )
+                _client_instance = weaviate.connect_to_weaviate_cloud(
+                    cluster_url=url,
+                    auth_credentials=Auth.api_key(api_key),
+                )
+    return _client_instance
+
+
+def close_weaviate_client() -> None:
+    """Closes the client singleton, if one was ever built. Safe to call
+    unconditionally (e.g. from `app.main`'s shutdown) whether or not
+    ingestion ever ran -- calling this never itself opens a connection
+    just to immediately close it."""
+    global _client_instance
+    with _client_lock:
+        if _client_instance is not None:
+            _client_instance.close()
+            _client_instance = None
+
+
+_collection_lock = threading.Lock()
+_collection_ready = False
 
 
 def _ensure_passage_collection(client: WeaviateClient) -> None:
-    if client.collections.exists(PASSAGE_COLLECTION):
+    """Idempotent, race-tolerant, and cheap after the first confirmation.
+
+    Two problems with a bare check-then-create, both real under
+    concurrent background tasks in Starlette's threadpool: (1) against a
+    fresh Weaviate instance, two uploads landing at once can both see
+    `exists() == False` and both call `create()` -- the loser gets a real
+    error and its document fails ingestion for no actual reason, not a
+    hypothetical race. (2) even once the collection exists, every
+    `write_passages`/`delete_passages_for_document` call re-checks
+    `exists()` -- for a document with thousands of chunks split into many
+    batches, that's dozens of redundant round-trips for a fact that never
+    changes after the first confirmation.
+
+    `_collection_ready` (guarded by its own lock, separate from the
+    client's) short-circuits both: once True, no further Weaviate calls
+    happen here at all. Getting there tolerates losing the create() race
+    outright -- rather than only avoiding it -- by re-checking `exists()`
+    if `create()` raises, so a concurrent creator winning is treated as
+    success, not propagated as this call's own failure.
+    """
+    global _collection_ready
+    if _collection_ready:
         return
-    # vectorizer_config=none: embeddings are computed by the app
-    # (shared/embeddings) and supplied on every write, never generated by
-    # a Weaviate-side vectorizer module.
-    client.collections.create(
-        PASSAGE_COLLECTION,
-        properties=[
-            Property(name="chunk_id", data_type=DataType.TEXT),
-            Property(name="document_id", data_type=DataType.TEXT),
-            Property(name="user_id", data_type=DataType.TEXT),
-            Property(name="chapter", data_type=DataType.TEXT),
-            Property(name="chunk_index", data_type=DataType.INT),
-            Property(name="text", data_type=DataType.TEXT),
-        ],
-        vectorizer_config=Configure.Vectorizer.none(),
-    )
+    with _collection_lock:
+        if _collection_ready:
+            return
+        if client.collections.exists(PASSAGE_COLLECTION):
+            _collection_ready = True
+            return
+        try:
+            # vectorizer_config=none: embeddings are computed by the app
+            # (shared/embeddings) and supplied on every write, never
+            # generated by a Weaviate-side vectorizer module.
+            client.collections.create(
+                PASSAGE_COLLECTION,
+                properties=[
+                    Property(name="chunk_id", data_type=DataType.TEXT),
+                    Property(name="document_id", data_type=DataType.TEXT),
+                    Property(name="user_id", data_type=DataType.TEXT),
+                    Property(name="chapter", data_type=DataType.TEXT),
+                    Property(name="chunk_index", data_type=DataType.INT),
+                    Property(name="text", data_type=DataType.TEXT),
+                ],
+                vectorizer_config=Configure.Vectorizer.none(),
+            )
+        except Exception:
+            if client.collections.exists(PASSAGE_COLLECTION):
+                # Lost the create() race to another process/thread -- the
+                # collection exists either way, which is all this
+                # function promises.
+                pass
+            else:
+                raise
+        _collection_ready = True
+
+
+def ensure_ready() -> None:
+    """Connects and ensures the `Passage` collection exists, once, up
+    front. Meant to be called from `app.main`'s startup: doing this before
+    the app starts serving requests means the collection almost always
+    already exists by the time any upload can race on it, structurally
+    avoiding `_ensure_passage_collection`'s create() race in the common
+    case rather than only tolerating it after the fact. Raises whatever
+    `get_weaviate_client`/`_ensure_passage_collection` raise -- the
+    caller decides whether a startup failure here should be fatal or
+    just logged (Weaviate being unconfigured/unreachable at boot must not
+    crash the whole app, since ingestion already degrades gracefully to
+    `Failed` when it can't reach Weaviate).
+    """
+    _ensure_passage_collection(get_weaviate_client())
 
 
 def delete_passages_for_document(document_id: str, user_id: str) -> None:
@@ -92,10 +185,26 @@ def delete_passages_for_document(document_id: str, user_id: str) -> None:
     client = get_weaviate_client()
     _ensure_passage_collection(client)
     collection = client.collections.get(PASSAGE_COLLECTION)
-    collection.data.delete_many(
+    result = collection.data.delete_many(
         where=Filter.by_property("document_id").equal(document_id)
         & Filter.by_property("user_id").equal(user_id)
     )
+    # Weaviate caps a single batch delete (10k objects by default) --
+    # `insert_many`'s result is checked for errors, so this should be
+    # too, rather than assuming every matched object was actually
+    # removed. No caller retries a delete today, so a nonzero `failed`
+    # count can't be acted on yet beyond making it visible; logged, not
+    # raised, so a failed delete of stale data doesn't also block the
+    # fresh write that follows it.
+    if getattr(result, "failed", 0):
+        logger.warning(
+            "delete_passages_for_document: %s of %s matched objects failed to delete "
+            "for document_id=%s user_id=%s",
+            result.failed,
+            result.matches,
+            document_id,
+            user_id,
+        )
 
 
 def write_passages(passages: list[WeaviatePassage]) -> None:

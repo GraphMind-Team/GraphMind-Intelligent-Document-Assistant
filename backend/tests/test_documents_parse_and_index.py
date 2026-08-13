@@ -273,6 +273,43 @@ def test_ingest_missing_document_returns_silently(db_session):
     real_ingest_document(uuid.uuid4(), session_factory=_session_factory(db_session))
 
 
+def test_ingest_cleans_up_partially_written_passages_on_failure(client, db_session, monkeypatch):
+    """A failure partway through the batch loop (batch 2 of many, say)
+    must not leave the earlier batches' passages orphaned in Weaviate
+    under a document that's about to be marked Failed -- Epic 3's
+    retrieval filters by user_id only, not status, so an orphaned partial
+    set would otherwise read as a complete, valid document."""
+    from unittest.mock import ANY, Mock
+
+    import app.documents.service as service_module
+
+    _stub_embeddings(monkeypatch)
+
+    def _raise(passages):
+        raise RuntimeError("Weaviate is unreachable")
+
+    monkeypatch.setattr(service_module, "write_passages", _raise)
+    fake_delete = Mock()
+    monkeypatch.setattr(service_module, "delete_passages_for_document", fake_delete)
+
+    token = _register_and_login(
+        client, full_name="Ingest User", email="ingest-orphan-cleanup@example.com", password="password12345"
+    )
+    doc = _upload(client, token, "notes.md", _MARKDOWN, "text/markdown")
+
+    real_ingest_document(uuid.UUID(doc["id"]), session_factory=_session_factory(db_session))
+
+    # Once up front (before the batch loop) and once more as cleanup after
+    # the write failure -- both calls target the same (document_id,
+    # user_id), so cleanup is idempotent with the initial delete either way.
+    assert fake_delete.call_count == 2
+    for call in fake_delete.call_args_list:
+        assert call.args == (doc["id"], ANY)
+
+    row = db_session.get(Document, uuid.UUID(doc["id"]))
+    assert row.status == "Failed"
+
+
 def test_ingest_embeds_and_writes_in_batches_not_all_chunks_at_once(
     client, db_session, monkeypatch
 ):

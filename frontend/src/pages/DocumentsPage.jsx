@@ -96,21 +96,34 @@ export default function DocumentsPage() {
     fetchDocuments()
   }, [fetchDocuments])
 
-  const hasPollableDocument = useMemo(
-    () => documents.some((doc) => POLLABLE_STATUSES.includes(doc.status)),
+  // A key identifying *which* documents are currently pollable, not just
+  // whether any are -- a plain boolean would mean a document stuck at
+  // `Uploaded` forever (e.g. the process restarted between upload and its
+  // background task ever running) permanently exhausts MAX_POLL_ATTEMPTS
+  // and then never polls again for the rest of the session, silently
+  // eating every later upload's polling too, since the effect below only
+  // restarts on a *change* to its dependency and "stuck document present"
+  // never changes. Keying on the sorted id list instead means a fresh
+  // upload landing at `Uploaded` changes the key even while the stuck one
+  // remains, so the effect restarts and the budget resets for it.
+  const pollableDocumentIdsKey = useMemo(
+    () =>
+      documents
+        .filter((doc) => POLLABLE_STATUSES.includes(doc.status))
+        .map((doc) => doc.id)
+        .sort()
+        .join(','),
     [documents],
   )
 
-  // Gated on the derived boolean, not `documents` itself -- depending on
-  // the array would tear down and rebuild the interval on every single
-  // poll tick (each fetch produces a new array reference), degrading a
-  // true periodic timer into something closer to a setTimeout chain. The
-  // attempt counter resets whenever this effect (re)starts, e.g. a fresh
-  // upload puts a new document back at `Uploaded`.
+  // Gated on the derived key, not `documents` itself -- depending on the
+  // array would tear down and rebuild the interval on every single poll
+  // tick (each fetch produces a new array reference), degrading a true
+  // periodic timer into something closer to a setTimeout chain.
   const pollAttemptsRef = useRef(0)
   useEffect(() => {
     pollAttemptsRef.current = 0
-    if (!hasPollableDocument) return undefined
+    if (!pollableDocumentIdsKey) return undefined
 
     const intervalId = setInterval(() => {
       // Checked *before* incrementing/fetching, so exactly
@@ -126,7 +139,7 @@ export default function DocumentsPage() {
     }, POLL_INTERVAL_MS)
 
     return () => clearInterval(intervalId)
-  }, [hasPollableDocument, fetchDocuments])
+  }, [pollableDocumentIdsKey, fetchDocuments])
 
   const visibleDocuments = useMemo(() => {
     const filtered =

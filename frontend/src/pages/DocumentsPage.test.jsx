@@ -297,6 +297,51 @@ describe('DocumentsPage', () => {
       expect(listSpy).toHaveBeenCalledTimes(1 + MAX_POLL_ATTEMPTS)
     })
 
+    it('resets the poll budget when a new pollable document appears, even while an old one stays stuck', async () => {
+      // A document that never leaves Uploaded (e.g. the process restarted
+      // between upload and its background task ever running) must not
+      // permanently exhaust polling for the whole session -- a later,
+      // genuinely fresh upload has to get its own budget. Gating the
+      // effect on a plain "is anything pollable" boolean would fail this:
+      // that boolean stays true across the whole scenario below, so the
+      // effect (and the budget) would never restart.
+      const STUCK_DOC = { ...PDF_DOC, id: 'doc-stuck', status: 'Uploaded' }
+      const NEW_DOC = { ...MD_DOC, id: 'doc-new', status: 'Uploaded' }
+      const MAX_POLL_ATTEMPTS = 15
+
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      const listSpy = vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([STUCK_DOC])
+
+      vi.useFakeTimers()
+      renderPage()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(listSpy).toHaveBeenCalledTimes(1)
+
+      // Exhaust the budget while only the stuck document is present.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4000 * (MAX_POLL_ATTEMPTS + 5))
+      })
+      expect(listSpy).toHaveBeenCalledTimes(1 + MAX_POLL_ATTEMPTS)
+
+      // A fresh upload lands -- the modal-close refetch now returns the
+      // stuck document plus a brand new Uploaded one.
+      listSpy.mockResolvedValue([STUCK_DOC, NEW_DOC])
+      fireEvent.click(screen.getByRole('button', { name: /^upload$/i }))
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /close modal/i }))
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      const countAfterNewUpload = listSpy.mock.calls.length
+
+      // Polling resumes for the new document.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4000)
+      })
+      expect(listSpy.mock.calls.length).toBeGreaterThan(countAfterNewUpload)
+    })
+
     it('does not let a background silent poll blank out a visible error banner', async () => {
       useAuth.mockReturnValue({ authFetch: vi.fn() })
       const listSpy = vi
