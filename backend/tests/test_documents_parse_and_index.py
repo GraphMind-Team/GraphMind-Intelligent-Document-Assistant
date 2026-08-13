@@ -88,6 +88,26 @@ def _stub_embeddings(monkeypatch):
     monkeypatch.setattr(service_module, "delete_passages_for_document", Mock())
 
 
+def _stub_graphing(monkeypatch):
+    """Stubs Story 2.4's Graphing step (`extract_entities_and_relationships`
+    + `write_entities_and_relationships`) so tests in this file -- which
+    predate Story 2.4 and only care about the Weaviate write path -- can
+    let `ingest_document` run all the way to `Ready` without a real
+    OpenRouter/Neo4j connection. An empty extraction result is a valid,
+    successful outcome (the story's own "no notable entities" scenario),
+    not a failure -- exactly what's wanted here, since these tests aren't
+    exercising entity extraction at all."""
+    from unittest.mock import Mock
+
+    import app.documents.service as service_module
+    from app.shared.llm_client import ExtractionResult
+
+    monkeypatch.setattr(
+        service_module, "extract_entities_and_relationships", lambda text: ExtractionResult()
+    )
+    monkeypatch.setattr(service_module, "write_entities_and_relationships", Mock())
+
+
 def test_ingest_markdown_produces_passages_tagged_with_document_chapter_chunk_index(
     client, db_session, monkeypatch
 ):
@@ -96,6 +116,7 @@ def test_ingest_markdown_produces_passages_tagged_with_document_chapter_chunk_in
     from unittest.mock import Mock
 
     _stub_embeddings(monkeypatch)
+    _stub_graphing(monkeypatch)
     fake_write_passages = Mock()
     monkeypatch.setattr(service_module, "write_passages", fake_write_passages)
 
@@ -124,6 +145,7 @@ def test_ingest_pdf_and_html_each_produce_at_least_one_passage(client, db_sessio
     import app.documents.service as service_module
 
     _stub_embeddings(monkeypatch)
+    _stub_graphing(monkeypatch)
 
     token = _register_and_login(
         client, full_name="Ingest User", email="ingest-pdf-html@example.com", password="password12345"
@@ -151,6 +173,7 @@ def test_ingest_writes_flat_shape_with_no_nested_dict(client, db_session, monkey
     import app.documents.service as service_module
 
     _stub_embeddings(monkeypatch)
+    _stub_graphing(monkeypatch)
     fake_write_passages = Mock()
     monkeypatch.setattr(service_module, "write_passages", fake_write_passages)
 
@@ -185,6 +208,7 @@ def test_ingest_user_id_on_every_passage_is_jwt_derived_not_client_supplied(
     import app.documents.service as service_module
 
     _stub_embeddings(monkeypatch)
+    _stub_graphing(monkeypatch)
     fake_write_passages = Mock()
     monkeypatch.setattr(service_module, "write_passages", fake_write_passages)
 
@@ -204,12 +228,18 @@ def test_ingest_user_id_on_every_passage_is_jwt_derived_not_client_supplied(
         assert passage.user_id == real_owner_id
 
 
-def test_ingest_advances_status_from_uploaded_to_extracting(client, db_session, monkeypatch):
+def test_ingest_advances_status_from_uploaded_all_the_way_to_ready(client, db_session, monkeypatch):
+    """Story 2.3 pinned the advance to `Extracting`; Story 2.4 extends the
+    same pipeline past `Graphing` to `Ready` once the (here stubbed) Neo4j
+    write succeeds too -- this test now pins the full chain rather than
+    stopping partway, since `ingest_document` no longer stops at
+    `Extracting` on success."""
     from unittest.mock import Mock
 
     import app.documents.service as service_module
 
     _stub_embeddings(monkeypatch)
+    _stub_graphing(monkeypatch)
     monkeypatch.setattr(service_module, "write_passages", Mock())
 
     token = _register_and_login(
@@ -221,7 +251,8 @@ def test_ingest_advances_status_from_uploaded_to_extracting(client, db_session, 
     real_ingest_document(uuid.UUID(doc["id"]), session_factory=_session_factory(db_session))
 
     row = db_session.get(Document, uuid.UUID(doc["id"]))
-    assert row.status == "Extracting"
+    assert row.status == "Ready"
+    assert row.chapter_breakdown == {"Chapter One": 1, "Chapter Two": 1}
 
 
 def test_ingest_corrupt_file_marks_failed_instead_of_stuck(client, db_session, monkeypatch):
@@ -326,6 +357,7 @@ def test_ingest_embeds_and_writes_in_batches_not_all_chunks_at_once(
     from app.documents.parsing import ParsedChunk
 
     _stub_embeddings(monkeypatch)
+    _stub_graphing(monkeypatch)
 
     chunk_count = service_module.PASSAGE_BATCH_SIZE * 2 + 5
     fake_chunks = [

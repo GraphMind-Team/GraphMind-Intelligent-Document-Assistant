@@ -44,21 +44,32 @@ function statusRank(status) {
   return index === -1 ? DOCUMENT_STATUSES.length : index
 }
 
-// Story 2.3: nothing refetches after mount/modal-close today, so the
-// Uploaded -> Extracting transition (which happens asynchronously, in a
-// background task, shortly after upload) would never appear without a
-// manual reload. Only `Uploaded` triggers polling -- not `Extracting`/
-// `Graphing` -- because after this story every successfully-parsed
-// document parks at `Extracting` forever (Story 2.4 is what advances it
-// further); including those statuses would mean every account with any
-// document polls forever. `Uploaded` is the one status this story's own
-// background task actually clears, within seconds, so polling for it is
-// bounded by construction. MAX_POLL_ATTEMPTS is a defensive backstop, not
-// the primary mechanism -- cheap insurance if a future story widens the
-// trigger set without revisiting this file.
-const POLLABLE_STATUSES = ['Uploaded']
+// Nothing refetches after mount/modal-close, so every asynchronous status
+// transition made by the background ingestion task would otherwise be
+// invisible until a manual reload.
+//
+// Story 2.3 polled `Uploaded` only, deliberately: back then a parsed
+// document parked at `Extracting` forever, so polling those statuses would
+// have meant every account with any document polling forever. Story 2.4
+// completes the pipeline (`Extracting` -> `Graphing` -> `Ready`/`Failed`),
+// which retires that reasoning entirely -- polling only `Uploaded` now
+// means the grid stops watching a few seconds in and never shows a
+// document actually reaching `Ready`. Every non-terminal status is
+// pollable; `Ready`/`Failed` are terminal and are what stops the loop.
+//
+// The attempt budget has to cover the *whole* pipeline, not one
+// transition: the key below is the set of pollable document ids, which
+// doesn't change as a document moves Uploaded -> Extracting -> Graphing
+// (it stays pollable throughout), so the effect never restarts and the
+// budget never resets mid-ingestion. Sized against the slow path rather
+// than the typical one -- a cold `fastembed` model download (~44s, see
+// deferred-work.md) plus the LLM extraction's own 2x30s timeout budget can
+// legitimately put a document minutes away from `Ready`, and a budget that
+// expired first would strand the UI exactly where this story's payoff
+// becomes visible.
+const POLLABLE_STATUSES = ['Uploaded', 'Extracting', 'Graphing']
 const POLL_INTERVAL_MS = 4000
-const MAX_POLL_ATTEMPTS = 15
+const MAX_POLL_ATTEMPTS = 45
 
 export default function DocumentsPage() {
   const { authFetch } = useAuth()

@@ -74,7 +74,18 @@ def test_get_never_serializes_raw_content_or_owner(client):
     body = response.json()
     assert "content" not in body
     assert "user_id" not in body
-    assert set(body) == {"id", "filename", "file_type", "file_size_bytes", "status", "created_at"}
+    assert set(body) == {
+        "id",
+        "filename",
+        "file_type",
+        "file_size_bytes",
+        "status",
+        "created_at",
+        "chapter_breakdown",
+    }
+    # Not yet Ready -- Story 2.4 requires this stay None, never a
+    # fabricated {} (mirrors UX-DR8's "Pending, never a fabricated 0" rule).
+    assert body["chapter_breakdown"] is None
 
 
 def test_get_another_accounts_document_is_404_not_403(client):

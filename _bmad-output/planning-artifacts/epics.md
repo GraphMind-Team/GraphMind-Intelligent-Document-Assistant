@@ -101,7 +101,7 @@ Chapter-level filtered search (chapters stay read-only metadata) · query histor
 
 | ID | Status | Decision or blocker |
 |---|---|---|
-| OD-1 | 🔴 OPEN | **Entity/relationship type list (FR-5).** Blocks Story 2.4 — extraction prompts cannot be written without it |
+| OD-1 | ✅ RESOLVED | **Entity/relationship type list (FR-5).** Entity types: `Person`, `Organization`, `Project`, `Product`, `Location`. Relationship types: `WORKS_AT`, `SUPPLIES`, `PART_OF`, `LOCATED_IN`, `RELATED_TO` (fallback so extraction never needs a type outside the closed set) |
 | OD-2 | 🔴 OPEN | **FR-10 threshold value.** Mechanism fixed by AD-6; the number is resolved inside Story 3.2 and lives as config in the LLM wrapper |
 | OD-3 | 🔴 OPEN | **SM-1 numeric target.** 80% is a placeholder; confirmed in Story 6.1 after a baseline run |
 | OD-4 | 🔴 OPEN | Whether FR-8's delete/graph warning needs a stronger v1 mitigation. PM call, not architecture's |
@@ -508,7 +508,7 @@ As a user,
 I want the concepts and connections in my documents merged into one graph across all of them,
 So that GraphMind can answer questions that require joining facts from several files, not just matching text in one.
 
-**⚠ Blocked until OD-1 is decided** — the fixed entity/relationship type list must exist before extraction prompts can be written.
+**OD-1 resolved:** entity types `Person`/`Organization`/`Project`/`Product`/`Location`; relationship types `WORKS_AT`/`SUPPLIES`/`PART_OF`/`LOCATED_IN`/`RELATED_TO`.
 
 **Acceptance Criteria:**
 
@@ -519,7 +519,7 @@ So that GraphMind can answer questions that require joining facts from several f
 
 **Given** extraction runs
 **When** it identifies entities and relationships
-**Then** it is constrained to the fixed type set agreed in OD-1, not an open-ended vocabulary (FR-5)
+**Then** it is constrained to the fixed type set agreed in OD-1 (entities: `Person`/`Organization`/`Project`/`Product`/`Location`; relationships: `WORKS_AT`/`SUPPLIES`/`PART_OF`/`LOCATED_IN`/`RELATED_TO`), not an open-ended vocabulary (FR-5)
 
 **Given** an extracted entity whose name exactly matches an existing entity in my graph
 **When** it is merged

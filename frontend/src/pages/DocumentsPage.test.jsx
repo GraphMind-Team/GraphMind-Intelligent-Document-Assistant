@@ -208,18 +208,25 @@ describe('DocumentsPage', () => {
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })
 
-  describe('Story 2.3 status polling', () => {
+  describe('ingestion status polling (Story 2.3, extended in 2.4)', () => {
     afterEach(() => {
       vi.useRealTimers()
     })
 
-    it('polls while a document is Uploaded, and stops once it leaves Uploaded', async () => {
+    it('keeps polling through Extracting and Graphing, and stops only at a terminal status', async () => {
+      // Story 2.4 regression guard. Story 2.3 polled `Uploaded` only,
+      // which was correct while a parsed document parked at `Extracting`
+      // forever -- but once 2.4 advanced the pipeline to `Ready`, that
+      // same rule meant the grid stopped watching at the *first*
+      // transition and never showed a document finishing. Each mid-flight
+      // status below must keep the loop alive; only `Ready` ends it.
       useAuth.mockReturnValue({ authFetch: vi.fn() })
       const listSpy = vi
         .spyOn(documentsClient, 'listDocuments')
         .mockResolvedValueOnce([{ ...PDF_DOC, status: 'Uploaded' }])
-        .mockResolvedValueOnce([{ ...PDF_DOC, status: 'Uploaded' }])
-        .mockResolvedValue([{ ...PDF_DOC, status: 'Extracting' }])
+        .mockResolvedValueOnce([{ ...PDF_DOC, status: 'Extracting' }])
+        .mockResolvedValueOnce([{ ...PDF_DOC, status: 'Graphing' }])
+        .mockResolvedValue([{ ...PDF_DOC, status: 'Ready' }])
 
       vi.useFakeTimers()
       renderPage()
@@ -228,27 +235,65 @@ describe('DocumentsPage', () => {
       })
       expect(listSpy).toHaveBeenCalledTimes(1)
 
-      // Still Uploaded -> another poll fires after the interval.
+      // Poll 1's response moves it to Extracting -- still in flight, so
+      // the loop must survive (this is the exact tick the pre-2.4 rule
+      // tore the interval down on).
       await act(async () => {
         await vi.advanceTimersByTimeAsync(4000)
       })
       expect(listSpy).toHaveBeenCalledTimes(2)
 
-      // This poll's response flips status to Extracting.
+      // Poll 2's response moves it to Graphing -- still in flight.
       await act(async () => {
         await vi.advanceTimersByTimeAsync(4000)
       })
       expect(listSpy).toHaveBeenCalledTimes(3)
 
-      // No document is Uploaded anymore -- no further polls, even after
-      // more time passes.
+      // Poll 3's response is Ready. The grid shows the finished document...
       await act(async () => {
         await vi.advanceTimersByTimeAsync(4000)
       })
-      expect(listSpy).toHaveBeenCalledTimes(3)
+      expect(listSpy).toHaveBeenCalledTimes(4)
+      // A sync query, not `findByText`: `findBy*` polls on real timers,
+      // which never advance under `vi.useFakeTimers` -- and the state is
+      // already flushed by the `act` above, so there is nothing to await.
+      expect(screen.getByText('Ready')).toBeInTheDocument()
+
+      // ...and only now does polling stop.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4000 * 3)
+      })
+      expect(listSpy).toHaveBeenCalledTimes(4)
     })
 
-    it('does not poll when no document is Uploaded', async () => {
+    it('stops polling once a document reaches the terminal Failed status', async () => {
+      // `Failed` is terminal too -- a failed ingestion must not leave the
+      // grid polling for a transition that will never come.
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      const listSpy = vi
+        .spyOn(documentsClient, 'listDocuments')
+        .mockResolvedValueOnce([{ ...PDF_DOC, status: 'Extracting' }])
+        .mockResolvedValue([{ ...PDF_DOC, status: 'Failed' }])
+
+      vi.useFakeTimers()
+      renderPage()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(listSpy).toHaveBeenCalledTimes(1)
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4000)
+      })
+      expect(listSpy).toHaveBeenCalledTimes(2)
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4000 * 3)
+      })
+      expect(listSpy).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not poll when every document is already at a terminal status', async () => {
       useAuth.mockReturnValue({ authFetch: vi.fn() })
       const listSpy = vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([MD_DOC])
 
@@ -268,7 +313,7 @@ describe('DocumentsPage', () => {
     it('stops polling after exactly the attempt cap even if status never changes', async () => {
       // Pins the exact count, not just "eventually stops": the cap check
       // must run *before* incrementing/fetching, so all MAX_POLL_ATTEMPTS
-      // (15) budgeted attempts actually fire -- checking after incrementing
+      // (45) budgeted attempts actually fire -- checking after incrementing
       // was an off-by-one that silently dropped the last one.
       useAuth.mockReturnValue({ authFetch: vi.fn() })
       const listSpy = vi
@@ -285,10 +330,10 @@ describe('DocumentsPage', () => {
       // Advance far past what the attempt cap allows -- the count must
       // stop growing well before this, not keep polling forever.
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(4000 * 30)
+        await vi.advanceTimersByTimeAsync(4000 * 90)
       })
 
-      const MAX_POLL_ATTEMPTS = 15
+      const MAX_POLL_ATTEMPTS = 45
       expect(listSpy).toHaveBeenCalledTimes(1 + MAX_POLL_ATTEMPTS)
 
       await act(async () => {
@@ -307,7 +352,7 @@ describe('DocumentsPage', () => {
       // effect (and the budget) would never restart.
       const STUCK_DOC = { ...PDF_DOC, id: 'doc-stuck', status: 'Uploaded' }
       const NEW_DOC = { ...MD_DOC, id: 'doc-new', status: 'Uploaded' }
-      const MAX_POLL_ATTEMPTS = 15
+      const MAX_POLL_ATTEMPTS = 45
 
       useAuth.mockReturnValue({ authFetch: vi.fn() })
       const listSpy = vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([STUCK_DOC])

@@ -36,7 +36,13 @@ from pypdf import PdfReader
 # so an oversized chunk just means the tail of its (stored, citable) text
 # was never actually seen by its own embedding.
 _CHUNK_WORD_COUNT = 250
-_CHUNK_OVERLAP_WORDS = 40
+
+# Public (not `_`-prefixed), for the same reason `weaviate_client
+# .PASSAGE_BATCH_SIZE` is: `service.py` strips this overlap back off when
+# it concatenates chunks for entity extraction (Story 2.4), so the two
+# sides read one source of truth instead of two magic numbers that could
+# silently drift apart.
+CHUNK_OVERLAP_WORDS = 40
 
 _FULL_DOCUMENT_CHAPTER = "Full Document"
 _HEADING_TAGS = ("h1", "h2", "h3")
@@ -102,7 +108,7 @@ def _chunk_chapters(chapters: list[tuple[str, str]]) -> list[ParsedChunk]:
             chunk_index += 1
             if end >= len(words):
                 break
-            start = end - _CHUNK_OVERLAP_WORDS
+            start = end - CHUNK_OVERLAP_WORDS
     return chunks
 
 

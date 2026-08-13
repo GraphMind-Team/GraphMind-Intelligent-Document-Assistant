@@ -114,3 +114,78 @@
 - source_spec: `_bmad-output/planning-artifacts/epics.md` (Story 2.3: Parse and index documents into the vector store)
   summary: Author a `spec-2-3-parse-and-index-documents-into-the-vector-store.md` under `_bmad-output/implementation-artifacts/`, matching the pattern every other shipped story (1.1/1.2/1.5/2.1/2.2) has -- 2.3 was implemented directly against `epics.md`'s acceptance criteria plus `epic-2-context.md`, with no dedicated spec file of its own.
   evidence: Noted during a Story 2.3 review round; `sprint-status.yaml` and `deferred-work.md`'s own entries for 2.3 both reference `epics.md` directly rather than a spec file, unlike every neighboring story. Not a code defect -- a process/documentation gap worth closing before 2.4 sets the same precedent.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-extract-entities-into-the-unified-graph-with-compensating-ro.md`
+  summary: >
+    Benchmark `documents/service.py`'s `EXTRACTION_CHAR_BUDGET` (12,000 characters, ~3k tokens) against
+    a real long document, and reconsider the truncation strategy if it's cutting off entities/
+    relationships that matter -- today it's a straight head-of-document truncation (the first
+    12,000 characters of concatenated chapter text, in parse order), so any content past that point
+    is invisible to entity extraction even though it's still fully indexed (untruncated) in Weaviate.
+  evidence: >
+    Design Notes explicitly flag this as "not benchmarked against a real long document" -- the
+    budget was picked as a conservative fit under free-tier OpenRouter context limits alongside the
+    extraction prompt itself, not derived from measuring extraction quality on an actual large
+    upload. A document whose most graph-relevant content sits late (e.g. an appendix, a contacts
+    list, a conclusion) would silently lose that content to extraction with no error or warning.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-extract-entities-into-the-unified-graph-with-compensating-ro.md`
+  summary: >
+    `neo4j_client.py`'s AD-4 exact-match/near-match `MERGE` claims (`test_neo4j_client.py`) are
+    verified against a fake transaction recorder that asserts the Cypher/params sent, not against a
+    real or embedded Neo4j engine actually executing a `MERGE`. A regression that changed `MERGE` to
+    `CREATE` would only be caught by one general test asserting `"MERGE (e:Entity" in query`, not by
+    the exact-match/near-match tests themselves -- they'd still pass. No integration test against a
+    real Neo4j instance exists anywhere in the suite (CI has no Neo4j service).
+  evidence: >
+    Raised independently by two of three adversarial review passes on Story 2.4. Mitigated, not
+    eliminated: `ensure_ready()` now creates a `(name, type, user_id)` uniqueness constraint at
+    startup (best-effort, logged not fatal) specifically so a real Neo4j instance enforces the
+    "one node, not two" guarantee even if application-level `MERGE` logic regresses.
+    Update: both the constraint creation and the merge semantics were manually verified once
+    against live Neo4j Aura at the end of Story 2.4 (repeated entity across two writes -> one node;
+    "TechCorp" vs "TechCorp Supplies" -> distinct nodes; repeated relationship -> one edge). That
+    closes the "never actually run" concern, but it was a one-off manual check, not a repeatable
+    test -- a regression would still ship silently.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-extract-entities-into-the-unified-graph-with-compensating-ro.md`
+  summary: >
+    `llm_client.DEFAULT_MODEL` pins a free-tier OpenRouter slug, and free slugs get withdrawn
+    without notice -- the story's original default (`meta-llama/llama-3.3-70b-instruct:free`) was
+    already dead by the first live upload, returning 404 "unavailable for free". Worth either a
+    startup health-check that surfaces a dead model as a visible warning rather than as every
+    document failing at the Graphing step, or a documented fallback chain across two or three free
+    slugs.
+  evidence: >
+    Every test in `test_entity_extraction.py` mocks `httpx.post`, so no automated check can ever
+    catch a withdrawn slug -- the story shipped with a default that could not work, and only a real
+    upload revealed it. `OPENROUTER_MODEL` is an env override (documented in `.env.example`) so the
+    immediate fix is configuration, but the failure mode is loud and late rather than early.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-extract-entities-into-the-unified-graph-with-compensating-ro.md`
+  summary: >
+    Run one real end-to-end ingestion against the live OpenRouter API before relying on Story 2.4 in
+    production. The default model is a `:free` tier (`meta-llama/llama-3.3-70b-instruct:free`) and
+    the request sends `response_format: {"type": "json_object"}`, which not every free model on
+    OpenRouter honours -- a provider that rejects the parameter returns a 4xx, which is
+    (correctly) non-retryable and would mark every document `Failed`. `OPENROUTER_MODEL` is already
+    an env override, so the fix if this happens is configuration, not code.
+  evidence: >
+    No test in the suite makes a live OpenRouter call (all mock `httpx.post`), so the request shape
+    is verified only against the code's own assumptions about what the provider accepts. The spec's
+    own "Manual checks" section calls for exactly this run; recorded here so it isn't lost if the
+    story merges before someone performs it.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-extract-entities-into-the-unified-graph-with-compensating-ro.md`
+  summary: >
+    `DocumentsPage`'s ingestion-status polling is a fixed 4s interval capped at 45 attempts (3
+    minutes). It is a stopgap sized against a guess at the slow path, not a measurement: a document
+    that legitimately takes longer than 3 minutes stops updating and needs a manual reload, and
+    every polling client re-fetches the whole document list each tick. Worth replacing with
+    server-sent events / websockets, or at minimum an exponential-backoff interval, once Epic 3's
+    chat work establishes whether this app wants a push channel at all.
+  evidence: >
+    Raised during Story 2.4's review, when polling `Uploaded` only was found to stop the loop before
+    a document ever reached `Ready`. Widening the status set fixed the correctness bug; the
+    poll-based mechanism itself remains the crude part, and the 3-minute ceiling is an assumption
+    about ingestion duration that no benchmark backs (see also the `EXTRACTION_CHAR_BUDGET` entry).
