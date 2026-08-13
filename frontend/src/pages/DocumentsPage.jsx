@@ -76,8 +76,10 @@ export default function DocumentsPage() {
   // out the already-rendered grid on every tick.
   const fetchDocuments = useCallback(
     async ({ silent = false } = {}) => {
-      if (!silent) setIsLoading(true)
-      setError(null)
+      if (!silent) {
+        setIsLoading(true)
+        setError(null)
+      }
       try {
         const data = await listDocuments(authFetch)
         setDocuments(data)
@@ -111,11 +113,15 @@ export default function DocumentsPage() {
     if (!hasPollableDocument) return undefined
 
     const intervalId = setInterval(() => {
-      pollAttemptsRef.current += 1
+      // Checked *before* incrementing/fetching, so exactly
+      // MAX_POLL_ATTEMPTS fetches happen -- checking after incrementing
+      // would skip the fetch on the very tick the cap exists to still
+      // allow (an off-by-one that quietly shrinks the budget by one).
       if (pollAttemptsRef.current >= MAX_POLL_ATTEMPTS) {
         clearInterval(intervalId)
         return
       }
+      pollAttemptsRef.current += 1
       fetchDocuments({ silent: true })
     }, POLL_INTERVAL_MS)
 

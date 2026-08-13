@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -265,7 +265,11 @@ describe('DocumentsPage', () => {
       expect(listSpy).toHaveBeenCalledTimes(1)
     })
 
-    it('stops polling after the attempt cap even if status never changes', async () => {
+    it('stops polling after exactly the attempt cap even if status never changes', async () => {
+      // Pins the exact count, not just "eventually stops": the cap check
+      // must run *before* incrementing/fetching, so all MAX_POLL_ATTEMPTS
+      // (15) budgeted attempts actually fire -- checking after incrementing
+      // was an off-by-one that silently dropped the last one.
       useAuth.mockReturnValue({ authFetch: vi.fn() })
       const listSpy = vi
         .spyOn(documentsClient, 'listDocuments')
@@ -276,6 +280,7 @@ describe('DocumentsPage', () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0)
       })
+      expect(listSpy).toHaveBeenCalledTimes(1) // the initial mount fetch
 
       // Advance far past what the attempt cap allows -- the count must
       // stop growing well before this, not keep polling forever.
@@ -283,13 +288,53 @@ describe('DocumentsPage', () => {
         await vi.advanceTimersByTimeAsync(4000 * 30)
       })
 
-      const cappedCount = listSpy.mock.calls.length
-      expect(cappedCount).toBeLessThan(30)
+      const MAX_POLL_ATTEMPTS = 15
+      expect(listSpy).toHaveBeenCalledTimes(1 + MAX_POLL_ATTEMPTS)
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(4000 * 10)
       })
-      expect(listSpy).toHaveBeenCalledTimes(cappedCount)
+      expect(listSpy).toHaveBeenCalledTimes(1 + MAX_POLL_ATTEMPTS)
+    })
+
+    it('does not let a background silent poll blank out a visible error banner', async () => {
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      const listSpy = vi
+        .spyOn(documentsClient, 'listDocuments')
+        .mockResolvedValueOnce([{ ...PDF_DOC, status: 'Uploaded' }]) // initial mount fetch
+        .mockRejectedValueOnce(new Error('Network error')) // modal-close refetch fails
+        .mockRejectedValue(new Error('Network error')) // subsequent silent polls also fail
+
+      // Fake timers from the start, and `fireEvent` instead of
+      // `userEvent` for the modal buttons -- userEvent's internal delays
+      // rely on real timers, which would fight `vi.advanceTimersByTimeAsync`
+      // below controlling the polling interval that starts at mount.
+      vi.useFakeTimers()
+      renderPage()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(listSpy).toHaveBeenCalledTimes(1)
+
+      // A non-silent refetch (modal close) fails -- the error banner
+      // appears, and the last-known document list (still showing an
+      // Uploaded doc) is untouched, so polling keeps running.
+      fireEvent.click(screen.getByRole('button', { name: /^upload$/i }))
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /close modal/i }))
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(screen.getByRole('alert')).toHaveTextContent('Network error')
+
+      // A silent background poll tick runs next, and it fails too -- the
+      // bug was `setError(null)` running unconditionally before the
+      // silent/non-silent branch, wiping the visible banner regardless of
+      // whether the silent poll's own fetch succeeded or failed.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4000)
+      })
+
+      expect(screen.getByRole('alert')).toHaveTextContent('Network error')
     })
   })
 })

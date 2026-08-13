@@ -9,7 +9,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.shared.data_access.shapes import WeaviatePassage
-from app.shared.data_access.weaviate_client import get_weaviate_client, write_passages
+from app.shared.data_access.weaviate_client import (
+    _INSERT_BATCH_SIZE,
+    get_weaviate_client,
+    write_passages,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -105,3 +109,59 @@ def test_write_passages_raises_on_insert_errors(monkeypatch):
 
     with pytest.raises(RuntimeError):
         write_passages([_fake_passage()])
+
+
+def test_write_passages_rejects_a_mixed_document_id_or_user_id_batch():
+    same_doc_different_user = [
+        WeaviatePassage(
+            chunk_id="chunk-0",
+            document_id="doc-1",
+            user_id="user-1",
+            chapter="Chapter One",
+            chunk_index=0,
+            text="text",
+            embedding=[0.1],
+        ),
+        WeaviatePassage(
+            chunk_id="chunk-1",
+            document_id="doc-1",
+            user_id="user-2",  # different owner -- must be rejected
+            chapter="Chapter One",
+            chunk_index=1,
+            text="text",
+            embedding=[0.1],
+        ),
+    ]
+
+    with patch("app.shared.data_access.weaviate_client.get_weaviate_client") as fake_getter:
+        with pytest.raises(ValueError):
+            write_passages(same_doc_different_user)
+        # Rejected before ever touching the client -- no partial delete/insert.
+        fake_getter.assert_not_called()
+
+
+def test_write_passages_batches_insert_many_for_large_documents(monkeypatch):
+    fake_collection = MagicMock()
+    fake_collection.data.insert_many.return_value = MagicMock(has_errors=False)
+
+    fake_client = MagicMock()
+    fake_client.collections.exists.return_value = True
+    fake_client.collections.get.return_value = fake_collection
+
+    monkeypatch.setattr(
+        "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: fake_client
+    )
+
+    passage_count = _INSERT_BATCH_SIZE * 2 + 5
+    passages = [_fake_passage(i, f"chunk-{i}") for i in range(passage_count)]
+    write_passages(passages)
+
+    # 3 batches: two full ones plus a small remainder -- never one call
+    # carrying every object in a large document at once.
+    assert fake_collection.data.insert_many.call_count == 3
+    inserted_total = sum(
+        len(call.args[0]) for call in fake_collection.data.insert_many.call_args_list
+    )
+    assert inserted_total == passage_count
+    for call in fake_collection.data.insert_many.call_args_list:
+        assert len(call.args[0]) <= _INSERT_BATCH_SIZE

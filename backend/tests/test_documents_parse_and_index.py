@@ -264,3 +264,58 @@ def test_ingest_weaviate_write_failure_marks_failed(client, db_session, monkeypa
 
 def test_ingest_missing_document_returns_silently(db_session):
     real_ingest_document(uuid.uuid4(), session_factory=_session_factory(db_session))
+
+
+class _FailSecondCommitSession:
+    """Wraps a real `Session`, letting the first `commit()` through (the
+    `Extracting` write) but raising on the second (the `Failed` recovery
+    write) -- simulates the DB connection dropping mid-recovery, plausibly
+    the very reason ingestion failed in the first place."""
+
+    def __init__(self, real_session):
+        self._real = real_session
+        self._commit_calls = 0
+
+    def commit(self):
+        self._commit_calls += 1
+        if self._commit_calls == 1:
+            return self._real.commit()
+        raise RuntimeError("simulated connection drop during recovery")
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+def test_ingest_recovery_failure_does_not_propagate_and_row_stays_reachable(
+    client, db_session, monkeypatch, caplog
+):
+    """The except block's own rollback/status=Failed/commit can itself
+    raise (e.g. the connection is what dropped). That must be caught and
+    logged, not left to escape `ingest_document` unhandled -- an escaping
+    exception here would leave the row stuck at `Extracting` with no
+    caller left to handle it, exactly what the except block exists to
+    prevent."""
+    import app.documents.service as service_module
+
+    _stub_embeddings(monkeypatch)
+
+    def _raise(passages):
+        raise RuntimeError("Weaviate is unreachable")
+
+    monkeypatch.setattr(service_module, "write_passages", _raise)
+
+    token = _register_and_login(
+        client, full_name="Ingest User", email="ingest-double-fail@example.com", password="password12345"
+    )
+    doc = _upload(client, token, "notes.md", _MARKDOWN, "text/markdown")
+
+    real_session_factory = _session_factory(db_session)
+    wrapped_factory = lambda: _FailSecondCommitSession(real_session_factory())  # noqa: E731
+
+    with caplog.at_level("ERROR"):
+        # Must not raise -- this is the assertion. A regression here means
+        # the exception escaped the background task unhandled.
+        real_ingest_document(uuid.UUID(doc["id"]), session_factory=wrapped_factory)
+
+    assert "Ingestion failed for document" in caplog.text
+    assert "Failed to mark document" in caplog.text

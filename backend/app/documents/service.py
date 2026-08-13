@@ -202,9 +202,23 @@ def ingest_document(
             write_passages(passages)
         except Exception:
             logger.exception("Ingestion failed for document %s", document_id)
-            db.rollback()
-            document.status = "Failed"
-            db.commit()
+            try:
+                db.rollback()
+                document.status = "Failed"
+                db.commit()
+            except Exception:
+                # The recovery path itself can fail -- e.g. the DB
+                # connection dropped, quite plausibly the very reason
+                # ingestion failed in the first place. Left unguarded, that
+                # second exception would propagate out of this background
+                # task unhandled, leaving the row stuck at `Extracting`:
+                # exactly the outcome this whole except block exists to
+                # prevent. Logged and swallowed rather than re-raised --
+                # there's no caller here to hand it to.
+                logger.exception(
+                    "Failed to mark document %s as Failed after an ingestion error",
+                    document_id,
+                )
     finally:
         db.close()
 

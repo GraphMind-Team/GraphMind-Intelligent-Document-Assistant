@@ -26,6 +26,14 @@ from app.shared.data_access.shapes import WeaviatePassage
 
 PASSAGE_COLLECTION = "Passage"
 
+# A large document (the 20MB upload cap, thousands of chunks) would
+# otherwise go through `insert_many` as one gRPC call carrying every
+# object -- both a single oversized request Weaviate may reject outright,
+# and a spike in resident memory for the whole batch's text+embedding
+# payload at once. Batched insert avoids both; not tuned against a real
+# large-document benchmark, just a conservative, documented default.
+_INSERT_BATCH_SIZE = 100
+
 
 @lru_cache
 def get_weaviate_client() -> WeaviateClient:
@@ -73,36 +81,52 @@ def write_passages(passages: list[WeaviatePassage]) -> None:
     alone would already be correct in practice) keeps `shapes.py`'s
     documented rule -- `user_id` required on every write *and* every query
     filter -- true for every Weaviate operation this function performs.
+
+    Requires every passage in `passages` to share the same
+    `(document_id, user_id)` pair -- the delete filter is derived from
+    `passages[0]` alone, so a mixed batch would silently delete another
+    document's (or another user's) passages and insert the new ones under
+    whatever `passages[0]` happened to carry. True by construction for
+    `documents/service.py`'s only caller today (one document, one owner,
+    per `ingest_document` run), but this function is public in `shared/`
+    and Epic 3/4 callers won't have that guarantee for free.
     """
     if not passages:
         return
 
+    document_id = passages[0].document_id
+    user_id = passages[0].user_id
+    if any(p.document_id != document_id or p.user_id != user_id for p in passages):
+        raise ValueError(
+            "write_passages requires every passage to share the same "
+            "(document_id, user_id) -- got a mixed batch."
+        )
+
     client = get_weaviate_client()
     _ensure_passage_collection(client)
     collection = client.collections.get(PASSAGE_COLLECTION)
-
-    document_id = passages[0].document_id
-    user_id = passages[0].user_id
     collection.data.delete_many(
         where=Filter.by_property("document_id").equal(document_id)
         & Filter.by_property("user_id").equal(user_id)
     )
 
-    objects = [
-        DataObject(
-            properties={
-                "chunk_id": p.chunk_id,
-                "document_id": p.document_id,
-                "user_id": p.user_id,
-                "chapter": p.chapter,
-                "chunk_index": p.chunk_index,
-                "text": p.text,
-            },
-            uuid=p.chunk_id,
-            vector=p.embedding,
-        )
-        for p in passages
-    ]
-    result = collection.data.insert_many(objects)
-    if result.has_errors:
-        raise RuntimeError(f"Weaviate write failed: {result.errors}")
+    for batch_start in range(0, len(passages), _INSERT_BATCH_SIZE):
+        batch = passages[batch_start : batch_start + _INSERT_BATCH_SIZE]
+        objects = [
+            DataObject(
+                properties={
+                    "chunk_id": p.chunk_id,
+                    "document_id": p.document_id,
+                    "user_id": p.user_id,
+                    "chapter": p.chapter,
+                    "chunk_index": p.chunk_index,
+                    "text": p.text,
+                },
+                uuid=p.chunk_id,
+                vector=p.embedding,
+            )
+            for p in batch
+        ]
+        result = collection.data.insert_many(objects)
+        if result.has_errors:
+            raise RuntimeError(f"Weaviate write failed: {result.errors}")

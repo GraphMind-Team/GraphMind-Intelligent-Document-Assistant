@@ -15,19 +15,38 @@ module top level: `service.py` imports `embed_texts` at module scope, and
 via `app.main`. An eager top-level import would make every test in the
 suite pay fastembed's import cost, whether or not embedding is ever
 actually exercised.
+
+A hand-rolled double-checked-locking singleton, not `@lru_cache`:
+background ingestion tasks run in Starlette's threadpool, so two uploads
+processed concurrently can both miss an empty cache before either has
+finished constructing the model. `lru_cache` only guards its internal
+dict against concurrent mutation -- it holds no lock across the wrapped
+call itself, so both threads would proceed to build a full `TextEmbedding`
+instance in parallel. On a 512MB instance, two models loaded at once
+(rather than one) is plausibly the difference between running and OOMing.
+The lock here is only ever taken on the first call from each of
+potentially several racing threads; every call after construction hits
+the `is None` check and returns immediately, lock-free.
 """
 
-from functools import lru_cache
+import threading
 
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 EMBEDDING_DIM = 384
 
+_model_lock = threading.Lock()
+_model_instance = None
 
-@lru_cache
+
 def _get_model():
-    from fastembed import TextEmbedding
+    global _model_instance
+    if _model_instance is None:
+        with _model_lock:
+            if _model_instance is None:  # re-check: lost the race, not the need
+                from fastembed import TextEmbedding
 
-    return TextEmbedding(model_name=MODEL_NAME)
+                _model_instance = TextEmbedding(model_name=MODEL_NAME)
+    return _model_instance
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
