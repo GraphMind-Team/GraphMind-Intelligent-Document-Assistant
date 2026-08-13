@@ -17,6 +17,7 @@ import re
 from dataclasses import dataclass
 
 from bs4 import BeautifulSoup, NavigableString
+from bs4.element import PreformattedString
 from pypdf import PdfReader
 
 # ~400 words per chunk with a ~50-word overlap between consecutive chunks
@@ -102,6 +103,12 @@ def _parse_markdown(content: bytes) -> list[tuple[str, str]]:
         return [(_FULL_DOCUMENT_CHAPTER, text)]
 
     chapters: list[tuple[str, str]] = []
+    preamble = text[: matches[0].start()].strip()
+    if preamble:
+        # Text before the first heading (an abstract/intro paragraph, a
+        # README's lead-in) is real content -- often exactly what answers
+        # "what is this document about" -- not something to drop silently.
+        chapters.append((_FULL_DOCUMENT_CHAPTER, preamble))
     for i, match in enumerate(matches):
         title = match.group(1).strip() or _FULL_DOCUMENT_CHAPTER
         body_start = match.end()
@@ -140,6 +147,13 @@ def _parse_html(content: bytes) -> list[tuple[str, str]]:
             current_title = element.get_text(strip=True) or _FULL_DOCUMENT_CHAPTER
             current_parts = []
         elif isinstance(element, NavigableString):
+            # Comment/CData/Doctype/Declaration/ProcessingInstruction all
+            # subclass NavigableString (via PreformattedString) in bs4 --
+            # excluded here so an HTML comment (internal notes, TODOs,
+            # tool leftovers -- never meant as visible content) doesn't
+            # become embedded, indexed, extractable text.
+            if isinstance(element, PreformattedString):
+                continue
             # Skip the heading's own text node -- already captured as
             # current_title above, would otherwise duplicate into the body.
             if getattr(element.parent, "name", None) in _HEADING_TAGS:
@@ -205,6 +219,13 @@ def _pdf_chapters_from_outline(
 
     entries.sort(key=lambda entry: entry[1])
     chapters: list[tuple[str, str]] = []
+    if entries[0][1] > 0:
+        # Pages before the first bookmark (title page, table of contents,
+        # an abstract) are real content the outline just doesn't label --
+        # not something to drop because no chapter claims them.
+        preamble = "\n".join(page_texts[: entries[0][1]])
+        if preamble.strip():
+            chapters.append((_FULL_DOCUMENT_CHAPTER, preamble))
     for i, (title, start_page) in enumerate(entries):
         end_page = entries[i + 1][1] if i + 1 < len(entries) else len(page_texts)
         chapters.append((title, "\n".join(page_texts[start_page:end_page])))

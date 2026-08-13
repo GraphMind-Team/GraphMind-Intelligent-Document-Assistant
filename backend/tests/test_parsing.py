@@ -1,0 +1,85 @@
+"""Unit tests for `app.documents.parsing` -- format-specific parsing bugs
+that don't need the full upload/ingest flow to reproduce or pin down.
+"""
+
+from app.documents.parsing import parse_document
+
+_MINIMAL_PDF_WITH_PREAMBLE = b"""%PDF-1.4
+1 0 obj<< /Type /Catalog /Pages 2 0 R /Outlines 6 0 R >>endobj
+2 0 obj<< /Type /Pages /Kids [3 0 R 7 0 R] /Count 2 >>endobj
+3 0 obj<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> >> /MediaBox [0 0 200 200] /Contents 5 0 R >>endobj
+4 0 obj<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>endobj
+5 0 obj<< /Length 50 >>
+stream
+BT /F1 12 Tf 10 100 Td (Title page preamble text) Tj ET
+endstream
+endobj
+6 0 obj<< /Type /Outlines /First 8 0 R /Last 8 0 R /Count 1 >>endobj
+7 0 obj<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> >> /MediaBox [0 0 200 200] /Contents 9 0 R >>endobj
+8 0 obj<< /Title (Chapter One) /Parent 6 0 R /Dest [7 0 R /Fit] >>endobj
+9 0 obj<< /Length 40 >>
+stream
+BT /F1 12 Tf 10 100 Td (Chapter one body) Tj ET
+endstream
+endobj
+xref
+0 10
+trailer<< /Size 10 /Root 1 0 R >>
+startxref
+0
+%%EOF"""
+
+
+def test_markdown_preserves_text_before_first_heading():
+    chunks = parse_document(
+        "markdown", b"Intro paragraph that matters.\n\n# Chapter One\n\nBody here."
+    )
+
+    assert any("Intro paragraph that matters." in c.text for c in chunks)
+    preamble_chunk = next(c for c in chunks if "Intro paragraph that matters." in c.text)
+    assert preamble_chunk.chapter == "Full Document"
+    assert preamble_chunk.chunk_index == 0
+
+    chapter_one_chunk = next(c for c in chunks if c.chapter == "Chapter One")
+    assert "Body here." in chapter_one_chunk.text
+
+
+def test_markdown_with_no_preamble_has_no_spurious_full_document_chapter():
+    chunks = parse_document("markdown", b"# Chapter One\n\nBody here.")
+
+    assert {c.chapter for c in chunks} == {"Chapter One"}
+
+
+def test_pdf_outline_preserves_pages_before_first_bookmark():
+    chunks = parse_document("pdf", _MINIMAL_PDF_WITH_PREAMBLE)
+
+    preamble_chunk = next(c for c in chunks if "Title page preamble text" in c.text)
+    assert preamble_chunk.chapter == "Full Document"
+    assert preamble_chunk.chunk_index == 0
+
+    chapter_chunk = next(c for c in chunks if c.chapter == "Chapter One")
+    assert "Chapter one body" in chapter_chunk.text
+    assert chapter_chunk.chunk_index == 1
+
+
+def test_html_comments_are_excluded_from_passage_text():
+    chunks = parse_document(
+        "html",
+        b"<html><body><!-- secret internal note --><h1>T</h1><p>Body</p></body></html>",
+    )
+
+    assert len(chunks) == 1
+    assert chunks[0].chapter == "T"
+    assert chunks[0].text == "Body"
+    assert "secret internal note" not in chunks[0].text
+
+
+def test_html_comment_before_first_heading_does_not_leak_into_preamble():
+    chunks = parse_document(
+        "html",
+        b"<html><body><!-- internal note -->Real preamble text<h1>T</h1><p>Body</p></body></html>",
+    )
+
+    all_text = " ".join(c.text for c in chunks)
+    assert "internal note" not in all_text
+    assert "Real preamble text" in all_text
