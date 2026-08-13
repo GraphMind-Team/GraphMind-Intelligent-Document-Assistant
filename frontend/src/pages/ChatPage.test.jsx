@@ -140,4 +140,42 @@ describe('ChatPage', () => {
     expect(liveRegion).toBeInTheDocument()
     expect(liveRegion).toHaveAttribute('aria-atomic', 'false')
   })
+
+  it('scrolls the message list to the newest content when a message is appended', async () => {
+    vi.spyOn(chatClient, 'askQuestion').mockResolvedValue(ANSWER_RESULT)
+    const user = userEvent.setup()
+    renderChatPage()
+
+    // jsdom never actually lays anything out, so scrollHeight/scrollTop
+    // stay 0 unless stubbed -- this asserts the effect's own logic
+    // (scrollTop set to match scrollHeight), not real browser scrolling.
+    const liveRegion = document.querySelector('[aria-live="polite"]')
+    Object.defineProperty(liveRegion, 'scrollHeight', { value: 900, configurable: true })
+
+    await user.type(screen.getByLabelText(/ask a question/i), 'q{Enter}')
+
+    expect(liveRegion.scrollTop).toBe(900)
+  })
+
+  it('keeps focus on the question input through a pending request instead of dropping it to <body>', async () => {
+    let resolveAsk
+    vi.spyOn(chatClient, 'askQuestion').mockReturnValue(
+      new Promise((resolve) => {
+        resolveAsk = resolve
+      }),
+    )
+    const user = userEvent.setup()
+    renderChatPage()
+
+    const input = screen.getByLabelText(/ask a question/i)
+    await user.type(input, 'q{Enter}')
+
+    // readOnly (not disabled) while isAsking -- a disabled input would
+    // have kicked focus to <body> here, with no reliable moment to
+    // restore it once the request settles.
+    expect(input).toHaveAttribute('readonly')
+    expect(document.activeElement).toBe(input)
+
+    resolveAsk({ segments: [], empty_reason: null })
+  })
 })

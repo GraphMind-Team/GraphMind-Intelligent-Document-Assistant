@@ -26,7 +26,12 @@ export default function DocumentsScopePanel({ authFetch }) {
   }, [authFetch])
 
   return (
-    <aside className="w-[260px] shrink-0 rounded-xl border border-border bg-card-bg p-4">
+    // Full width below 900px (the same breakpoint ChatPage.jsx collapses
+    // the grid to a single column at) -- a fixed 260px here regardless of
+    // breakpoint would leave the panel as a narrow left-aligned block
+    // under the chat column instead of spanning the stacked layout's
+    // full width.
+    <aside className="w-full shrink-0 rounded-xl border border-border bg-card-bg p-4 min-[901px]:w-[260px]">
       <h2 className="mb-2.5 text-[13px] font-bold text-primary">Documents in scope</h2>
       {error && (
         <p role="alert" className="text-xs text-danger">

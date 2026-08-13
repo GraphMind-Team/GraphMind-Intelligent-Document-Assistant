@@ -16,12 +16,12 @@ export default function RobotMascot() {
       <div
         className="relative mx-auto mt-px h-[18px] w-[22px] rounded-[8px_8px_6px_6px]
                    bg-[linear-gradient(160deg,var(--robot-a),var(--robot-b))]
-                   shadow-[0_2px_4px_rgba(10,46,99,0.18)]"
+                   shadow-[var(--robot-shadow-head)]"
       />
       <div
         className="relative mx-auto -mt-0.5 h-[13px] w-[18px] rounded-[6px_6px_8px_8px]
                    bg-[linear-gradient(160deg,var(--robot-b),var(--robot-a))]
-                   shadow-[0_3px_4px_rgba(10,46,99,0.15)]"
+                   shadow-[var(--robot-shadow-body)]"
       />
     </div>
   )

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { askQuestion } from '../api/chatClient'
 import ChatMessage from '../components/chat/ChatMessage'
@@ -22,6 +22,17 @@ export default function ChatPage() {
   // timeout/abort) renders as a banner here, structurally separate from
   // `messages`, so it can never render as an answer or a refusal (AC12).
   const [error, setError] = useState(null)
+  const messageListRef = useRef(null)
+
+  // Keeps the newest message (or the transient "Thinking…" bubble) in
+  // view without requiring the user to scroll manually -- a real question
+  // during review: a 20-40s wait is already disorienting, and without
+  // this the answer (or even "Thinking…" itself) can land below the fold
+  // and look like nothing happened.
+  useEffect(() => {
+    const el = messageListRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [messages, isAsking])
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -64,6 +75,7 @@ export default function ChatPage() {
               being removed either; only the transient "Thinking…" bubble
               below is removed once its request settles. */}
           <div
+            ref={messageListRef}
             aria-live="polite"
             aria-atomic="false"
             className="flex flex-1 flex-col gap-3 overflow-y-auto p-5"
@@ -94,9 +106,17 @@ export default function ChatPage() {
                   type="text"
                   value={question}
                   onChange={(event) => setQuestion(event.target.value)}
-                  disabled={isAsking}
+                  // readOnly, not disabled: a disabled input drops keyboard
+                  // focus to <body> and there's no reliable moment to
+                  // restore it once re-enabled. readOnly keeps focus in
+                  // place through the wait, still blocks editing, and
+                  // still lets Enter re-submit -- but that re-submit is a
+                  // no-op, since handleSubmit's own `isAsking` guard above
+                  // already covers double-submit protection regardless of
+                  // which of the two attributes is used here.
+                  readOnly={isAsking}
                   placeholder="Ask a question about your documents…"
-                  className="min-w-0 flex-1 rounded-full border border-border px-3.5 py-2.5 text-[13.5px] disabled:opacity-60"
+                  className={`min-w-0 flex-1 rounded-full border border-border px-3.5 py-2.5 text-[13.5px] ${isAsking ? 'opacity-60' : ''}`}
                 />
                 <button
                   type="submit"

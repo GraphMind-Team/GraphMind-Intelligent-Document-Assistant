@@ -49,4 +49,18 @@ describe('DocumentsScopePanel', () => {
 
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Failed to load documents.'))
   })
+
+  it('is full-width by default and only fixes to 260px above the 900px breakpoint ChatPage collapses at', () => {
+    vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([])
+
+    const { container } = render(<DocumentsScopePanel authFetch={vi.fn()} />)
+
+    const aside = container.querySelector('aside')
+    // A bare `w-[260px]` here would stay a narrow left-aligned block once
+    // ChatPage's grid collapses to a single column below 900px, instead of
+    // spanning the stacked layout's full width.
+    expect(aside).toHaveClass('w-full')
+    expect(aside).toHaveClass('min-[901px]:w-[260px]')
+    expect(aside).not.toHaveClass('w-[260px]')
+  })
 })
