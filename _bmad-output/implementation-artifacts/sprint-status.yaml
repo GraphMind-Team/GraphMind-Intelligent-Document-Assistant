@@ -46,7 +46,7 @@ development_status:
   epic-2: in-progress
   2-1-upload-documents-with-drag-and-drop-and-per-file-progress: done
   2-2-document-library-and-detail-view: done
-  2-3-parse-and-index-documents-into-the-vector-store: review
+  2-3-parse-and-index-documents-into-the-vector-store: done
   2-4-extract-entities-into-the-unified-graph-with-compensating-ro: backlog
   2-5-failed-ingestion-surfaced-with-a-readable-reason: backlog
   2-6-content-hash-dedupe-on-upload: backlog
