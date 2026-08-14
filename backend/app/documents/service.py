@@ -502,3 +502,51 @@ def get_document(db: Session, current_user: User, document_id: uuid.UUID) -> Doc
     if document is None:
         raise HTTPException(status_code=404, detail="Document not found.")
     return document
+
+
+# Story 2.7 (Spec Change Log): the only two statuses guaranteed to have no
+# background task concurrently writing to this row. `ingest_document` (see
+# its own docstring) runs as a real concurrent `BackgroundTasks` job and
+# writes Weaviate passages while `status` is `Extracting`, then Neo4j while
+# `status` is `Graphing` -- deleting mid-flight would let that task keep
+# writing *after* `delete_document`'s own Weaviate delete already ran,
+# orphaning fresh passages under a document id no longer in Postgres. This
+# mirrors `claim_failed_document_for_reingest`'s existing retry-lock
+# precedent (Story 2.6): only act on a document when no background task
+# could be concurrently touching it.
+_DELETABLE_STATUSES: Final = {"Ready", "Failed"}
+
+
+def delete_document(db: Session, current_user: User, document_id: uuid.UUID) -> None:
+    """Hard-deletes one document and its Weaviate passages (Story 2.7).
+    Raises `HTTPException(404)` for a missing/not-owned document, via the
+    same `get_document` lookup and message the read path already uses --
+    so "not yours" and "doesn't exist" stay indistinguishable here too.
+    Raises `HTTPException(409)` if the document is still mid-ingestion
+    (`Uploaded`, `Extracting`, or `Graphing`) -- see `_DELETABLE_STATUSES`.
+
+    Delete order is fixed and load-bearing: `delete_passages_for_document`
+    (Weaviate) runs first, then the row is deleted and committed. If the
+    Weaviate call raises, nothing below it has run -- no row deleted, no
+    commit -- so the document still exists and the user can safely retry
+    the same delete. The reverse order would risk deleting the row first
+    and then failing to reach Weaviate, orphaning passages for a document
+    that no longer exists in Postgres with no way left to find and clean
+    them up.
+
+    Neo4j is never touched here -- no query, no import of the Neo4j
+    client into this function. FR-8's explicit, permanent boundary: a
+    document's entities/relationships, once merged into the unified
+    multi-document graph, are not pruned back out on delete (avoids
+    reference-counting complexity across documents that may share an
+    entity). Not a deferred TODO.
+    """
+    document = get_document(db, current_user, document_id)
+    if document.status not in _DELETABLE_STATUSES:
+        raise HTTPException(
+            status_code=409,
+            detail="Document is still being processed and can't be deleted yet.",
+        )
+    delete_passages_for_document(str(document.id), str(current_user.id))
+    repository.delete_document_for_user(db, current_user.id, document_id)
+    db.commit()

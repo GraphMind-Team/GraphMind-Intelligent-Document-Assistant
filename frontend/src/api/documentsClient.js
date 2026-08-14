@@ -119,3 +119,26 @@ export async function getDocument(authFetch, documentId) {
 
   return data
 }
+
+// Deletes one document by id (Story 2.7): its Weaviate passages and its
+// row are both gone on success, through the same backend call that
+// applies AD-2's tenancy scoping -- another account's document id (or a
+// nonexistent one) comes back as the same 404 `getDocument` already
+// handles, so this mirrors that error-handling shape rather than
+// inventing a new one.
+//
+// The success response is 204 with no body, unlike getDocument/
+// listDocuments -- so this never calls `response.json()` on the happy
+// path, only on a non-2xx response where the backend's `{"detail": ...}`
+// envelope (AD-3) is expected.
+export async function deleteDocument(authFetch, documentId) {
+  const response = await authFetch(`/documents/${encodeURIComponent(documentId)}`, {
+    method: 'DELETE',
+  })
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => null)
+    const message = formatDetail(data?.detail)
+    throw new Error(message || `Failed to delete document (${response.status}).`)
+  }
+}

@@ -1,6 +1,9 @@
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import StatusPill from './StatusPill'
-import { formatFileTypeShort, formatUploadedDate } from '../utils/documentFormat'
+import { useAuth } from '../context/AuthContext'
+import { deleteDocument } from '../api/documentsClient'
+import { DELETE_BOUNDARY_TEXT, formatFileTypeShort, formatUploadedDate } from '../utils/documentFormat'
 
 // One document as a card in the library grid (Story 2.2, human-requested
 // design change from the mockup's `.doclist` table -- see the spec's
@@ -14,8 +17,71 @@ import { formatFileTypeShort, formatUploadedDate } from '../utils/documentFormat
 // that is the one use of the citation token DESIGN.md sanctions outside a
 // literal citation chip ("the file-type icon tile in upload rows"), so the
 // grid stays inside the existing palette instead of adding to it.
-export default function DocumentCard({ document, onCardClick }) {
+export default function DocumentCard({ document, onCardClick, onDeleted }) {
   const detailHref = `/documents/${document.id}`
+  const { authFetch } = useAuth()
+
+  // Local, not lifted to DocumentsPage: each card's confirm state is its
+  // own -- the only thing the parent needs is the single `onDeleted(id)`
+  // callback below, not shared confirm-open state (Design Notes).
+  const [isConfirming, setIsConfirming] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [error, setError] = useState(null)
+
+  const trashButtonRef = useRef(null)
+  const cancelButtonRef = useRef(null)
+
+  const boundaryTextId = `delete-boundary-${document.id}`
+
+  // Focus moves into the box on open, to Cancel -- the safer default for
+  // a destructive action (Design Notes, UX-DR26).
+  useEffect(() => {
+    if (isConfirming) cancelButtonRef.current?.focus()
+  }, [isConfirming])
+
+  function openConfirm(event) {
+    event.stopPropagation()
+    setError(null)
+    setIsConfirming(true)
+  }
+
+  // Escape and Cancel both collapse back to the resting state and return
+  // focus to the control that opened the box (UX-DR26) -- but only on a
+  // non-deleting close; a delete already in flight isn't interrupted by
+  // either.
+  function collapseConfirm() {
+    if (isDeleting) return
+    setIsConfirming(false)
+    setError(null)
+    trashButtonRef.current?.focus()
+  }
+
+  function handleConfirmBoxKeyDown(event) {
+    if (event.key !== 'Escape') return
+    event.stopPropagation()
+    collapseConfirm()
+  }
+
+  function handleCancel(event) {
+    event.stopPropagation()
+    collapseConfirm()
+  }
+
+  async function handleConfirmDelete(event) {
+    event.stopPropagation()
+    setIsDeleting(true)
+    setError(null)
+    try {
+      await deleteDocument(authFetch, document.id)
+      onDeleted(document.id)
+    } catch (err) {
+      // On failure: error shown, row stays, confirm box stays open for
+      // retry (I/O matrix) -- focus is left where it is rather than
+      // forced anywhere, since the user may want to retry immediately.
+      setError(err.message)
+      setIsDeleting(false)
+    }
+  }
 
   return (
     // Click-anywhere is a mouse-convenience layer over the real <Link>
@@ -42,15 +108,17 @@ export default function DocumentCard({ document, onCardClick }) {
             {formatFileTypeShort(document.file_type)}
           </span>
 
-          {/* Renders and is keyboard-focusable, but has no delete behavior
-              wired -- that is Story 2.7. Not disabled: the story requires
-              it stay reachable by Tab. stopPropagation is belt-and-braces
-              alongside the card handler's own `closest('a, button')`
-              guard; either alone would keep it from navigating. */}
+          {/* stopPropagation is belt-and-braces alongside the card
+              handler's own `closest('a, button')` guard; either alone
+              would keep this from navigating. Stays rendered and focusable
+              whether resting or confirming -- never disabled -- so Tab
+              order never shifts underneath a keyboard user. */}
           <button
+            ref={trashButtonRef}
             type="button"
             aria-label={`Delete ${document.filename}`}
-            onClick={(event) => event.stopPropagation()}
+            aria-expanded={isConfirming}
+            onClick={openConfirm}
             className="-mr-1 -mt-1 shrink-0 rounded-sm p-1 text-text2 hover:bg-surface2 hover:text-danger"
           >
             <svg
@@ -82,10 +150,65 @@ export default function DocumentCard({ document, onCardClick }) {
           {document.filename}
         </Link>
 
-        <div className="mt-auto flex flex-wrap items-center justify-between gap-2">
-          <StatusPill status={document.status} />
-          <span className="text-xs text-text2">{formatUploadedDate(document.created_at)}</span>
-        </div>
+        {isConfirming ? (
+          // Inline confirm box (UX-DR14): no modal, built from scratch.
+          // `role="alert"` on the box itself announces its appearance the
+          // same way this app's existing error text does (UploadModal.jsx,
+          // DocumentsPage.jsx). onClick stopPropagation keeps a click
+          // landing on the box's own text (not a button) from bubbling up
+          // to the card's navigate-on-click handler mid-confirm.
+          //
+          // `border-danger/30 bg-danger/5` -- a soft tint, not a
+          // full-saturation red border -- per DESIGN.md's danger-zone
+          // pattern (the Delete Account card's "danger-tinted
+          // border/background"). The Delete button below is the same
+          // shape as Cancel (`border-border`), only its text is
+          // danger-colored -- DESIGN.md: "Danger: same shape as
+          // secondary, danger-colored text ... not a filled-red button
+          // until a confirmation step." A solid red border on both the
+          // box and the button was two loud reds stacked on each other.
+          <div
+            role="alert"
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={handleConfirmBoxKeyDown}
+            className="flex flex-col gap-2 rounded-md border border-danger/30 bg-danger/5 p-2.5"
+          >
+            <p id={boundaryTextId} className="text-xs text-text">
+              Delete {document.filename}? {DELETE_BOUNDARY_TEXT}
+            </p>
+            {error && (
+              <p role="alert" className="text-xs text-danger">
+                {error}
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
+              <button
+                ref={cancelButtonRef}
+                type="button"
+                aria-describedby={boundaryTextId}
+                onClick={handleCancel}
+                disabled={isDeleting}
+                className="rounded-md border border-border bg-card-bg px-2.5 py-1 text-xs font-semibold text-primary"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                aria-describedby={boundaryTextId}
+                onClick={handleConfirmDelete}
+                disabled={isDeleting}
+                className="rounded-md border border-border bg-card-bg px-2.5 py-1 text-xs font-semibold text-danger"
+              >
+                {isDeleting ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-auto flex flex-wrap items-center justify-between gap-2">
+            <StatusPill status={document.status} />
+            <span className="text-xs text-text2">{formatUploadedDate(document.created_at)}</span>
+          </div>
+        )}
     </li>
   )
 }

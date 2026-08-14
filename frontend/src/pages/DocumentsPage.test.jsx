@@ -194,6 +194,41 @@ describe('DocumentsPage', () => {
     expect(screen.getByRole('link', { name: 'beta-report.pdf' })).toBeInTheDocument()
   })
 
+  it('deletes a document end-to-end through the real confirm flow, removing only that card', async () => {
+    // Story 2.7. `DocumentCard.test.jsx` covers the confirm box in
+    // isolation with its own mocked `onDeleted`; this exercises
+    // `DocumentsPage`'s real `handleDeleted` -- the function that actually
+    // filters the deleted id out of `documents` state -- so an inverted
+    // filter condition or a dropped `onDeleted` prop would fail here even
+    // though neither would be caught by the isolated component test.
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([PDF_DOC, MD_DOC])
+    const deleteSpy = vi.spyOn(documentsClient, 'deleteDocument').mockResolvedValue(undefined)
+    const user = userEvent.setup()
+
+    renderPage()
+    await screen.findByRole('link', { name: 'beta-report.pdf' })
+    await screen.findByRole('link', { name: 'alpha-notes.md' })
+
+    const trash = screen.getByRole('button', { name: 'Delete beta-report.pdf' })
+    await user.click(trash)
+    const confirmBox = screen.getByRole('alert')
+    await user.click(within(confirmBox).getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() =>
+      expect(screen.queryByRole('link', { name: 'beta-report.pdf' })).not.toBeInTheDocument(),
+    )
+    expect(deleteSpy).toHaveBeenCalledWith(expect.any(Function), PDF_DOC.id)
+    // The other document is untouched.
+    expect(screen.getByRole('link', { name: 'alpha-notes.md' })).toBeInTheDocument()
+    expect(screen.getAllByRole('listitem')).toHaveLength(1)
+
+    // Focus lands on Upload, the one always-present stable control, since
+    // the card (and the confirm box's own Delete button, which held focus
+    // a moment ago) is now gone from the DOM entirely.
+    expect(screen.getByRole('button', { name: /^upload$/i })).toHaveFocus()
+  })
+
   it('opens the upload modal on Upload click, and refetches the list once the modal closes', async () => {
     useAuth.mockReturnValue({ authFetch: vi.fn() })
     const listSpy = vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([])
