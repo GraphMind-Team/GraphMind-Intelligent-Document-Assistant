@@ -73,9 +73,17 @@ export default function ChatPage() {
               later question is asked -- an honest record of the
               conversation, same as a user message or a real answer never
               being removed either; only the transient "Thinking…" bubble
-              below is removed once its request settles. */}
+              below is removed once its request settles.
+              role="log" + tabIndex={0}: Chrome 127+ makes an overflow
+              scroller keyboard-focusable on its own, but Firefox/Safari
+              don't -- without this, a keyboard-only user on a long thread
+              can't scroll back up at all. role="log" also documents the
+              live-region semantics already implied by aria-live above. */}
           <div
             ref={messageListRef}
+            role="log"
+            tabIndex={0}
+            aria-label="Conversation"
             aria-live="polite"
             aria-atomic="false"
             className="flex flex-1 flex-col gap-3 overflow-y-auto p-5"
@@ -106,6 +114,11 @@ export default function ChatPage() {
                   type="text"
                   value={question}
                   onChange={(event) => setQuestion(event.target.value)}
+                  // Mirrors AskRequest.max_length (chat/schemas.py) -- without
+                  // this a pasted over-length question sails past the browser
+                  // and only fails as a raw Pydantic 422 message, not the
+                  // notice-style copy UX-DR19 expects for user-facing errors.
+                  maxLength={2000}
                   // readOnly, not disabled: a disabled input drops keyboard
                   // focus to <body> and there's no reliable moment to
                   // restore it once re-enabled. readOnly keeps focus in

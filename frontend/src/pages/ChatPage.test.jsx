@@ -19,11 +19,21 @@ function renderChatPage() {
   return render(<ChatPage />)
 }
 
+// Mirrors the real `AskResponse` shape, `chunk_indexes` included -- nothing
+// on this page renders that field (the chip's format is fixed by UX-DR3),
+// but a fixture that silently drifts from the API it stands in for stops
+// being evidence of anything.
 const ANSWER_RESULT = {
   segments: [
     {
       text: "TechCorp's refund window is 30 days.",
-      citations: [{ chapter: 'Chapter 4', document_filename: 'Vendor_Agreement_2026.pdf' }],
+      citations: [
+        {
+          chapter: 'Chapter 4',
+          document_filename: 'Vendor_Agreement_2026.pdf',
+          chunk_indexes: [0, 3],
+        },
+      ],
     },
   ],
   empty_reason: null,
@@ -139,6 +149,58 @@ describe('ChatPage', () => {
     const liveRegion = document.querySelector('[aria-live="polite"]')
     expect(liveRegion).toBeInTheDocument()
     expect(liveRegion).toHaveAttribute('aria-atomic', 'false')
+  })
+
+  it('makes the message list keyboard-focusable via role="log"', () => {
+    renderChatPage()
+
+    // Chrome 127+ makes an overflow scroller focusable on its own, but
+    // Firefox/Safari don't -- role="log" + tabIndex are what let a
+    // keyboard-only user scroll back through a long thread in every
+    // browser, not just Chrome.
+    const log = screen.getByRole('log', { name: /conversation/i })
+    expect(log).toHaveAttribute('tabindex', '0')
+  })
+
+  it('gives each message bubble a screen-reader-only sender cue', async () => {
+    vi.spyOn(chatClient, 'askQuestion').mockResolvedValue(ANSWER_RESULT)
+    const user = userEvent.setup()
+    renderChatPage()
+
+    await user.type(screen.getByLabelText(/ask a question/i), 'What is the refund window?{Enter}')
+
+    // Sighted users get the sender cue from alignment/fill/corner shape
+    // (UX-DR5) alone -- a screen reader gets none of that without an
+    // explicit prefix, so the two turns would otherwise read as one
+    // undifferentiated stream.
+    const userBubble = screen.getByText('What is the refund window?').closest('div')
+    expect(userBubble).toHaveTextContent(/^You:/)
+
+    const assistantText = await screen.findByText("TechCorp's refund window is 30 days.", {
+      exact: false,
+    })
+    expect(assistantText.closest('div')).toHaveTextContent(/^GraphMind:/)
+  })
+
+  it('caps the question input at 2000 characters via maxLength', () => {
+    renderChatPage()
+
+    expect(screen.getByLabelText(/ask a question/i)).toHaveAttribute('maxlength', '2000')
+  })
+
+  it('falls back to generic notice copy for an unrecognized empty_reason', async () => {
+    vi.spyOn(chatClient, 'askQuestion').mockResolvedValue({
+      segments: [],
+      empty_reason: 'some_future_reason',
+    })
+    const user = userEvent.setup()
+    renderChatPage()
+
+    await user.type(screen.getByLabelText(/ask a question/i), 'q{Enter}')
+
+    expect(
+      await screen.findByText('GraphMind has nothing to show for this question.'),
+    ).toBeInTheDocument()
   })
 
   it('scrolls the message list to the newest content when a message is appended', async () => {

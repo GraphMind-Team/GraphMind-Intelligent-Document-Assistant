@@ -71,7 +71,15 @@ def ask_question(db: Session, current_user: User, question: str) -> AskResponse:
             detail="Answer generation is temporarily unavailable. Please try again.",
         ) from exc
 
-    document_ids = {p.document_id for p in passages}
+    # From `answer.included_passages`, not the full `passages` retrieval --
+    # same reasoning as `passages_by_number` below: the budget-trimmed list
+    # actually sent to the model is the source of truth for what this
+    # answer can cite, so filename resolution shouldn't look up documents
+    # that were never in play. Harmless either way today (a superset only
+    # adds unused entries to `filenames`), but keeping the two aligned means
+    # a future change to `_select_passages_within_budget` can't quietly
+    # make them diverge.
+    document_ids = {p.document_id for p in answer.included_passages}
     filenames = repository.get_filenames_for_documents(db, current_user.id, document_ids)
     # 1-based, matches generate_answer's prompt numbering -- built from
     # `answer.included_passages` (the actual, budget-trimmed list the
@@ -85,14 +93,20 @@ def ask_question(db: Session, current_user: User, question: str) -> AskResponse:
 
     segments: list[AnswerSegmentResponse] = []
     for seg in answer.segments:
-        citations: list[CitationResponse] = []
-        # (chapter, document_filename) pairs already added to this segment
-        # -- two different chunks from the same chapter of the same
-        # document (routine at TOP_K_PASSAGES=8, or a model repeating a
-        # passage_number like [1, 1]) must render as one chip, not two
-        # identical ones sitting side by side. Order-preserving: first
-        # occurrence wins the citation's position in the rendered list.
-        seen_citations: set[tuple[str, str]] = set()
+        # (chapter, document_filename) -> the chunk indexes that supported
+        # this segment under that pair. Two different chunks from the same
+        # chapter of the same document (routine at TOP_K_PASSAGES=8, or a
+        # model repeating a passage_number like [1, 1]) must render as one
+        # chip, not two identical ones sitting side by side -- so they
+        # merge into a single citation, but every contributing chunk is
+        # kept in `chunk_indexes` rather than only the first (see
+        # CitationResponse's own comment for why dropping the rest would
+        # make the payload claim more precision than it has).
+        #
+        # A dict, not a set + parallel list: Python dicts preserve
+        # insertion order, so first occurrence still wins the citation's
+        # position in the rendered list, exactly as before.
+        merged: dict[tuple[str, str], list[int]] = {}
         for number in seg.passage_numbers:
             source = passages_by_number.get(number)
             if source is None:
@@ -103,11 +117,21 @@ def ask_question(db: Session, current_user: User, question: str) -> AskResponse:
                 # Document deleted/inaccessible since indexing -- drop this
                 # citation, never fabricate a filename.
                 continue
-            citation_key = (source.chapter, filename)
-            if citation_key in seen_citations:
-                continue
-            seen_citations.add(citation_key)
-            citations.append(CitationResponse(chapter=source.chapter, document_filename=filename))
+            chunk_indexes = merged.setdefault((source.chapter, filename), [])
+            # A model repeating the same passage_number twice must not
+            # produce a duplicated index -- the merge is over distinct
+            # source chunks, not over how often the model mentioned them.
+            if source.chunk_index not in chunk_indexes:
+                chunk_indexes.append(source.chunk_index)
+
+        citations = [
+            CitationResponse(
+                chapter=chapter,
+                document_filename=filename,
+                chunk_indexes=chunk_indexes,
+            )
+            for (chapter, filename), chunk_indexes in merged.items()
+        ]
         if not citations:
             # A segment that lost every citation (e.g. all its source
             # documents were deleted) is dropped entirely, not shown as an

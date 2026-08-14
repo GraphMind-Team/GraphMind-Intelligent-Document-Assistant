@@ -523,6 +523,35 @@ def _select_passages_within_budget(passages: list[WeaviateSearchResult]) -> list
             break
         selected.append(passage)
         used_chars += line_len
+    if not selected and passages:
+        # The single passage a caller is guaranteed to have (`generate_answer`
+        # is never called with an empty list) can itself exceed
+        # _MAX_PROMPT_CHARS -- a chunker that splits on whitespace produces
+        # oversized "words" against text with none (a base64 blob, a
+        # whitespace-stripped table), and _CHUNK_WORD_COUNT=250 words of
+        # those blows straight through the budget on passage 1. Falling
+        # through to an empty `selected` would still spend a real ~30s+ LLM
+        # call on a prompt with zero passages, which can only ever come back
+        # as passage_count=0 -- an unanswerable question by construction,
+        # every time, for a user who has no way to know why. Including the
+        # first passage anyway -- over budget, this once -- at least gives
+        # `generate_answer` a chance of returning something answerable.
+        #
+        # The honest cost of that choice: an over-budget prompt may be
+        # rejected by the provider for exceeding the model's context window,
+        # which is a plain 4xx -- correctly non-retryable, so it raises
+        # `ChatCompletionError` and `chat/service.py` turns it into a 503
+        # reading "temporarily unavailable, please try again". For a passage
+        # that is permanently too large, retrying can never help, so that
+        # message is misleading in exactly this case. It is still the better
+        # trade than the alternative it replaces (a 200 `no_answer` that was
+        # guaranteed, not merely likely, to be useless), because the failure
+        # is at least loud and appears in the logs rather than looking like
+        # the model simply had nothing to say. If oversized passages ever
+        # stop being a pathological edge case, the real fix is upstream in
+        # `documents/parsing.py`'s chunker -- capping chunk size in
+        # characters as well as words -- not further tuning here.
+        selected.append(passages[0])
     if len(selected) < len(passages):
         # The first thing worth checking when investigating "why wasn't
         # this document cited" -- silent truncation here would otherwise
@@ -577,8 +606,8 @@ def generate_answer(question: str, passages: list[WeaviateSearchResult]) -> Answ
     for attempt in range(1, _CHAT_MAX_ATTEMPTS + 1):
         try:
             content = _call_openrouter_for_chat(system_prompt, question)
-            parsed = _parse_and_validate_answer(content, len(included_passages))
-            return AnswerResult(segments=parsed.segments, included_passages=included_passages)
+            segments = _parse_and_validate_answer(content, len(included_passages))
+            return AnswerResult(segments=segments, included_passages=included_passages)
         except _RetryableChatError as exc:
             last_error = exc
             logger.warning(
@@ -664,7 +693,7 @@ def _call_openrouter_for_chat(system_prompt: str, question: str) -> str:
         ) from exc
 
 
-def _parse_and_validate_answer(content: str, passage_count: int) -> AnswerResult:
+def _parse_and_validate_answer(content: str, passage_count: int) -> list[AnswerSegment]:
     """Parses the model's JSON string and enforces, in code, that every
     segment reaching the caller carries at least one valid citation --
     never trusting the prompt's own instruction alone to hold (mirrors
@@ -673,8 +702,13 @@ def _parse_and_validate_answer(content: str, passage_count: int) -> AnswerResult
     (logged); a segment left with zero valid numbers after filtering is
     dropped entirely -- an uncited claim-bearing sentence must never
     reach the frontend, since that's exactly the guarantee FR-9/AC6
-    require. `{"segments": []}` is a valid, non-error outcome (mirrors
-    extraction's "empty is not a failure")."""
+    require. `[]` is a valid, non-error outcome (mirrors extraction's
+    "empty is not a failure"). Returns the segments directly rather than
+    wrapping them in `AnswerResult` -- this function never sees
+    `included_passages` (only `generate_answer`, its caller, has that),
+    so returning the wrapper type would leave that field permanently
+    empty here, only for the caller to immediately reconstruct a second,
+    correctly-populated `AnswerResult` around the same segments."""
     try:
         payload = json.loads(content)
     except json.JSONDecodeError as exc:
@@ -729,4 +763,4 @@ def _parse_and_validate_answer(content: str, passage_count: int) -> AnswerResult
 
         segments.append(AnswerSegment(text=text.strip(), passage_numbers=valid_numbers))
 
-    return AnswerResult(segments=segments)
+    return segments

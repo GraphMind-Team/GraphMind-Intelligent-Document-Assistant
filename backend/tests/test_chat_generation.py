@@ -151,6 +151,44 @@ def test_select_passages_within_budget_logs_nothing_when_everything_fits(caplog)
     assert caplog.text == ""
 
 
+def test_select_passages_within_budget_always_includes_at_least_the_first_passage(monkeypatch):
+    """A single passage too large to fit inside _MAX_PROMPT_CHARS on its own
+    (e.g. a whitespace-stripped table or base64 blob, where the chunker's
+    250-word split produces "words" hundreds of characters long) must still
+    be included rather than leaving `selected` empty -- an empty passage
+    block would still spend a real LLM call that can only ever come back
+    with passage_count=0, an unanswerable question by construction every
+    time, for a user with no way to know why."""
+    monkeypatch.setattr(llm_client_module, "_MAX_PROMPT_CHARS", 200)
+    oversized_passage = _passage(chunk_id="chunk-0", text="x" * 500)
+
+    selected = llm_client_module._select_passages_within_budget([oversized_passage])
+
+    assert selected == [oversized_passage]
+
+
+def test_generate_answer_still_calls_the_model_when_the_only_passage_is_oversized(monkeypatch):
+    """End-to-end: `generate_answer` must not skip calling the model (or
+    build a prompt with zero passages) just because the sole retrieved
+    passage overflows the budget on its own."""
+    monkeypatch.setattr(llm_client_module, "_MAX_PROMPT_CHARS", 200)
+    oversized_passage = _passage(chunk_id="chunk-0", text="x" * 500)
+
+    captured = {}
+
+    def _fake_post(*args, **kwargs):
+        captured["system_prompt"] = kwargs["json"]["messages"][0]["content"]
+        return _openrouter_response(200, content=_valid_content(passage_numbers=[1]))
+
+    monkeypatch.setattr(llm_client_module.httpx, "post", _fake_post)
+
+    result = generate_answer("q", [oversized_passage])
+
+    assert "Passage 1" in captured["system_prompt"]
+    assert result.included_passages == [oversized_passage]
+    assert len(result.segments) == 1
+
+
 def test_generate_answer_drops_segment_with_no_valid_citations(monkeypatch):
     content = json.dumps(
         {

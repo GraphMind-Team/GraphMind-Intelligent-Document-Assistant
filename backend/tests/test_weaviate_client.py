@@ -357,7 +357,15 @@ def test_search_passages_filters_on_user_id_and_returns_mapped_results(monkeypat
     call_kwargs = fake_collection.query.near_vector.call_args.kwargs
     assert call_kwargs["near_vector"] == [0.1, 0.2, 0.3]
     assert call_kwargs["limit"] == 8
-    assert "filters" in call_kwargs
+    # Not just "a filters kwarg was passed" -- the actual tenancy guarantee
+    # (FR-2/AD-2) is that it's scoped to THIS property, with THIS value. A
+    # `Filter.by_property("user_id").equal(user_id)` call produces a
+    # `_FilterValue` with `.target`/`.value`; asserting on those is what
+    # would actually catch someone swapping the filtered property or
+    # passing the wrong id, which "filters" in call_kwargs never could.
+    filters = call_kwargs["filters"]
+    assert filters.target == "user_id"
+    assert filters.value == "user-1"
     assert "return_metadata" in call_kwargs
 
     assert len(results) == 2

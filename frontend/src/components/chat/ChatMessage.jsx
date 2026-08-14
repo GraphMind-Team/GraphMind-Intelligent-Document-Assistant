@@ -10,6 +10,12 @@ const NOTICE_COPY = {
   no_answer: 'GraphMind could not generate an answer for this question.',
 }
 
+// Falls back rather than rendering `undefined` if the backend ever adds a
+// new empty_reason (e.g. Story 3.2's refusal) before this map is updated to
+// match -- an outdated frontend build should degrade to generic copy, not a
+// blank notice bubble.
+const DEFAULT_NOTICE_COPY = 'GraphMind has nothing to show for this question.'
+
 // One message bubble (Story 3.1, UX-DR5): user messages are right-aligned
 // with the primary fill and a sharp trailing corner; assistant messages are
 // left-aligned with the surface fill and a sharp leading corner -- the one
@@ -23,6 +29,10 @@ export default function ChatMessage({ message }) {
   if (message.role === 'user') {
     return (
       <div className="ml-auto max-w-[70%] self-end rounded-[12px_12px_2px_12px] bg-primary px-3.5 py-2.5 text-[13.5px] text-on-primary">
+        {/* Sighted users get the sender cue from alignment/fill/corner
+            (UX-DR5) alone; a screen reader gets none of that, so without
+            this prefix two turns read as one undifferentiated stream. */}
+        <span className="sr-only">You: </span>
         {message.text}
       </div>
     )
@@ -31,7 +41,7 @@ export default function ChatMessage({ message }) {
   if (message.role === 'notice') {
     return (
       <p className="mx-auto max-w-[78%] self-center text-center text-[13px] text-text2">
-        {NOTICE_COPY[message.reason]}
+        {NOTICE_COPY[message.reason] ?? DEFAULT_NOTICE_COPY}
       </p>
     )
   }
@@ -47,6 +57,7 @@ export default function ChatMessage({ message }) {
   // 'assistant'
   return (
     <div className="mr-auto max-w-[78%] self-start rounded-[12px_12px_12px_2px] border border-border bg-surface px-3.5 py-3 text-[13.5px] leading-[1.55] text-text">
+      <span className="sr-only">GraphMind: </span>
       {message.segments.map((segment, index) => (
         <span key={index}>
           {segment.text}

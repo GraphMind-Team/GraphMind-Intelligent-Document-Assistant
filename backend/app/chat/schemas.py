@@ -26,6 +26,26 @@ class AskRequest(BaseModel):
 class CitationResponse(BaseModel):
     chapter: str
     document_filename: str
+    # Chunk-level traceability that survives even when `chapter` degenerates
+    # to parsing.py's `_FULL_DOCUMENT_CHAPTER` ("Full Document") -- the
+    # common case for a PDF with no bookmarks/outline, where every citation
+    # in the document would otherwise render identically and be
+    # indistinguishable from a document-level source (the outcome FR-9
+    # forbids). Not rendered by the current chip (its `Ch. {chapter},
+    # {document_filename}` format is fixed by UX-DR3, and jump-to-source is
+    # out of this story's scope) -- carried in the API purely so that
+    # traceability isn't lost before a future story needs it.
+    #
+    # A list, not a single `chunk_index`, because `service.py` merges
+    # citations on `(chapter, document_filename)` so the chip renders once
+    # rather than N identical times. With a scalar field that merge would
+    # keep only the first contributing chunk, making the payload claim one
+    # specific chunk supported the segment when in fact several did -- more
+    # precise than the data actually is, and silently lossy. Ordered by
+    # first appearance in the model's own `passage_numbers` (i.e. retrieval
+    # order, nearest-first -- not sorted), deduplicated, and always
+    # non-empty, since a citation only exists because a passage produced it.
+    chunk_indexes: list[int]
 
 
 class AnswerSegmentResponse(BaseModel):
