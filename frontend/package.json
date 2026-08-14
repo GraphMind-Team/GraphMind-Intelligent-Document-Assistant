@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "d3-force-3d": "^3.0.6",
     "force-graph": "1.51.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",

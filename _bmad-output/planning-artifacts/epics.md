@@ -89,7 +89,7 @@ SM-3's test must cover leakage *through the generated answer* — that the LLM n
 
 - **No starter template exists** — Epic 1 Story 1 scaffolds `backend/` and `frontend/` from scratch. Day 1 is scaffolding only, no exploratory work.
 - **Module layout:** vertical-slice modular monolith — `auth`, `documents`, `chat`, `kg`, each owning `routes.py` / `service.py` / `repository.py`. Hexagonal/ports-and-adapters explicitly rejected.
-- **Stack (pinned, verified Aug 2026):** Python 3.12+, FastAPI 0.141.1, Pydantic v2, SQLAlchemy 2.0.51, Alembic 1.19.0, weaviate-client 4.22.0, neo4j 6.2, React 19.2.x, Vite 8.2.1, Tailwind, react-force-graph 1.48.2, JWT + bcrypt, OpenRouter.
+- **Stack (pinned, verified Aug 2026):** Python 3.12+, FastAPI 0.141.1, Pydantic v2, SQLAlchemy 2.0.51, Alembic 1.19.0, weaviate-client 4.22.0, neo4j 6.2, React 19.2.x, Vite 8.2.1, Tailwind, force-graph 1.51.4 + react-kapsule 2.6.0 (superseded react-force-graph 1.48.2 in Story 4.1 — see the spine's version table), JWT + bcrypt, OpenRouter.
 - **Definition of Done:** every §6.1 item demonstrable end-to-end; every answer shows ≥1 source; unanswerable questions refuse, verified by the Evaluation Set; cross-tenant isolation verified with two accounts; evaluation runs in one command and reports a number.
 - **Sequencing risks:** prepare a short Cypher primer before graph-write stories (team is unfamiliar with it); keep the extraction type set small; validate demo graph queries offline with a local-export fallback.
 
@@ -247,6 +247,8 @@ So that every later story has a working place to add behaviour instead of re-dec
 **When** dependencies are installed
 **Then** the pinned versions are used (FastAPI 0.141.1, Pydantic v2, SQLAlchemy 2.0.51, Alembic 1.19.0, weaviate-client 4.22.0, neo4j 6.2, React 19.2.x, Vite 8.2.1, react-force-graph 1.48.2)
 **And** Python is 3.12 or newer
+
+> **Superseded 2026-08-14 (Story 4.1):** the spine's `react-force-graph` 1.48.2 row is now `force-graph` 1.51.4 + `react-kapsule` 2.6.0 — importing `react-force-graph`'s combined entry point crashed the whole app at module-evaluation time (its unused 3D/VR/AR variants read `THREE`/`AFRAME` as script-tag globals). This AC still correctly describes what Story 1.1 installed; re-verifying it against the literal `react-force-graph 1.48.2` would now incorrectly fail. The AC's actual intent — "the spine's version table is what's installed" — still holds against the current table.
 
 **Given** the project requires service credentials
 **When** configuration is loaded

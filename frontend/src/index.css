@@ -124,6 +124,22 @@
      it now rather than left as a gap to re-discover then. */
   --link: #456BB5;
 
+  /* Graph entity-type fills (Story 4.1). One step of a single blue ramp
+     per type, rather than five unrelated hues: the types are peers, not
+     statuses, so the canvas should read as one family. Colour is
+     *redundant* here -- the two-letter badge, the legend beneath the
+     canvas and GraphSummary's grouped list each carry type on their own,
+     so UX-DR28's "not by colour alone" holds without it (and colour-blind
+     users lose nothing but a shortcut).
+     Light mode takes the dark half of the ramp; the two darkest carry
+     white badge text (>=4.5:1), the three lighter ones carry --text.
+     Every fill clears 3:1 against --card-bg as a graphical object. */
+  --graph-person: #023E8A;
+  --graph-organization: #0077B6;
+  --graph-project: #0096C7;
+  --graph-product: #48CAE4;
+  --graph-location: #90E0EF;
+
   /* Typography */
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --text-body: 13.5px;
@@ -178,6 +194,17 @@
      (both #262B35, unlike light mode's two distinct tints), so this
      already covers Epic 5's Settings cards too -- no separate check needed. */
   --link: #6690FF;
+
+  /* Graph entity-type fills -- the ramp shifted two steps lighter. Light
+     mode's darkest steps (#023E8A at 1.3:1) would all but vanish against
+     the #262B35 canvas; every value here clears 3:1 against it as a
+     graphical object, and all five carry --on-primary badge text. */
+  --graph-person: #0096C7;
+  --graph-organization: #00B4D8;
+  --graph-project: #48CAE4;
+  --graph-product: #90E0EF;
+  --graph-location: #ADE8F4;
+
   --success: #3FBD82;
   --warning: #E3A94A;
   /* Re-tuned from #E4685F (4.36:1 on --card-bg, below AA) -- that value
