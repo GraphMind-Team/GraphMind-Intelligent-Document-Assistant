@@ -73,7 +73,7 @@ describe('GraphCanvas', () => {
     expect(props.enablePanInteraction).toBe(false)
   })
 
-  it('draws a node without throwing, with the type badge as its label (AC6)', async () => {
+  it('draws a node without throwing, with the type badge and the entity name as labels (AC1/AC6)', async () => {
     render(<GraphCanvas graph={GRAPH} />)
     await screen.findByTestId('force-graph-stub')
 
@@ -88,10 +88,11 @@ describe('GraphCanvas', () => {
     }
 
     expect(() =>
-      props.nodeCanvasObject({ x: 0, y: 0, degree: 3, type: 'Person' }, ctx, 1),
+      props.nodeCanvasObject({ x: 0, y: 0, degree: 3, type: 'Person', name: 'Maria' }, ctx, 1),
     ).not.toThrow()
     expect(ctx.arc).toHaveBeenCalled()
     expect(ctx.fillText).toHaveBeenCalledWith('PE', 0, 0)
+    expect(ctx.fillText).toHaveBeenCalledWith('Maria', 0, expect.any(Number))
   })
 
   it('renders GraphSummary alongside the canvas', async () => {

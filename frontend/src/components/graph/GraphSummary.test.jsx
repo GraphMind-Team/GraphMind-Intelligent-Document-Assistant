@@ -37,12 +37,22 @@ describe('GraphSummary', () => {
     expect(orgGroup).toHaveTextContent('TechCorp')
   })
 
-  it('the "View as list" toggle is keyboard-focusable', () => {
+  it('the "View as list" toggle is keyboard-focusable, and starts open (AC1)', () => {
     render(<GraphSummary nodes={NODES} edges={EDGES} />)
 
     const toggle = screen.getByText('View as list')
     toggle.focus()
     expect(toggle).toHaveFocus()
+    expect(toggle.closest('details')).toHaveAttribute('open')
+  })
+
+  it('lists each relationship with its type, using entity names rather than raw ids', () => {
+    render(<GraphSummary nodes={NODES} edges={EDGES} />)
+
+    const relationshipsGroup = screen.getByText('Relationships').closest('div')
+    expect(relationshipsGroup).toHaveTextContent('Maria Ivanova')
+    expect(relationshipsGroup).toHaveTextContent('WORKS_AT')
+    expect(relationshipsGroup).toHaveTextContent('TechCorp')
   })
 
   it('handles an empty graph without crashing', () => {

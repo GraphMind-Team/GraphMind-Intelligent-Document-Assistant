@@ -14,7 +14,6 @@
     "force-graph": "1.51.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "react-force-graph": "1.48.2",
     "react-kapsule": "2.6.0",
     "react-router-dom": "^7.18.2"
   },

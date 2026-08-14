@@ -19,10 +19,12 @@ import GraphSummary from './GraphSummary'
 // constructor` even after stubbing both globals -- an unbounded chain of
 // runtime assumptions, not one shallow guard). `force-graph` alone has
 // no such dependency at all, so wrapping it directly sidesteps the
-// problem instead of patching around it. `react-force-graph` itself
-// stays a listed dependency (the architecture spine's pinned choice of
-// library family), but its own broken combined entry point is never
-// imported.
+// problem instead of patching around it. `react-force-graph` is not a
+// dependency here at all -- a deliberate deviation from the architecture
+// spine's pinned library-family choice, recorded explicitly in
+// spec-4-1's Design Notes (an unimported package left in `package.json`
+// wouldn't "honor" that choice, it would just mislead the next reader
+// into thinking it's in use).
 const ForceGraph2D = fromKapsule(ForceGraphKapsule)
 
 // UX-DR11's literal spec.
@@ -40,15 +42,15 @@ const MID_NODE_DIAMETER = 65 // used when every node has the same degree -- no r
 // within a commit, so this component's effect would read the *previous*
 // theme's attribute value on the very render a theme switch happens.
 const PALETTE = {
-  light: { primary: '#3861A8', onPrimary: '#FFFFFF', cardBg: '#FFFFFF' },
-  dark: { primary: '#5B8CFF', onPrimary: '#1E222B', cardBg: '#262B35' },
+  light: { primary: '#3861A8', onPrimary: '#FFFFFF', cardBg: '#FFFFFF', text: '#10131A' },
+  dark: { primary: '#5B8CFF', onPrimary: '#1E222B', cardBg: '#262B35', text: '#E4E7EC' },
 }
 
-// Two-letter badges, not full labels -- the drawn node label already
-// carries the entity's name, so this is purely the redundant, non-color
-// signal AC6/UX-DR28 requires ("entity type... not carried by node colour
-// alone"). GraphSummary's grouped-by-type list is a second, always-visible
-// way to see the same information.
+// Two-letter badges drawn inside each node -- the non-color signal
+// AC6/UX-DR28 requires ("entity type... not carried by node colour
+// alone"). The entity's name is drawn separately, beneath the node (see
+// drawNode) -- the badge alone isn't a substitute for it. GraphSummary's
+// grouped-by-type list is a second, always-visible way to see type.
 const TYPE_BADGES = {
   Person: 'PE',
   Organization: 'OR',
@@ -68,8 +70,8 @@ function diameterFor(degree, minDegree, maxDegree) {
 }
 
 // No ResizeObserver here (unavailable in this project's jsdom test
-// environment, and this component's own test mocks `react-force-graph`
-// itself, not the surrounding measurement logic) -- a plain `resize`
+// environment, and this component's own test mocks `force-graph`/
+// `react-kapsule` themselves, not the surrounding measurement logic) -- a plain `resize`
 // listener plus an initial measurement covers window/layout resizes,
 // which is the only way this container's width actually changes today
 // (no split-pane or collapsible sidebar resizes it independently).
@@ -110,7 +112,7 @@ export default function GraphCanvas({ graph }) {
   const minDegree = degrees.length ? Math.min(...degrees) : 0
   const maxDegree = degrees.length ? Math.max(...degrees) : 0
 
-  // `react-force-graph` mutates the objects it's given (adds `x`/`y`/`vx`/
+  // `force-graph` mutates the objects it's given (adds `x`/`y`/`vx`/
   // `vy` for the simulation) -- copied here so it never mutates `graph`
   // itself, which the caller (GraphPage) still owns.
   const graphData = useMemo(
@@ -145,6 +147,18 @@ export default function GraphCanvas({ graph }) {
     ctx.textBaseline = 'middle'
     ctx.fillStyle = palette.onPrimary
     ctx.fillText(badgeFor(node.type), node.x, node.y)
+
+    // Entity name, drawn beneath the node rather than inside it -- the
+    // circle is too small at MIN_NODE_DIAMETER to fit both the type badge
+    // and a full name legibly. Same /globalScale treatment as the badge
+    // and radius above, so it stays a constant on-screen size regardless
+    // of the force layout's auto-fit zoom.
+    const nameFontSize = 10 / globalScale
+    ctx.font = `500 ${nameFontSize}px sans-serif`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'top'
+    ctx.fillStyle = palette.text
+    ctx.fillText(node.name, node.x, node.y + radius + 4 / globalScale)
   }
 
   return (
