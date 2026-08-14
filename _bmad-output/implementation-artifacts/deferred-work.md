@@ -207,13 +207,14 @@
     this project (see e.g. the `TRUSTED_PROXY_HOSTS` and `EXTRACTION_CHAR_BUDGET` entries above).
 
 - source_spec: `_bmad-output/planning-artifacts/epics.md` (Story 3.1: Ask a question and receive a grounded, cited answer)
+  resolved: 2026-08-14 -- `spec-3-1-ask-a-question-and-receive-a-grounded-cited-answer.md` written.
   summary: >
     Author a `spec-3-1-ask-a-question-and-receive-a-grounded-cited-answer.md` under
     `_bmad-output/implementation-artifacts/`, matching the pattern every other shipped story
     (1.1/1.2/1.5/2.1/2.2/2.4) has -- 3.1 was implemented directly against `epics.md`'s
     acceptance criteria, with no dedicated spec file of its own.
   evidence: >
-    Same gap as the already-recorded Story 2.3 entry above, which explicitly warned this would
+    Same gap as the still-open Story 2.3 entry above, which explicitly warned this would
     recur ("worth closing before 2.4 sets the same precedent") -- 2.4 did get a spec file, but
     3.1 didn't. Concretely cost something this time: without a Boundaries section recording
     UX-DR21's `#4A7FE0`/`#D1EEFE` pair as a documented, human-accepted deviation, Story 3.1's
@@ -221,3 +222,12 @@
     oversight or a recorded decision (it was the latter -- closing it was still correct, but the
     docs it contradicted had to be reconciled after the fact instead of the spec surfacing the
     tension up front).
+  resolution_note: >
+    Kept rather than deleted, with a `resolved:` line added, because the lesson is the point --
+    this is the second occurrence of the same gap and the Story 2.3 entry above is STILL open.
+    The new spec is explicit that it was reconstructed after implementation (see its provenance
+    block): its Boundaries describe what 3.1 turned out to be bound by, not decisions a human
+    approved in advance, so no future story should read those lines as carrying the authority a
+    genuinely pre-approved Boundaries section does. A retro-spec presenting itself as frozen
+    would invite the mirror image of the UX-DR21 error -- a later story declining to revisit a
+    line that was never actually negotiated.
