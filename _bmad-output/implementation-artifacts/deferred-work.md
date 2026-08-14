@@ -298,11 +298,19 @@
     advance.
 
 - source_spec: `_bmad-output/planning-artifacts/epics.md` (Story 1.4: Login and JWT session)
+  resolved: 2026-08-14 -- `spec-1-4-login-and-jwt-session.md` written.
   summary: >
     Author a `spec-1-4-login-and-jwt-session.md` under `_bmad-output/implementation-artifacts/`,
     matching the pattern every other shipped story has. 1.4 was implemented directly against
     `epics.md`'s acceptance criteria, with no dedicated spec file of its own.
   evidence: >
     Same gap as Story 1.3's entry directly above (and the now-resolved 2.3/3.1 entries) -- found
-    at the same time, not yet closed. The next story to touch `auth/` should close this one too
-    rather than letting a fourth occurrence accumulate.
+    at the same time, closed within the hour rather than left open.
+  resolution_note: >
+    Reconstructed from `epics.md`'s AC text alone -- unlike 1.3/2.3/3.1, Story 1.4 shipped as a
+    single commit (`65ab9fd`) with no separate pre-merge review-round fix, so there is no Spec
+    Change Log to reconstruct. Carries the same `provenance: reconstructed-after-implementation`
+    marker as the other three, for the same reason recorded in each of their own provenance
+    notes: this spec's Boundaries describe what 1.4 turned out to be bound by, not decisions
+    approved in advance. All four missing-spec entries in this project (1.3, 1.4, 2.3, 3.1) are
+    now resolved.
