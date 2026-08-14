@@ -110,6 +110,38 @@ _CHAT_TIMEOUT_SECONDS = 45.0
 _CHAT_MAX_ATTEMPTS = 2
 _CHAT_RETRY_DELAY_SECONDS = 3.0
 
+# OD-2 (Story 3.2, FR-10/AD-6): the relevance-score cutoff below which
+# `chat/service.py` refuses instead of calling `generate_answer` at all.
+# Public, not `_`-prefixed -- unlike every other constant in this block,
+# this module never reads it itself; `chat/service.py` does, comparing it
+# against `WeaviateSearchResult.distance` before this wrapper is ever
+# invoked. It lives here anyway because the story's own acceptance
+# criteria are explicit that OD-2 "lives as a configuration value in the
+# shared LLM-client wrapper rather than being hardcoded in the chat
+# service" -- AD-6 already frames this package as the single owner of
+# every knob that decides whether/how an OpenRouter call happens (model,
+# timeout, retries, prompt budget), and this is that same decision, made
+# one step earlier than the others.
+#
+# `distance` is Weaviate's cosine distance from `paraphrase-multilingual-
+# MiniLM-L12-v2` embeddings (lower = more similar). Measured, not guessed:
+# against this account's one real `Ready` document (English, vendor/
+# refund-terms), three on-topic questions returned best-passage distances
+# of 0.162, 0.236, 0.459 (the last confirmed on-topic -- the source chunk
+# states outright "Northbridge Logistics handles shipping for all Q2
+# rollout hardware"), three off-topic questions returned 0.899, 1.061,
+# 1.094, and one Bulgarian on-topic question (cross-lingual, same English
+# document) returned 0.182 -- multilingual retrieval showed no widening
+# here. 0.75 sits in the resulting gap, biased toward the "don't wrongly
+# refuse" side (0.29 margin above the worst on-topic case vs. 0.15 below
+# the best off-topic case), matching FR-10's intent that a false refusal
+# is worse than an occasional weak-but-attempted answer. Small sample (one
+# document, mostly English) -- flagged for re-measurement once Epic 6's
+# evaluation set exists (SM-2/SM-C1), same as `TOP_K_PASSAGES` and
+# `_MAX_PROMPT_CHARS` above were themselves re-tuned against real data
+# rather than left at their original guesses.
+RELEVANCE_THRESHOLD = 0.75
+
 # Budgets ONLY the assembled passage block handed to the model -- not the
 # surrounding instruction/numbering scaffolding, and not the question itself
 # (bounded separately by chat/schemas.py's AskRequest.max_length=2000). Both

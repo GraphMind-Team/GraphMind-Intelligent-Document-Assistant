@@ -1,6 +1,6 @@
-"""`POST /chat/ask` tests (Story 3.1): auth requirement, Pydantic-level
-question validation (422, not a manual 400), the two distinct empty_reason
-outcomes ("no_documents" vs "no_answer"), the exact 503 point for an
+"""`POST /chat/ask` tests (Stories 3.1, 3.2): auth requirement, Pydantic-level
+question validation (422, not a manual 400), the three distinct empty_reason
+outcomes ("no_documents", "no_answer", "refusal"), the exact 503 point for an
 LLM-wrapper failure, cross-tenant isolation of citation resolution, and a
 full success path resolving real `{chapter, document_filename}` citations.
 
@@ -11,9 +11,11 @@ them under), mirroring `test_documents_parse_and_index.py`'s
 model, Weaviate, or OpenRouter.
 """
 
+from unittest.mock import Mock
+
 from app.chat import service as chat_service_module
 from app.shared.data_access.shapes import WeaviateSearchResult
-from app.shared.llm_client import AnswerResult, AnswerSegment, ChatCompletionError
+from app.shared.llm_client import RELEVANCE_THRESHOLD, AnswerResult, AnswerSegment, ChatCompletionError
 
 
 def _register_and_login(client, *, full_name, email, password):
@@ -46,14 +48,16 @@ def _stub_embed(monkeypatch):
     monkeypatch.setattr(chat_service_module, "embed_texts", lambda texts: [[0.0] * 384 for _ in texts])
 
 
-def _passage(document_id, chapter="Chapter One", chunk_id="chunk-0", chunk_index=0, text="passage text"):
+def _passage(
+    document_id, chapter="Chapter One", chunk_id="chunk-0", chunk_index=0, text="passage text", distance=0.1
+):
     return WeaviateSearchResult(
         chunk_id=chunk_id,
         document_id=document_id,
         chapter=chapter,
         chunk_index=chunk_index,
         text=text,
-        distance=0.1,
+        distance=distance,
     )
 
 
@@ -110,6 +114,115 @@ def test_ask_generation_producing_no_answerable_segments_returns_no_answer_reaso
     body = response.json()
     assert body["segments"] == []
     assert body["empty_reason"] == "no_answer"
+
+
+def test_ask_refuses_when_every_passage_is_below_the_relevance_threshold(client, monkeypatch):
+    """FR-10/OD-2: every retrieved passage too dissimilar to trust -->
+    refuse, and `generate_answer` must never be called at all (AD-6) --
+    the one thing a plain-lambda stub can't prove, which is why this test
+    uses a Mock with assert_not_called() instead."""
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-chat-refusal-1@example.com", password="password12345"
+    )
+    document = _upload(client, token)
+    _stub_embed(monkeypatch)
+    passages = [
+        _passage(document["id"], distance=RELEVANCE_THRESHOLD + 0.2),
+        _passage(document["id"], chunk_id="chunk-1", chunk_index=1, distance=RELEVANCE_THRESHOLD + 0.4),
+    ]
+    monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: passages)
+    generate_answer_mock = Mock()
+    monkeypatch.setattr(chat_service_module, "generate_answer", generate_answer_mock)
+
+    response = client.post(
+        "/chat/ask", headers=_auth_headers(token), json={"question": "Something unrelated to my documents?"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["segments"] == []
+    assert body["empty_reason"] == "refusal"
+    generate_answer_mock.assert_not_called()
+
+
+def test_ask_proceeds_when_at_least_one_passage_clears_the_threshold(client, monkeypatch):
+    """Mixed distances -- the check is "any", not "all". A regression guard
+    that one relevant passage among several irrelevant ones still reaches
+    generate_answer, unfiltered, exactly as Story 3.1's flow already did."""
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-chat-refusal-2@example.com", password="password12345"
+    )
+    document = _upload(client, token)
+    _stub_embed(monkeypatch)
+    passages = [
+        _passage(document["id"], distance=RELEVANCE_THRESHOLD + 0.1),
+        _passage(document["id"], chunk_id="chunk-1", chunk_index=1, distance=RELEVANCE_THRESHOLD - 0.1),
+    ]
+    monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: passages)
+    monkeypatch.setattr(
+        chat_service_module,
+        "generate_answer",
+        lambda *a, **k: AnswerResult(
+            segments=[AnswerSegment(text="A claim.", passage_numbers=[1])], included_passages=passages
+        ),
+    )
+
+    response = client.post(
+        "/chat/ask", headers=_auth_headers(token), json={"question": "What does it say?"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["empty_reason"] is None
+
+
+def test_ask_treats_exact_threshold_distance_as_relevant(client, monkeypatch):
+    """Boundary: distance == RELEVANCE_THRESHOLD counts as relevant (<=),
+    not refused."""
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-chat-refusal-3@example.com", password="password12345"
+    )
+    document = _upload(client, token)
+    _stub_embed(monkeypatch)
+    passages = [_passage(document["id"], distance=RELEVANCE_THRESHOLD)]
+    monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: passages)
+    generate_answer_mock = Mock(
+        return_value=AnswerResult(
+            segments=[AnswerSegment(text="A claim.", passage_numbers=[1])], included_passages=passages
+        )
+    )
+    monkeypatch.setattr(chat_service_module, "generate_answer", generate_answer_mock)
+
+    response = client.post(
+        "/chat/ask", headers=_auth_headers(token), json={"question": "What does it say?"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["empty_reason"] is None
+    generate_answer_mock.assert_called_once()
+
+
+def test_ask_refuses_when_every_passage_has_no_distance_metadata(client, monkeypatch):
+    """A `distance` of None can't be verified as relevant, so it never
+    clears the bar -- documents the conservative default for a retrieval
+    metadata gap that can't happen today but shouldn't fail open if it
+    ever did."""
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-chat-refusal-4@example.com", password="password12345"
+    )
+    document = _upload(client, token)
+    _stub_embed(monkeypatch)
+    passages = [_passage(document["id"], distance=None)]
+    monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: passages)
+    generate_answer_mock = Mock()
+    monkeypatch.setattr(chat_service_module, "generate_answer", generate_answer_mock)
+
+    response = client.post(
+        "/chat/ask", headers=_auth_headers(token), json={"question": "Anything in my docs?"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["empty_reason"] == "refusal"
+    generate_answer_mock.assert_not_called()
 
 
 def test_ask_llm_wrapper_failure_surfaces_as_exactly_503(client, monkeypatch):

@@ -55,13 +55,20 @@ class AnswerSegmentResponse(BaseModel):
 
 class AskResponse(BaseModel):
     segments: list[AnswerSegmentResponse]
-    # None when segments is non-empty. Distinguishes three otherwise-
+    # None when segments is non-empty. Distinguishes four otherwise-
     # identical-looking "nothing to show" cases so the frontend can render
-    # three different things, none of which may look like Story 3.2's
-    # not-yet-designed refusal (UX-DR15):
+    # four different things:
     #   "no_documents" -- search_passages returned zero results (empty or
     #                     not-yet-ingested library)
     #   "no_answer"    -- passages were found and generate_answer ran, but
     #                     every segment was either returned empty by the
     #                     model or dropped during citation resolution
-    empty_reason: Literal["no_documents", "no_answer"] | None = None
+    #   "refusal"      -- FR-10/OD-2: every retrieved passage's relevance
+    #                     score fell below RELEVANCE_THRESHOLD
+    #                     (shared/llm_client), so generate_answer was
+    #                     never called at all. The one case the frontend
+    #                     must render as a real bubble, never the plain
+    #                     notice paragraph the other two use (UX-DR15) --
+    #                     it is a designed, correct outcome, not an error
+    #                     and not an empty answer.
+    empty_reason: Literal["no_documents", "no_answer", "refusal"] | None = None
