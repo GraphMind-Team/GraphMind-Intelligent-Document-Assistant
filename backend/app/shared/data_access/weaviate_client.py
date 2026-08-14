@@ -280,7 +280,10 @@ def write_passages(passages: list[WeaviatePassage]) -> None:
 
 
 def search_passages(
-    query_vector: list[float], user_id: str, limit: int = TOP_K_PASSAGES
+    query_vector: list[float],
+    user_id: str,
+    limit: int = TOP_K_PASSAGES,
+    document_ids: list[str] | None = None,
 ) -> list[WeaviateSearchResult]:
     """The `documents/`-anticipated future reader function this module's own
     docstring named up front -- Epic 3's chat retrieval (Story 3.1) calls
@@ -292,9 +295,16 @@ def search_passages(
     `get_current_user`, never from client input, per this file's own
     module docstring and `shapes.py`'s tenancy-rule comment.
 
+    `document_ids` (Story 3.3/FR-11): when a non-empty list, ANDs a
+    `contains_any` filter onto the `user_id` filter, same combined-filter
+    shape `delete_passages_for_document` already uses -- so scoping can
+    never widen retrieval past `user_id`, only narrow it further. `None`
+    or an empty list means the FR-11 default (search everything), matching
+    this function's pre-Story-3.3 behavior exactly.
+
     Returns results ordered nearest-first (Weaviate's own default order
     for `near_vector`). An empty list is a valid, non-error outcome -- an
-    account with zero passages (or zero within its own tenancy scope) is
+    account with zero passages (or zero within its own tenancy/scope) is
     the caller's (chat/service.py's) degenerate case to handle, not this
     function's.
     """
@@ -302,10 +312,14 @@ def search_passages(
     _ensure_passage_collection(client)
     collection = client.collections.get(PASSAGE_COLLECTION)
 
+    filters = Filter.by_property("user_id").equal(user_id)
+    if document_ids:
+        filters = filters & Filter.by_property("document_id").contains_any(document_ids)
+
     response = collection.query.near_vector(
         near_vector=query_vector,
         limit=limit,
-        filters=Filter.by_property("user_id").equal(user_id),
+        filters=filters,
         return_metadata=MetadataQuery(distance=True),
     )
 

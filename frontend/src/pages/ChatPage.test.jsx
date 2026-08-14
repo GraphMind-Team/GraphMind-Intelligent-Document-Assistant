@@ -206,6 +206,17 @@ describe('ChatPage', () => {
     expect(screen.getByLabelText(/ask a question/i)).toHaveAttribute('maxlength', '2000')
   })
 
+  it('renders the empty_scope notice distinctly from no_documents/no_answer', async () => {
+    vi.spyOn(chatClient, 'askQuestion').mockResolvedValue({ segments: [], empty_reason: 'empty_scope' })
+    const user = userEvent.setup()
+    renderChatPage()
+
+    await user.type(screen.getByLabelText(/ask a question/i), 'q{Enter}')
+
+    const notice = await screen.findByText('No content found in the documents you selected.')
+    expect(notice.tagName).toBe('P')
+  })
+
   it('falls back to generic notice copy for an unrecognized empty_reason', async () => {
     vi.spyOn(chatClient, 'askQuestion').mockResolvedValue({
       segments: [],

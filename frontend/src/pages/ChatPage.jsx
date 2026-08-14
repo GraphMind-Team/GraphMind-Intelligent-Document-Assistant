@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
+import { ChatScopeProvider, useChatScope } from '../context/ChatScopeContext'
 import { askQuestion } from '../api/chatClient'
 import ChatMessage from '../components/chat/ChatMessage'
 import RobotMascot from '../components/chat/RobotMascot'
@@ -13,8 +14,23 @@ import DocumentsScopePanel from '../components/chat/DocumentsScopePanel'
 // UX-DR28) -- the scope panel already sits second in DOM order, so no CSS
 // `order`/`row-reverse` is needed to make it flow below the chat column
 // (mirrors Shell.jsx's own UX-DR18 convention).
+//
+// Split into this thin wrapper + ChatPageContent (Story 3.3) because
+// ChatPageContent needs `useChatScope()`, which reads the context this
+// component renders -- a single component can't call a hook that reads a
+// provider it renders itself, that provider isn't mounted yet at the
+// point its own render function runs.
 export default function ChatPage() {
+  return (
+    <ChatScopeProvider>
+      <ChatPageContent />
+    </ChatScopeProvider>
+  )
+}
+
+function ChatPageContent() {
   const { authFetch } = useAuth()
+  const { selectedDocumentIds } = useChatScope()
   const [messages, setMessages] = useState([])
   const [question, setQuestion] = useState('')
   const [isAsking, setIsAsking] = useState(false)
@@ -45,7 +61,7 @@ export default function ChatPage() {
     setError(null)
 
     try {
-      const result = await askQuestion(authFetch, trimmed)
+      const result = await askQuestion(authFetch, trimmed, selectedDocumentIds)
       if (result.empty_reason === 'refusal') {
         // FR-10/UX-DR15: a designed refusal, not an empty-state notice --
         // its own message role so ChatMessage renders a real bubble,

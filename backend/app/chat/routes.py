@@ -24,4 +24,4 @@ def ask(
     db: Session = Depends(get_db_session),
     current_user: User = Depends(get_current_user),
 ) -> AskResponse:
-    return service.ask_question(db, current_user, request.question)
+    return service.ask_question(db, current_user, request.question, request.document_ids)
