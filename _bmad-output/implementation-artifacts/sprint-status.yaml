@@ -49,7 +49,7 @@ development_status:
   2-3-parse-and-index-documents-into-the-vector-store: done
   2-4-extract-entities-into-the-unified-graph-with-compensating-ro: done
   2-5-failed-ingestion-surfaced-with-a-readable-reason: done
-  2-6-content-hash-dedupe-on-upload: backlog
+  2-6-content-hash-dedupe-on-upload: review
   2-7-delete-a-document-with-an-honest-deletion-boundary: backlog
   epic-2-retrospective: optional
 

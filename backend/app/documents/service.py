@@ -5,13 +5,15 @@ Raises `HTTPException` directly (AD-3: no custom error envelope), mirroring
 the route layer stays thin and a rejected file never reaches the DB.
 """
 
+import hashlib
 import logging
 import pathlib
 import uuid
 from collections import Counter
 from collections.abc import Callable
-from typing import Final
+from typing import Final, Literal
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from fastapi import HTTPException
@@ -75,6 +77,11 @@ _ALLOWED_CONTENT_TYPES: Final = {
 }
 
 _SUPPORTED_FORMATS_LABEL: Final = ".pdf, .md, .markdown, .html, .htm"
+
+# Story 2.6: what `upload_document` did with this upload. See that
+# function's docstring for how the route maps each to a status code and
+# to whether ingestion is scheduled.
+UploadOutcome = Literal["created", "duplicate", "reingested"]
 
 # Story 2.5: short, human-readable, stage-aware labels prefixed onto a
 # truncated `str(exc)` to build `Document.failed_reason` -- never a raw
@@ -144,8 +151,10 @@ def upload_document(
     filename: str,
     file_type: str,
     content: bytes,
-) -> Document:
-    """Stores one already-validated upload as a `Uploaded`-status row.
+) -> tuple[Document, UploadOutcome]:
+    """Stores one already-validated upload as a `Uploaded`-status row, or
+    (Story 2.6) returns an existing byte-identical document instead of
+    creating a new one.
 
     Format/content-type (`validate_format`) and size (`validate_size`) are
     validated by the caller (route layer) before this runs -- by the time
@@ -153,8 +162,58 @@ def upload_document(
     `current_user` (resolved only from `get_current_user`, per AD-2) is
     the sole source of `user_id` written to the row -- never anything
     client-supplied. No parsing/indexing happens here (Story 2.3's job);
-    the row lands at `status="Uploaded"` and stays there.
+    a newly-created row lands at `status="Uploaded"` and stays there.
+
+    Returns the document plus one of three outcomes, which is what the
+    route maps to a status code and to whether ingestion gets scheduled:
+
+    - `"created"` -- a genuinely new document. 201, ingestion scheduled.
+    - `"duplicate"` -- a byte-identical match that needs no work. 200, no
+      ingestion (NFR-7: no parse/embed/LLM call for a duplicate).
+    - `"reingested"` -- a byte-identical match against a *`Failed`*
+      document, reset to `Uploaded` and retried in place. 200 (no row was
+      created), ingestion scheduled.
+
+    A three-state outcome rather than the `is_duplicate` boolean this
+    story originally specified: re-uploading a failed document is neither
+    a creation nor a no-op, and collapsing it into either one produces a
+    visibly wrong answer (see the Spec Change Log). Retrying a *failed*
+    ingestion is not the duplicated work NFR-7 forbids -- it is the first
+    attempt that gets to succeed -- and it still creates no second row.
+
+    The hash is computed from raw bytes only (never `filename`), so a
+    byte-identical re-upload under a different name still dedupes (AC3).
+    The pre-create lookup runs before any `Document(...)` is constructed --
+    a non-`Failed` hash match returns the *existing* row untouched and
+    never reaches the repository's insert at all, so the caller can never
+    schedule ingestion for it.
+
+    On the rare race where two concurrent uploads of the identical new file
+    both miss this pre-create lookup, the composite unique index on
+    `(user_id, content_hash)` rejects the second `INSERT` with an
+    `IntegrityError`. Caught here: roll back, re-query by hash (the winning
+    request's commit is visible by now), and return that row as a
+    duplicate -- never let the exception propagate as a 500.
     """
+    content_hash = hashlib.sha256(content).hexdigest()
+
+    existing = repository.get_document_by_content_hash(db, current_user.id, content_hash)
+    if existing is not None:
+        if existing.status == "Failed":
+            # Re-uploading a failed document retries it in place rather
+            # than being swallowed as a duplicate -- see this function's
+            # docstring for why that isn't a violation of NFR-7.
+            if repository.claim_failed_document_for_reingest(db, existing.id):
+                db.commit()
+                db.refresh(existing)
+                return existing, "reingested"
+            # Lost the claim to a concurrent re-upload that is already
+            # retrying this row -- fall through to the duplicate response
+            # rather than scheduling a second pipeline against it.
+            db.rollback()
+            db.refresh(existing)
+        return existing, "duplicate"
+
     document = Document(
         id=uuid.uuid4(),
         user_id=current_user.id,
@@ -163,12 +222,24 @@ def upload_document(
         file_size_bytes=len(content),
         status="Uploaded",
         content=content,
+        content_hash=content_hash,
     )
 
-    document = repository.create_document(db, document)
-    db.commit()
+    try:
+        document = repository.create_document(db, document)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = repository.get_document_by_content_hash(db, current_user.id, content_hash)
+        if existing is None:
+            # The unique constraint fired for some other reason than the
+            # expected concurrent-duplicate race -- re-raise rather than
+            # silently returning `None` as if it were a duplicate.
+            raise
+        return existing, "duplicate"
+
     db.refresh(document)
-    return document
+    return document, "created"
 
 
 def _build_extraction_text(chunks: list, budget: int = EXTRACTION_CHAR_BUDGET) -> str:

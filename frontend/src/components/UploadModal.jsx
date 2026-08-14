@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { ALLOWED_EXTENSIONS, uploadDocument, validateFile } from '../api/documentsClient'
 import { formatFileSize } from '../utils/documentFormat'
@@ -17,7 +18,7 @@ const BACKDROP_STYLE = {
 }
 
 function isSettled(status) {
-  return status === 'success' || status === 'error'
+  return status === 'success' || status === 'error' || status === 'duplicate'
 }
 
 function makeRowId(file) {
@@ -89,6 +90,14 @@ export default function UploadModal({ onClose }) {
   // auto-close the instant it's added -- before the user has any chance
   // to read why. An all-rejected batch now waits for explicit Cancel/
   // Escape instead, same as if nothing had been added.
+  //
+  // `'duplicate'` deliberately does NOT count as a reason to auto-close
+  // (Story 2.6, corrected after a real duplicate upload closed the modal
+  // before the "Already uploaded" message or its link were ever visible):
+  // a duplicate result is exactly the kind of thing this gate exists to
+  // protect -- informational, not a "nothing more to do here" signal, so
+  // it's treated the same as an error for this purpose even though it's
+  // still a *settled* row for the every-row-resolved check above.
   useEffect(() => {
     if (
       files.length > 0 &&
@@ -147,8 +156,18 @@ export default function UploadModal({ onClose }) {
     uploadDocument(token, row.file, (progress) => {
       updateRowIfMounted(row.id, { progress })
     })
-      .then(() => {
-        updateRowIfMounted(row.id, { status: 'success', progress: 100 })
+      .then((body) => {
+        // Story 2.6: `uploadDocument`'s 2xx-resolves contract is unchanged
+        // (200 for a duplicate already resolves same as 201) -- this is
+        // the branch that turns the resolved body's `is_duplicate` flag
+        // into its own terminal row status, distinct from a fresh
+        // 'success', so the row can render "Already uploaded" and link to
+        // the existing document (OD-7) instead of a generic success state.
+        if (body?.is_duplicate) {
+          updateRowIfMounted(row.id, { status: 'duplicate', progress: 100, documentId: body.id })
+        } else {
+          updateRowIfMounted(row.id, { status: 'success', progress: 100, documentId: body?.id })
+        }
       })
       .catch((err) => {
         updateRowIfMounted(row.id, { status: 'error', error: err.message })
@@ -269,6 +288,28 @@ export default function UploadModal({ onClose }) {
                   {row.status === 'error' ? (
                     <p role="alert" className="mt-1.5 text-xs text-danger">
                       {row.error}
+                    </p>
+                  ) : row.status === 'duplicate' ? (
+                    // Story 2.6 / OD-7: a content-hash match surfaces the
+                    // existing document rather than just saying "skipped"
+                    // -- explicit "already uploaded" message, linking to
+                    // `/documents/{id}`. `role="status"` (not "alert" --
+                    // that's reserved for errors/urgent) so screen readers
+                    // get a polite announcement when a row settles here,
+                    // mirroring the error branch's live-region treatment.
+                    <p role="status" className="mt-1.5 text-xs text-text2">
+                      Already uploaded
+                      {row.documentId ? (
+                        <>
+                          {' -- '}
+                          <Link
+                            to={`/documents/${row.documentId}`}
+                            className="font-semibold text-accent"
+                          >
+                            view document
+                          </Link>
+                        </>
+                      ) : null}
                     </p>
                   ) : (
                     <div

@@ -278,6 +278,17 @@
     story only added one more field write inside that same already-swallowed block, so the gap
     predates this change and isn't specific to `failed_reason`.
 
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-6-content-hash-dedupe-on-upload.md`
+  summary: >
+    `POST /documents` can now return 200 (duplicate) in addition to 201 (created), and
+    `DocumentResponse` gained `is_duplicate` -- neither is reflected in FastAPI's generated
+    OpenAPI schema via an explicit `responses={...}` declaration, so auto-generated API docs
+    still only advertise the 201 case.
+  evidence: >
+    Story 2.6 review (blind-hunter) raised this. Cosmetic/documentation-only -- the route's actual
+    runtime behavior and the `DocumentResponse` schema are both correct and tested; this is purely
+    about API-doc completeness for prospective external consumers, none of which exist yet for
+    this project.
 - source_spec: `_bmad-output/planning-artifacts/epics.md` (Story 1.3: Account registration)
   resolved: 2026-08-14 -- `spec-1-3-account-registration.md` written.
   summary: >

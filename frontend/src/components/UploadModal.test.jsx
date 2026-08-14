@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import UploadModal from './UploadModal'
 import { useAuth } from '../context/AuthContext'
@@ -9,6 +10,17 @@ vi.mock('../context/AuthContext', () => ({ useAuth: vi.fn() }))
 
 function makeFile(name, type = 'application/pdf') {
   return new File(['content'], name, { type })
+}
+
+// UploadModal renders a react-router `Link` in the duplicate-row branch
+// (Story 2.6) -- only that branch needs a Router ancestor, but wrapping
+// every render here keeps the helper uniform.
+function renderModal(props) {
+  return render(
+    <MemoryRouter>
+      <UploadModal {...props} />
+    </MemoryRouter>,
+  )
 }
 
 afterEach(() => {
@@ -162,5 +174,151 @@ describe('UploadModal file handling', () => {
 
     expect(uploadSpy).toHaveBeenCalledTimes(1)
     expect(abortCalled).toBe(false)
+  })
+})
+
+describe('UploadModal duplicate handling (Story 2.6)', () => {
+  it('shows "Already uploaded" and links to the existing document when is_duplicate is true', async () => {
+    useAuth.mockReturnValue({ token: 'a-token' })
+    vi.spyOn(documentsClient, 'uploadDocument').mockResolvedValue({
+      id: 'existing-doc-1',
+      status: 'Uploaded',
+      is_duplicate: true,
+    })
+    const user = userEvent.setup()
+
+    renderModal({ onClose: vi.fn() })
+
+    const input = screen.getByLabelText(/choose files to upload/i)
+    await user.upload(input, makeFile('report.pdf'))
+
+    expect(await screen.findByText(/already uploaded/i)).toBeInTheDocument()
+    const link = screen.getByRole('link', { name: /view document/i })
+    expect(link).toHaveAttribute('href', '/documents/existing-doc-1')
+  })
+
+  it('does not show the duplicate message for a genuinely new upload', async () => {
+    useAuth.mockReturnValue({ token: 'a-token' })
+    vi.spyOn(documentsClient, 'uploadDocument').mockResolvedValue({
+      id: 'new-doc-1',
+      status: 'Uploaded',
+      is_duplicate: false,
+    })
+    const onClose = vi.fn()
+    const user = userEvent.setup()
+
+    renderModal({ onClose })
+
+    const input = screen.getByLabelText(/choose files to upload/i)
+    await user.upload(input, makeFile('report.pdf'))
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(screen.queryByText(/already uploaded/i)).not.toBeInTheDocument()
+  })
+
+  it('does NOT auto-close a single duplicate upload -- the user must see the message', async () => {
+    // Regression test for a real bug report: a lone duplicate upload was
+    // closing the modal the instant the request resolved, so the
+    // "Already uploaded" message and its link were never visible. A
+    // duplicate result must behave like an error for auto-close purposes
+    // (settled, but not "good enough to auto-close") even though it's a
+    // perfectly normal, expected outcome -- not a failure.
+    useAuth.mockReturnValue({ token: 'a-token' })
+    vi.spyOn(documentsClient, 'uploadDocument').mockResolvedValue({
+      id: 'existing-doc-2',
+      status: 'Uploaded',
+      is_duplicate: true,
+    })
+    const onClose = vi.fn()
+    const user = userEvent.setup()
+
+    renderModal({ onClose })
+
+    const input = screen.getByLabelText(/choose files to upload/i)
+    await user.upload(input, makeFile('report.pdf'))
+
+    await screen.findByText(/already uploaded/i)
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('does not auto-close an all-duplicate batch', async () => {
+    useAuth.mockReturnValue({ token: 'a-token' })
+    vi.spyOn(documentsClient, 'uploadDocument').mockResolvedValue({
+      id: 'existing-doc-2',
+      status: 'Uploaded',
+      is_duplicate: true,
+    })
+    const onClose = vi.fn()
+    const user = userEvent.setup()
+
+    renderModal({ onClose })
+
+    const input = screen.getByLabelText(/choose files to upload/i)
+    await user.upload(input, [makeFile('a.pdf'), makeFile('b.pdf')])
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/already uploaded/i)).toHaveLength(2)
+    })
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('does not auto-close a mixed duplicate+error batch', async () => {
+    useAuth.mockReturnValue({ token: 'a-token' })
+    vi.spyOn(documentsClient, 'uploadDocument').mockImplementation((_token, file) => {
+      if (file.name === 'fails.pdf') return Promise.reject(new Error('Upload failed (500).'))
+      return Promise.resolve({ id: 'existing-doc-3', status: 'Uploaded', is_duplicate: true })
+    })
+    const onClose = vi.fn()
+    const user = userEvent.setup()
+
+    renderModal({ onClose })
+
+    const input = screen.getByLabelText(/choose files to upload/i)
+    await user.upload(input, [makeFile('fails.pdf'), makeFile('dup.pdf')])
+
+    await waitFor(() => {
+      expect(screen.getByText(/already uploaded/i)).toBeInTheDocument()
+      expect(screen.getByRole('alert')).toBeInTheDocument()
+    })
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('still auto-closes a batch with at least one genuinely new upload alongside a duplicate', async () => {
+    useAuth.mockReturnValue({ token: 'a-token' })
+    vi.spyOn(documentsClient, 'uploadDocument').mockImplementation((_token, file) => {
+      if (file.name === 'dup.pdf') {
+        return Promise.resolve({ id: 'existing-doc-4', status: 'Uploaded', is_duplicate: true })
+      }
+      return Promise.resolve({ id: 'new-doc-2', status: 'Uploaded', is_duplicate: false })
+    })
+    const onClose = vi.fn()
+    const user = userEvent.setup()
+
+    renderModal({ onClose })
+
+    const input = screen.getByLabelText(/choose files to upload/i)
+    await user.upload(input, [makeFile('new.pdf'), makeFile('dup.pdf')])
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+  })
+
+  it('a Cancel click still closes an all-duplicate batch', async () => {
+    useAuth.mockReturnValue({ token: 'a-token' })
+    vi.spyOn(documentsClient, 'uploadDocument').mockResolvedValue({
+      id: 'existing-doc-5',
+      status: 'Uploaded',
+      is_duplicate: true,
+    })
+    const onClose = vi.fn()
+    const user = userEvent.setup()
+
+    renderModal({ onClose })
+
+    const input = screen.getByLabelText(/choose files to upload/i)
+    await user.upload(input, makeFile('report.pdf'))
+    await screen.findByText(/already uploaded/i)
+
+    await user.click(screen.getByRole('button', { name: /cancel/i }))
+    expect(onClose).toHaveBeenCalled()
   })
 })
