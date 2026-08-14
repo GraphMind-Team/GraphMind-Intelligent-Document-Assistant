@@ -112,8 +112,19 @@
     line so a later cold-start latency spike isn't debugged as a mystery.
 
 - source_spec: `_bmad-output/planning-artifacts/epics.md` (Story 2.3: Parse and index documents into the vector store)
+  resolved: 2026-08-14 -- `spec-2-3-parse-and-index-documents-into-the-vector-store.md` written.
   summary: Author a `spec-2-3-parse-and-index-documents-into-the-vector-store.md` under `_bmad-output/implementation-artifacts/`, matching the pattern every other shipped story (1.1/1.2/1.5/2.1/2.2) has -- 2.3 was implemented directly against `epics.md`'s acceptance criteria plus `epic-2-context.md`, with no dedicated spec file of its own.
   evidence: Noted during a Story 2.3 review round; `sprint-status.yaml` and `deferred-work.md`'s own entries for 2.3 both reference `epics.md` directly rather than a spec file, unlike every neighboring story. Not a code defect -- a process/documentation gap worth closing before 2.4 sets the same precedent.
+  resolution_note: >
+    This was the FIRST occurrence of the gap, and its own "worth closing before 2.4 sets the same
+    precedent" warning was not heeded -- Story 3.1 shipped without a spec file too (see the
+    Story 3.1 entry above, now also resolved, and `spec-3-1`'s own provenance note, which cites
+    this exact entry). Story 1.3 and Story 1.4 have the same gap and are, as of this resolution,
+    still open -- not yet closed by a reconstructed spec. The new `spec-2-3` file carries the same
+    `reconstructed-after-implementation` provenance marker `spec-3-1` established, for the same
+    reason: its Boundaries describe what 2.3 turned out to be bound by, not decisions approved in
+    advance, and should not be read as carrying the authority a genuinely pre-approved Boundaries
+    section does.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-4-extract-entities-into-the-unified-graph-with-compensating-ro.md`
   summary: >
