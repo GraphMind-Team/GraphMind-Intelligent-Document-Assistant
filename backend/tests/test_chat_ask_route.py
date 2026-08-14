@@ -11,6 +11,7 @@ them under), mirroring `test_documents_parse_and_index.py`'s
 model, Weaviate, or OpenRouter.
 """
 
+import uuid
 from unittest.mock import Mock
 
 from app.chat import service as chat_service_module
@@ -455,6 +456,111 @@ def test_ask_scopes_retrieval_to_the_authenticated_users_id(client, monkeypatch)
 
     assert response.status_code == 200
     assert captured["user_id"] == user_id
+
+
+def test_ask_passes_document_ids_scope_to_search_passages(client, monkeypatch):
+    """Story 3.3/FR-11: the request's `document_ids` must actually reach
+    `search_passages` as its own `document_ids` kwarg -- not get dropped,
+    not get merged into `user_id`. Mirrors
+    `test_ask_scopes_retrieval_to_the_authenticated_users_id`'s
+    capture-the-argument shape for the same reason: a stub returning
+    canned passages would stay green even if scope were silently ignored."""
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-chat-scope-1@example.com", password="password12345"
+    )
+    document = _upload(client, token)
+    _stub_embed(monkeypatch)
+
+    captured = {}
+
+    def _fake_search_passages(query_vector, user_id_arg, **kwargs):
+        captured["document_ids"] = kwargs.get("document_ids")
+        return [_passage(document["id"])]
+
+    monkeypatch.setattr(chat_service_module, "search_passages", _fake_search_passages)
+    monkeypatch.setattr(
+        chat_service_module, "generate_answer", lambda *a, **k: AnswerResult(segments=[])
+    )
+
+    response = client.post(
+        "/chat/ask",
+        headers=_auth_headers(token),
+        json={"question": "What does this say?", "document_ids": [document["id"]]},
+    )
+
+    assert response.status_code == 200
+    assert captured["document_ids"] == [document["id"]]
+
+
+def test_ask_rejects_oversized_document_ids_with_422(client):
+    """Story 3.3: `document_ids`'s `max_length=200` is a defensive cap, same
+    spirit as `question`'s own `max_length` above -- mirrors
+    `test_ask_rejects_over_length_question_with_422`'s shape for the other
+    field. 201 ids must 422 before ever reaching `search_passages`."""
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-chat-scope-cap@example.com", password="password12345"
+    )
+    oversized_ids = [str(uuid.uuid4()) for _ in range(201)]
+
+    response = client.post(
+        "/chat/ask",
+        headers=_auth_headers(token),
+        json={"question": "Anything in my docs?", "document_ids": oversized_ids},
+    )
+
+    assert response.status_code == 422
+
+
+def test_ask_omitted_document_ids_defaults_to_empty_scope_list(client, monkeypatch):
+    """An omitted `document_ids` field must still reach `search_passages`
+    as an empty/None scope (FR-11's "search everything" default), not
+    crash or silently vanish the kwarg."""
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-chat-scope-2@example.com", password="password12345"
+    )
+    _stub_embed(monkeypatch)
+
+    captured = {}
+
+    def _fake_search_passages(query_vector, user_id_arg, **kwargs):
+        captured["document_ids"] = kwargs.get("document_ids")
+        return []
+
+    monkeypatch.setattr(chat_service_module, "search_passages", _fake_search_passages)
+
+    response = client.post(
+        "/chat/ask", headers=_auth_headers(token), json={"question": "Anything in my docs?"}
+    )
+
+    assert response.status_code == 200
+    assert not captured["document_ids"]
+
+
+def test_ask_scoped_to_documents_with_no_passages_returns_empty_scope_not_no_documents(
+    client, monkeypatch
+):
+    """Story 3.3: a non-empty scope that matches zero passages must read
+    as "empty_scope", not "no_documents" -- the user's library isn't
+    empty, their selected documents just have nothing matching. Distinct
+    from `test_ask_zero_passages_returns_no_documents_reason`, which
+    covers the unscoped case and must stay "no_documents"."""
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-chat-scope-3@example.com", password="password12345"
+    )
+    document = _upload(client, token)
+    _stub_embed(monkeypatch)
+    monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: [])
+
+    response = client.post(
+        "/chat/ask",
+        headers=_auth_headers(token),
+        json={"question": "Anything in scope?", "document_ids": [document["id"]]},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["segments"] == []
+    assert body["empty_reason"] == "empty_scope"
 
 
 def test_ask_cross_tenant_citation_is_dropped_not_leaked(client, monkeypatch):

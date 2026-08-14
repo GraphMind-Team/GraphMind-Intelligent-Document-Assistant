@@ -11,6 +11,7 @@ isolated from a real Weaviate connection via mocks.
 from unittest.mock import MagicMock, patch
 
 import pytest
+from weaviate.classes.query import Filter
 
 from app.shared.data_access import weaviate_client as weaviate_client_module
 from app.shared.data_access.shapes import WeaviatePassage, WeaviateSearchResult
@@ -412,3 +413,41 @@ def test_search_passages_default_limit_is_top_k_passages(monkeypatch):
         fake_collection.query.near_vector.call_args.kwargs["limit"]
         == weaviate_client_module.TOP_K_PASSAGES
     )
+
+
+def test_search_passages_filters_on_document_ids_when_provided(monkeypatch):
+    """Story 3.3/FR-11: a non-empty `document_ids` must AND a
+    `contains_any` filter onto the existing `user_id` filter -- not
+    replace it, not OR it -- so scoping can only narrow retrieval, never
+    widen it past the account's own tenancy boundary."""
+    fake_client, fake_collection = _fake_client(exists=True)
+    fake_collection.query.near_vector.return_value = MagicMock(objects=[])
+    monkeypatch.setattr(
+        "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: fake_client
+    )
+
+    search_passages([0.1], "user-1", document_ids=["doc-1", "doc-2"])
+
+    filters = fake_collection.query.near_vector.call_args.kwargs["filters"]
+    assert filters.filters[0].target == "user_id"
+    assert filters.filters[0].value == "user-1"
+    assert filters.filters[1].target == "document_id"
+    assert filters.filters[1].value == ["doc-1", "doc-2"]
+    assert filters.filters[1].operator == Filter.by_property("document_id").contains_any(["x"]).operator
+
+
+def test_search_passages_omits_document_id_filter_when_empty_list(monkeypatch):
+    """An empty (not just `None`) `document_ids` must behave exactly like
+    the pre-Story-3.3 unscoped call -- FR-11's default is "search
+    everything," and an empty list is how the frontend spells that."""
+    fake_client, fake_collection = _fake_client(exists=True)
+    fake_collection.query.near_vector.return_value = MagicMock(objects=[])
+    monkeypatch.setattr(
+        "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: fake_client
+    )
+
+    search_passages([0.1], "user-1", document_ids=[])
+
+    filters = fake_collection.query.near_vector.call_args.kwargs["filters"]
+    assert filters.target == "user_id"
+    assert filters.value == "user-1"

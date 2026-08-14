@@ -2,6 +2,12 @@ import CitationChip from './CitationChip'
 
 const NOTICE_COPY = {
   no_documents: 'No documents are available to search yet.',
+  // Story 3.3/FR-11: distinct from no_documents -- the library isn't
+  // empty, the documents currently in scope just have no matching
+  // content. DEFAULT_NOTICE_COPY below would otherwise cover this, but
+  // the user narrowed the scope themselves and deserves honest copy that
+  // says so, not the generic fallback.
+  empty_scope: 'No content found in the documents you selected.',
   no_answer: 'GraphMind could not generate an answer for this question.',
 }
 

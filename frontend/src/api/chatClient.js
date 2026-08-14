@@ -10,13 +10,18 @@ const ASK_TIMEOUT_MS = 130_000
 
 // `authFetch` (from AuthContext) is passed in rather than imported --
 // mirrors documentsClient.js's convention.
-export async function askQuestion(authFetch, question) {
+//
+// `documentIds` (Story 3.3/FR-11): defaults to `[]`, meaning "search all of
+// the user's documents" -- the same default the backend's `AskRequest`
+// applies, so an omitted third argument here and an explicit empty array
+// are indistinguishable to the server on purpose.
+export async function askQuestion(authFetch, question, documentIds = []) {
   let response
   try {
     response = await authFetch('/chat/ask', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, document_ids: documentIds }),
       signal: AbortSignal.timeout(ASK_TIMEOUT_MS),
     })
   } catch (err) {
