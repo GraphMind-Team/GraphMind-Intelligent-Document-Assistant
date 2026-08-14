@@ -48,6 +48,13 @@ baseline_commit: 'f47dd8d3301193eb261b90e48ff0c08e2100094d'
 
 </frozen-after-approval>
 
+## Spec Change Log
+
+- **Trigger:** Story 3.1 review (2026-08-13) flagged the citation-chip pair's 3.22:1 light-mode contrast as a defect and re-tuned it — without first checking that Boundaries line 24 above records this as UX-DR21, a documented, human-accepted deviation from 2026-08-11, not an oversight this story left unaddressed.
+- **Amended:** UX-DR21 is closed, not reopened by accident. `--citation-text` is `#3064C6` (was `#4A7FE0`), clearing 4.62:1 against `--citation`'s `#D1EEFE`. DESIGN.md and `epics.md`'s UX-DR21 row were updated to match; `epics.md`'s Story 1.2 AC now carries a superseded note rather than contradicting the shipped code.
+- **Why re-tuning was still correct despite Boundaries saying "do not re-tune":** `epics.md`'s Epic 3 implementation notes always scoped UX-DR21 as open for closure there ("if not closed in Epic 1") — the 2026-08-11 acceptance was never meant to be permanent, only to unblock Story 1.2 without a design cycle. Story 3.1 is the point the roadmap itself named for revisiting it.
+- **KEEP:** every other already-approved boundary above (token structure, `ThemeContext` behavior, status-pill/focus-ring tokens, reduced-motion guard) is unchanged by this amendment — only the citation-text value and its rationale move.
+
 ## Code Map
 
 - `frontend/src/index.css` -- edit: full `@theme` token block (colors as swappable CSS vars, typography/spacing/radius as static Tailwind v4 theme keys); currently just `@import "tailwindcss";`
@@ -69,7 +76,7 @@ baseline_commit: 'f47dd8d3301193eb261b90e48ff0c08e2100094d'
 
 **Acceptance Criteria:**
 - Given DESIGN.md's palette/typography/spacing/radius values, when the token system is configured, then all are available as named tokens and no component hardcodes a raw value.
-- Given the citation chip's accepted AA deviation, when citation tokens are configured, then they use `#4A7FE0`/`#D1EEFE` unchanged.
+- Given the citation chip's accepted AA deviation, when citation tokens are configured, then they use `#4A7FE0`/`#D1EEFE` unchanged. *(Superseded 2026-08-13 by Story 3.1's UX-DR21 closure — see Spec Change Log above. Current value is `#3064C6`/`#D1EEFE`.)*
 - Given the five ingestion states, when status-pill tokens are defined, then each of Uploaded/Extracting/Graphing/Ready/Failed has an explicit background-tint + text pair clearing 4.5:1.
 - Given EXPERIENCE.md's focus-ring requirement, when the focus-ring token is defined, then it clears 3:1 against `bg`/`surface`/`surface-dark` and is visible on every interactive element in both themes.
 - Given the app is rendering in one theme, when the theme is switched at runtime via `ThemeContext`, then every rendered surface updates immediately with no screen left theme-inconsistent.

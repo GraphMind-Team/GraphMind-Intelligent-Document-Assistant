@@ -140,7 +140,7 @@ Chapter-level filtered search (chapters stay read-only metadata) · query histor
 
 | ID | Status | Requirement |
 |---|---|---|
-| UX-DR21 | ⚠️ **ACCEPTED DEVIATION** | **Citation-chip contrast ships as-is.** `#4A7FE0` on `#D1EEFE` = 3.22:1 against a 4.5:1 requirement (11.5px/700, no large-text exemption). Team decision 2026-08-11: do not re-tune. **Consequence:** a knowing exception to NFR-8's AA floor, on the token DESIGN.md calls the most important in the product. Light mode only — dark mode passes at 5.63:1. No DoD check tests accessibility, so nothing will surface this again |
+| UX-DR21 | ✅ **CLOSED (Story 3.1, 2026-08-13)** | **Citation-chip contrast fixed, not shipped as-is.** Original `#4A7FE0` on `#D1EEFE` cleared only 3.22:1 against a 4.5:1 requirement (11.5px/700, no large-text exemption). The 2026-08-11 team decision knowingly accepted that gap rather than misreading the exemption — but this row's own Epic 3 scoping note (see Epic 3 implementation notes below) always left the deviation open for closure rather than treating it as final. Story 3.1 is that closure: darkened `--citation-text` to `#3064C6`, clearing 4.62:1; DESIGN.md updated to match. Dark pair (`#8FB0FF` on `#2A3557`, 5.63:1) already passed and is unchanged |
 | UX-DR22 | 🔴 BLOCKING | **Status-pill tint tokens unspecified.** Text colours exist for only 2 of 5 states; the background tint has no token value at all. All five need an explicit tint+text pair clearing 4.5:1 |
 | UX-DR23 | 🔴 BLOCKING | **No focus-ring token.** EXPERIENCE.md mandates visible themeable focus rings, but no token exists and no mock defines any `:focus` rule. Needs a token distinct from `border`, clearing 3:1 against `bg`, `surface`, `surface-dark` |
 | UX-DR24 | In scope | **Chat live region** — `aria-live="polite"` or `role="log"`, so an arriving answer is announced. Turns need semantic structure beyond alignment and bubble shape |
@@ -266,10 +266,12 @@ So that I can read answers and documents comfortably in long sessions without st
 **Then** all light-mode and dark-mode values are available as named tokens
 **And** no component hardcodes a raw hex value outside the token definitions
 
-**Given** the citation chip's light-mode pair is a knowingly accepted deviation from the AA floor (UX-DR21)
+**Given** the citation chip's light-mode pair was, at the time of this story, a knowingly accepted deviation from the AA floor (UX-DR21)
 **When** the citation tokens are configured
-**Then** they use DESIGN.md's specified values unchanged (`#4A7FE0` on `#D1EEFE`)
-**And** no re-tuning is attempted, so the decision is not silently reversed during implementation
+**Then** they use DESIGN.md's specified values as documented at the time (`#4A7FE0` on `#D1EEFE`)
+**And** no re-tuning is attempted in *this* story, so the decision is not silently reversed mid-implementation without the team having actually revisited it
+
+> **Superseded 2026-08-13 (Story 3.1):** UX-DR21 is now closed — see its row above. `--citation-text` is `#3064C6`, not `#4A7FE0`; DESIGN.md was updated to match. This AC still correctly describes what Story 1.2 shipped and why (the deviation wasn't silently reversed on a whim); it no longer describes the current token value, and re-verifying Story 1.2 against the literal `#4A7FE0` value would incorrectly fail.
 
 **Given** the ingestion pipeline has five states
 **When** the status-pill tokens are defined

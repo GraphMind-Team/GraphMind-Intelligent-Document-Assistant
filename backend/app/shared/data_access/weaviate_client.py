@@ -22,10 +22,10 @@ import weaviate
 from weaviate.classes.config import Configure, DataType, Property
 from weaviate.classes.data import DataObject
 from weaviate.classes.init import Auth
-from weaviate.classes.query import Filter
+from weaviate.classes.query import Filter, MetadataQuery
 from weaviate.client import WeaviateClient
 
-from app.shared.data_access.shapes import WeaviatePassage
+from app.shared.data_access.shapes import WeaviatePassage, WeaviateSearchResult
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,14 @@ PASSAGE_COLLECTION = "Passage"
 # stay in lockstep off one source of truth instead of two magic numbers
 # that could silently drift apart.
 PASSAGE_BATCH_SIZE = 100
+
+# Story 3.1's default candidate count for chat retrieval -- large enough that
+# a question spanning multiple documents/chapters has a real chance of
+# pulling passages from more than one, small enough to keep the downstream
+# chat-completion prompt (shared/llm_client's generate_answer) short. A
+# tunable default, not a hard architectural commitment -- Story 3.2 may
+# revisit this alongside its relevance threshold.
+TOP_K_PASSAGES = 8
 
 
 _client_lock = threading.Lock()
@@ -269,3 +277,46 @@ def write_passages(passages: list[WeaviatePassage]) -> None:
         result = collection.data.insert_many(objects)
         if result.has_errors:
             raise RuntimeError(f"Weaviate write failed: {result.errors}")
+
+
+def search_passages(
+    query_vector: list[float], user_id: str, limit: int = TOP_K_PASSAGES
+) -> list[WeaviateSearchResult]:
+    """The `documents/`-anticipated future reader function this module's own
+    docstring named up front -- Epic 3's chat retrieval (Story 3.1) calls
+    this rather than importing `weaviate` itself, same as `documents/`
+    calls `write_passages`.
+
+    Vector search over `Passage`, filtered to `user_id` server-side (AD-2,
+    FR-2) -- the caller must have already resolved `user_id` from
+    `get_current_user`, never from client input, per this file's own
+    module docstring and `shapes.py`'s tenancy-rule comment.
+
+    Returns results ordered nearest-first (Weaviate's own default order
+    for `near_vector`). An empty list is a valid, non-error outcome -- an
+    account with zero passages (or zero within its own tenancy scope) is
+    the caller's (chat/service.py's) degenerate case to handle, not this
+    function's.
+    """
+    client = get_weaviate_client()
+    _ensure_passage_collection(client)
+    collection = client.collections.get(PASSAGE_COLLECTION)
+
+    response = collection.query.near_vector(
+        near_vector=query_vector,
+        limit=limit,
+        filters=Filter.by_property("user_id").equal(user_id),
+        return_metadata=MetadataQuery(distance=True),
+    )
+
+    return [
+        WeaviateSearchResult(
+            chunk_id=obj.properties["chunk_id"],
+            document_id=obj.properties["document_id"],
+            chapter=obj.properties["chapter"],
+            chunk_index=obj.properties["chunk_index"],
+            text=obj.properties["text"],
+            distance=obj.metadata.distance if obj.metadata else None,
+        )
+        for obj in response.objects
+    ]
