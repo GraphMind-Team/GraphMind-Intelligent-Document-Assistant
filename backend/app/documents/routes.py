@@ -138,3 +138,24 @@ def get_document(
     """
     document = service.get_document(db, current_user, document_id)
     return DocumentResponse.model_validate(document)
+
+
+@router.delete("/{document_id}", status_code=204)
+def delete_document(
+    document_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """Hard-deletes one document and its Weaviate passages (Story 2.7).
+
+    Same tenancy-scoped 404 as `get_document` above -- a cross-tenant or
+    nonexistent id both come back as "Document not found.", never a 403
+    that would confirm the id exists. Neo4j entities/relationships from
+    this document are deliberately left untouched (FR-8's permanent
+    boundary); see `service.delete_document`'s docstring.
+
+    204 with no body on success -- there is nothing left to describe once
+    the row is gone.
+    """
+    service.delete_document(db, current_user, document_id)
+    return Response(status_code=204)

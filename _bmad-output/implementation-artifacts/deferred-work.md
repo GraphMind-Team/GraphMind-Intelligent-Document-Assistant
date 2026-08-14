@@ -325,3 +325,90 @@
     notes: this spec's Boundaries describe what 1.4 turned out to be bound by, not decisions
     approved in advance. All four missing-spec entries in this project (1.3, 1.4, 2.3, 3.1) are
     now resolved.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-7-delete-a-document-with-an-honest-deletion-boundary.md`
+  summary: >
+    `service.delete_document` never checks `repository.delete_document_for_user`'s `True`/`False`
+    return value -- if two concurrent delete requests for the same document race, the loser (whose
+    internal lookup finds nothing left to delete) still reaches `db.commit()` and returns 204
+    rather than a 404.
+  evidence: >
+    Story 2.7 review (blind-hunter and edge-case-hunter, independently) raised this. Accepted, not
+    fixed: DELETE-of-an-already-gone resource returning success (204) rather than an error is
+    defensible, idiomatic REST idempotency, not a broken guarantee -- the document the caller
+    wanted gone is gone either way. The wasted extra `delete_passages_for_document` call in the
+    losing branch is harmless (idempotent against zero rows, per Story 2.3's existing contract).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-7-delete-a-document-with-an-honest-deletion-boundary.md`
+  summary: >
+    `service.delete_document`'s `db.commit()` after a successful `delete_passages_for_document`
+    call is unguarded -- if the commit itself fails (e.g. a DB connectivity blip), the document row
+    survives with its Weaviate passages already gone, and nothing detects or repairs that
+    inconsistency.
+  evidence: >
+    Story 2.7 review (blind-hunter and edge-case-hunter, independently) raised this. Accepted as a
+    narrow, rare inconsistency window, matching this epic's own precedent for an equivalent gap
+    (Story 2.3's documented "a hard process crash mid-task still leaves a row stuck... a known,
+    accepted gap"). A real fix would need compensating-transaction machinery symmetrical to AD-1's
+    ingestion rollback, which is disproportionate to a failure mode this rare; not attempted here.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-7-delete-a-document-with-an-honest-deletion-boundary.md`
+  summary: >
+    `DocumentsPage`'s background status-polling loop (`POLLABLE_STATUSES`) can race a delete: if a
+    poll request was already in flight when a document is deleted, its stale response (fetched
+    before the delete took effect server-side) can briefly reintroduce the just-deleted document
+    into the grid.
+  evidence: >
+    Story 2.7 review (edge-case-hunter) raised this, and polling is confirmed real (Story 2.4's
+    `POLLABLE_STATUSES`, `DocumentsPage.jsx`). Self-correcting within one poll interval (~4s) once
+    the next poll reflects the real, now-deleted state server-side -- a brief visual flicker, not a
+    persistent bug. A real fix (tracking recently-deleted ids to filter out of poll responses, or
+    pausing polling during an in-flight delete) is more state-reconciliation machinery than this
+    transient a glitch justifies right now.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-7-delete-a-document-with-an-honest-deletion-boundary.md`
+  summary: >
+    `DocumentCard.jsx`'s and `DocumentDetailPage.jsx`'s inline confirm boxes duplicate the same
+    markup shape, ARIA wiring, and focus-management effect almost line-for-line, with no shared
+    component factored out.
+  evidence: >
+    Story 2.7 review (blind-hunter) raised this. Deliberately not extracted now -- the two usages
+    render meaningfully different visual shapes (icon-only trigger vs. a labeled button, different
+    text sizes) and this story's own Design Notes already chose per-component local state over a
+    shared abstraction for the confirm logic itself; premature extraction into a shared component
+    before a third usage exists would be exactly the kind of speculative abstraction this project's
+    conventions caution against. Worth revisiting if a third delete-confirm surface is ever added.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-7-delete-a-document-with-an-honest-deletion-boundary.md`
+  summary: >
+    Deleting a document produces no positive user-facing confirmation (toast, announcement) beyond
+    the row disappearing from the grid or the page navigating back to `/documents` -- a
+    fast-clicking or distracted user has no explicit "deleted" signal beyond the absence of the row.
+  evidence: >
+    Story 2.7 review (blind-hunter) raised this. Not fixed: matches this epic's own stated voice
+    constraint ("plain, declarative... no hedging, apology filler") and its established pattern
+    elsewhere (uploads give no separate "uploaded!" toast either, just the row appearing/updating)
+    -- the disappearance itself is the confirmation, consistent with the rest of this app's minimal
+    chrome. Revisit only if user feedback says otherwise.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-7-delete-a-document-with-an-honest-deletion-boundary.md`
+  summary: >
+    No audit trail (logging) for document deletion -- an irreversible action with no record of
+    who deleted what, when, unlike `documents/service.py`'s other lifecycle events which do log.
+  evidence: >
+    Story 2.7 review (blind-hunter) raised this. Not fixed: this codebase's existing logging is
+    reserved for failures/warnings (`logger.exception`/`logger.warning`), not routine successful
+    actions -- no other successful document-lifecycle event (upload, a successful ingestion run)
+    logs an audit line either, so adding one only for delete would be an inconsistent precedent to
+    set unilaterally. Worth a real audit-logging pass across the whole module if this project ever
+    needs one, not a one-off addition here.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-7-delete-a-document-with-an-honest-deletion-boundary.md`
+  summary: >
+    `DELETE /documents/{document_id}` has no rate limiting or concurrency guard, unlike the upload
+    endpoint in the same router (`RateLimiter`/`ConcurrencyLimiter`).
+  evidence: >
+    Story 2.7 review (blind-hunter) raised this. Not fixed: upload's limiters exist specifically to
+    protect the project's zero-cost, free-tier LLM/embedding budget (AD-8) -- delete has no
+    equivalent external cost to protect against, so the same guard doesn't obviously apply. Worth
+    reconsidering only if abuse (rapid delete spam) is ever observed in practice.

@@ -3,6 +3,14 @@
 // than repeated per page so the same document renders the same size/type/
 // date string wherever it appears.
 
+// Story 2.7: the declarative boundary text an inline delete-confirm box
+// states before any deletion happens (FR-8, UX-DR19) -- shared by
+// DocumentCard.jsx's trash-icon confirm and DocumentDetailPage.jsx's
+// Delete-button confirm so the same permanent-boundary wording can't drift
+// between the two entry points to the identical action.
+export const DELETE_BOUNDARY_TEXT =
+  'Its passages are removed from search immediately. Entities already merged into the graph from this document remain and may still influence future answers.'
+
 // The stored `file_type` values are the normalized ones the backend writes
 // (`backend/app/documents/service.py`'s `_EXTENSION_TO_FILE_TYPE`); this
 // maps them to the display labels the reference mockup uses.

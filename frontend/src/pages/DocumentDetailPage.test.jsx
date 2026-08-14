@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import DocumentDetailPage from './DocumentDetailPage'
@@ -206,5 +207,108 @@ describe('DocumentDetailPage', () => {
 
     const back = await screen.findByRole('link', { name: /back to documents/i })
     expect(back).toHaveAttribute('href', '/documents')
+  })
+
+  describe('delete (Story 2.7)', () => {
+    it('shows an inline confirm box on Delete click, without deleting anything yet', async () => {
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      vi.spyOn(documentsClient, 'getDocument').mockResolvedValue(UPLOADED_DOC)
+      const deleteSpy = vi.spyOn(documentsClient, 'deleteDocument')
+      const user = userEvent.setup()
+
+      renderDetail()
+      await screen.findByRole('heading', { name: 'vendor-agreement.pdf', level: 1 })
+
+      await user.click(screen.getByRole('button', { name: 'Delete' }))
+
+      const box = screen.getByRole('alert')
+      expect(box).toHaveTextContent(/removed from search immediately/)
+      expect(box).toHaveTextContent(/remain and may still influence future answers/)
+      expect(deleteSpy).not.toHaveBeenCalled()
+    })
+
+    it('moves focus to Cancel on open, ties the boundary text via aria-describedby, and Escape returns focus to Delete', async () => {
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      vi.spyOn(documentsClient, 'getDocument').mockResolvedValue(UPLOADED_DOC)
+      const user = userEvent.setup()
+
+      renderDetail()
+      await screen.findByRole('heading', { name: 'vendor-agreement.pdf', level: 1 })
+      const deleteButton = screen.getByRole('button', { name: 'Delete' })
+
+      await user.click(deleteButton)
+
+      const cancelButton = screen.getByRole('button', { name: 'Cancel' })
+      expect(cancelButton).toHaveFocus()
+
+      const boundaryText = screen.getByText(/removed from search immediately/)
+      const boundaryId = boundaryText.getAttribute('id')
+      expect(boundaryId).toBeTruthy()
+      expect(cancelButton).toHaveAttribute('aria-describedby', boundaryId)
+      // Two buttons render the visible label "Delete" once the box is
+      // open (the trigger and the confirm action) -- select the one
+      // inside the alert box for this assertion.
+      const confirmButton = within(screen.getByRole('alert')).getByRole('button', {
+        name: 'Delete',
+      })
+      expect(confirmButton).toHaveAttribute('aria-describedby', boundaryId)
+
+      await user.keyboard('{Escape}')
+
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(deleteButton).toHaveFocus()
+    })
+
+    it('Cancel collapses the box the same way Escape does', async () => {
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      vi.spyOn(documentsClient, 'getDocument').mockResolvedValue(UPLOADED_DOC)
+      const user = userEvent.setup()
+
+      renderDetail()
+      await screen.findByRole('heading', { name: 'vendor-agreement.pdf', level: 1 })
+      const deleteButton = screen.getByRole('button', { name: 'Delete' })
+      await user.click(deleteButton)
+
+      await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(deleteButton).toHaveFocus()
+    })
+
+    it('navigates back to /documents on a successful delete', async () => {
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      const deleteSpy = vi.spyOn(documentsClient, 'deleteDocument').mockResolvedValue(undefined)
+      vi.spyOn(documentsClient, 'getDocument').mockResolvedValue(UPLOADED_DOC)
+      const user = userEvent.setup()
+
+      renderDetail()
+      await screen.findByRole('heading', { name: 'vendor-agreement.pdf', level: 1 })
+      await user.click(screen.getByRole('button', { name: 'Delete' }))
+      await user.click(within(screen.getByRole('alert')).getByRole('button', { name: 'Delete' }))
+
+      await waitFor(() => expect(screen.getByText('Documents library')).toBeInTheDocument())
+      expect(deleteSpy).toHaveBeenCalledWith(expect.any(Function), 'doc-1')
+    })
+
+    it('on failure, shows the error inline and stays on the page for retry', async () => {
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      vi.spyOn(documentsClient, 'getDocument').mockResolvedValue(UPLOADED_DOC)
+      vi.spyOn(documentsClient, 'deleteDocument').mockRejectedValue(
+        new Error('Document not found.'),
+      )
+      const user = userEvent.setup()
+
+      renderDetail()
+      await screen.findByRole('heading', { name: 'vendor-agreement.pdf', level: 1 })
+      await user.click(screen.getByRole('button', { name: 'Delete' }))
+      await user.click(within(screen.getByRole('alert')).getByRole('button', { name: 'Delete' }))
+
+      expect(await screen.findByText('Document not found.')).toBeInTheDocument()
+      // Still on Document Detail, confirm box still open for retry.
+      expect(
+        screen.getByRole('heading', { name: 'vendor-agreement.pdf', level: 1 }),
+      ).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
+    })
   })
 })

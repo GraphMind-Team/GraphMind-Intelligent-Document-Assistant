@@ -79,6 +79,34 @@ def claim_failed_document_for_reingest(db: Session, document_id: uuid.UUID) -> b
     return result.rowcount == 1
 
 
+def delete_document_for_user(db: Session, user_id: uuid.UUID, document_id: uuid.UUID) -> bool:
+    """Hard-deletes one document row, scoped to its owner (Story 2.7).
+
+    Mirrors `get_document_for_user`'s tenancy-scoped lookup rather than a
+    bare `db.get(Document, document_id)` + ownership check, for the same
+    IDOR reason documented there: "not yours" and "doesn't exist" both
+    resolve to `False` here, indistinguishably, so the service layer can
+    answer both with an identical 404.
+
+    Returns `True` if a row was found and staged for delete, `False`
+    otherwise. Does not commit -- the caller (service layer) owns the
+    transaction boundary, mirroring `create_document`'s convention, and
+    deliberately runs the Weaviate passage delete *before* calling this,
+    never after (see `service.delete_document`).
+
+    No soft-delete flag, no `deleted_at` column -- a genuine `db.delete`.
+    `Document` has no incoming FK from any other table (only `User` and
+    `Document` exist), so there is no cascade to handle. Neo4j is never
+    touched here or anywhere in this call chain -- FR-8's permanent
+    boundary, not a deferred TODO.
+    """
+    document = get_document_for_user(db, user_id, document_id)
+    if document is None:
+        return False
+    db.delete(document)
+    return True
+
+
 def get_document_by_content_hash(db: Session, user_id: uuid.UUID, content_hash: str) -> Document | None:
     """One document by content hash, scoped to its owner (Story 2.6).
 
