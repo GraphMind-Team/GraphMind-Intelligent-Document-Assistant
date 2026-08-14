@@ -16,6 +16,7 @@ import pytest
 from app.shared.data_access import neo4j_client as neo4j_client_module
 from app.shared.data_access.neo4j_client import (
     close_neo4j_driver,
+    get_graph_for_user,
     get_neo4j_driver,
     write_entities_and_relationships,
 )
@@ -65,6 +66,9 @@ class _FakeSession:
     def execute_write(self, fn, *args):
         return fn(self._tx, *args)
 
+    def execute_read(self, fn, *args):
+        return fn(self._tx, *args)
+
 
 class _FakeDriver:
     def __init__(self):
@@ -76,6 +80,58 @@ class _FakeDriver:
 
     def close(self):
         self.closed = True
+
+
+class _FakeReadResult:
+    """Wraps a list of plain dicts -- production code reads records via
+    `record["key"]` and, for the count query, `.single()`; a dict already
+    satisfies `__getitem__`, so no separate fake "record" type is needed."""
+
+    def __init__(self, records: list[dict]):
+        self._records = records
+
+    def __iter__(self):
+        return iter(self._records)
+
+    def single(self):
+        return self._records[0]
+
+
+class _FakeReadTx:
+    """Returns pre-scripted results in call order -- `get_graph_for_user`
+    issues its (count, entities, [relationships]) queries in a fixed
+    sequence per call, so a plain queue is enough to stand in for a real
+    transaction without modeling actual graph semantics."""
+
+    def __init__(self, responses: list[list[dict]]):
+        self._responses = list(responses)
+        self.calls: list[tuple[str, dict]] = []
+
+    def run(self, query, **params):
+        self.calls.append((query, params))
+        return _FakeReadResult(self._responses.pop(0))
+
+
+class _FakeReadSession:
+    def __init__(self, tx):
+        self._tx = tx
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+    def execute_read(self, fn, *args):
+        return fn(self._tx, *args)
+
+
+class _FakeReadDriver:
+    def __init__(self, tx):
+        self._tx = tx
+
+    def session(self):
+        return _FakeReadSession(self._tx)
 
 
 def test_get_neo4j_driver_raises_when_env_vars_missing(monkeypatch):
@@ -395,3 +451,154 @@ def test_write_entities_and_relationships_skips_an_unsafe_relationship_type(monk
     assert len(fake_driver.tx.calls) == 1
     assert "DETACH DELETE" not in fake_driver.tx.calls[0][0]
     assert "unsafe" in caplog.text.lower()
+
+
+def test_get_graph_for_user_returns_empty_for_a_user_with_no_entities(monkeypatch):
+    fake_tx = _FakeReadTx([[{"total": 0}], []])
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: _FakeReadDriver(fake_tx))
+
+    entities, relationships, total = get_graph_for_user("user-1")
+
+    assert entities == []
+    assert relationships == []
+    assert total == 0
+    # Count + entities only -- the relationships query is skipped
+    # entirely when no entity survived to keep (empty `keep_ids`), rather
+    # than spending a round-trip on a query `IN []` would answer empty
+    # anyway.
+    assert len(fake_tx.calls) == 2
+
+
+def test_get_graph_for_user_returns_an_isolated_entity_at_zero_degree(monkeypatch):
+    fake_tx = _FakeReadTx(
+        [
+            [{"total": 1}],
+            [{"name": "Solo Corp", "type": "Organization", "degree": 0}],
+            [],
+        ]
+    )
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: _FakeReadDriver(fake_tx))
+
+    entities, relationships, total = get_graph_for_user("user-1")
+
+    assert entities == [{"name": "Solo Corp", "type": "Organization", "degree": 0}]
+    assert relationships == []
+    assert total == 1
+
+    # The relationships query, even with nothing to return, is still
+    # issued once an entity survived the cap -- and it's scoped by the
+    # entity's own `type:name` id.
+    _, relationship_params = fake_tx.calls[-1]
+    assert relationship_params["keep_ids"] == ["Organization:Solo Corp"]
+
+
+def test_get_graph_for_user_relationship_row_carries_endpoint_types_via_type_function(monkeypatch):
+    """`type(r)` is a Cypher function returning the relationship's type as
+    a plain value -- unlike the write path, no type ever needs to be
+    interpolated into this query's syntax, so no
+    `_SAFE_RELATIONSHIP_TYPE_RE`-style guard is needed on the read side."""
+    fake_tx = _FakeReadTx(
+        [
+            [{"total": 2}],
+            [
+                {"name": "Maria Ivanova", "type": "Person", "degree": 1},
+                {"name": "TechCorp", "type": "Organization", "degree": 1},
+            ],
+            [
+                {
+                    "source_name": "Maria Ivanova",
+                    "source_type": "Person",
+                    "target_name": "TechCorp",
+                    "target_type": "Organization",
+                    "relationship_type": "WORKS_AT",
+                }
+            ],
+        ]
+    )
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: _FakeReadDriver(fake_tx))
+
+    entities, relationships, total = get_graph_for_user("user-1")
+
+    assert total == 2
+    assert relationships == [
+        {
+            "source_name": "Maria Ivanova",
+            "source_type": "Person",
+            "target_name": "TechCorp",
+            "target_type": "Organization",
+            "relationship_type": "WORKS_AT",
+        }
+    ]
+    relationship_query, _ = fake_tx.calls[-1]
+    assert "type(r) AS relationship_type" in relationship_query
+    # No relationship type string is ever interpolated into this query --
+    # every value in it is a bound parameter.
+    assert "WORKS_AT" not in relationship_query
+
+
+def test_get_graph_for_user_scopes_every_match_to_user_id(monkeypatch):
+    """The relationship query requires *both* endpoints to independently
+    match `user_id` in the same pattern -- the same AND-filter tenancy
+    guarantee the write path and `weaviate_client.search_passages` already
+    give, extended to this first read."""
+    fake_tx = _FakeReadTx([[{"total": 0}], []])
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: _FakeReadDriver(fake_tx))
+
+    get_graph_for_user("user-1")
+
+    count_query, count_params = fake_tx.calls[0]
+    entities_query, entities_params = fake_tx.calls[1]
+    assert "{user_id: $user_id}" in count_query
+    assert count_params["user_id"] == "user-1"
+    assert "{user_id: $user_id}" in entities_query
+    assert entities_params["user_id"] == "user-1"
+
+
+def test_get_graph_for_user_relationships_query_requires_both_endpoints_scoped(monkeypatch):
+    fake_tx = _FakeReadTx(
+        [
+            [{"total": 1}],
+            [{"name": "A", "type": "Person", "degree": 0}],
+            [],
+        ]
+    )
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: _FakeReadDriver(fake_tx))
+
+    get_graph_for_user("user-1")
+
+    relationship_query, relationship_params = fake_tx.calls[-1]
+    assert "(a:Entity {user_id: $user_id})" in relationship_query
+    assert "(b:Entity {user_id: $user_id})" in relationship_query
+    assert relationship_params["user_id"] == "user-1"
+
+
+def test_get_graph_for_user_caps_and_tiebreaks_by_name(monkeypatch):
+    """`ORDER BY degree DESC, e.name ASC` -- without the name tie-break,
+    which of several equal-degree entities survives a `LIMIT` is
+    nondeterministic, which would make the same account's graph render a
+    different node set on every reload."""
+    fake_tx = _FakeReadTx([[{"total": 500}], [], []])
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: _FakeReadDriver(fake_tx))
+
+    get_graph_for_user("user-1", limit=150)
+
+    entities_query, entities_params = fake_tx.calls[1]
+    assert "ORDER BY degree DESC, e.name ASC" in entities_query
+    assert "LIMIT $limit" in entities_query
+    assert entities_params["limit"] == 150
+
+
+def test_get_graph_for_user_total_reflects_the_true_uncapped_count(monkeypatch):
+    fake_tx = _FakeReadTx(
+        [
+            [{"total": 3241}],
+            [{"name": f"Entity {i}", "type": "Person", "degree": 0} for i in range(2)],
+            [],
+        ]
+    )
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: _FakeReadDriver(fake_tx))
+
+    entities, _, total = get_graph_for_user("user-1", limit=2)
+
+    assert len(entities) == 2
+    assert total == 3241

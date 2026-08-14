@@ -46,6 +46,13 @@ _driver_instance: Driver | None = None
 # exact OD-1 list.
 _SAFE_RELATIONSHIP_TYPE_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
+# Story 4.1's read path caps how many entities one Graph Preview response
+# renders. A first read against an otherwise-unbounded per-user graph --
+# a handful of documents can plausibly extract thousands of entities --
+# needs a bound both for query cost and for the canvas staying legible;
+# 150 is a defensive ceiling, not a measured value.
+GRAPH_NODE_LIMIT = 150
+
 
 def get_neo4j_driver() -> Driver:
     """The process-wide Neo4j driver singleton.
@@ -273,3 +280,114 @@ def _write_entities_and_relationships_tx(tx, entities, relationships, entity_typ
             f"MERGE (a)-[:{relationship_type}]->(b)"
         )
         tx.run(query, rows=rows, user_id=user_id).consume()
+
+
+def get_graph_for_user(
+    user_id: str, limit: int = GRAPH_NODE_LIMIT
+) -> tuple[list[dict], list[dict], int]:
+    """The read side of Story 4.1's Graph Preview, and the first Neo4j read
+    path this codebase has -- `kg/service.py` is the only caller (AD-2: no
+    module hand-writes Cypher of its own).
+
+    Returns `(entity_rows, relationship_rows, total_entity_count)`:
+
+    - `entity_rows`: up to `limit` dicts (`name`, `type`, `degree`), the
+      user's highest-degree entities first (ties broken by name, so the
+      same `limit` entities come back on every call rather than an
+      arbitrary subset among degree ties -- ties are common near the cut
+      point of a large graph).
+    - `relationship_rows`: dicts (`source_name`, `source_type`,
+      `target_name`, `target_type`, `relationship_type`) for relationships
+      whose *both* endpoints are among `entity_rows` -- an entity that
+      didn't survive the cap can't contribute a dangling edge. `degree` is
+      still each entity's true whole-graph connectivity (computed before
+      the cap is applied), so a capped view can show a large node with
+      fewer drawn lines than its size implies -- `kg/service.py`'s caller
+      is expected to surface that as a stated UI limitation, not hide it.
+    - `total_entity_count`: the true count before capping, so the caller
+      can render "showing top N of M."
+
+    Returns dicts, not `Neo4jEntity`/`Neo4jRelationship` (see `shapes.py`)
+    -- those are the write-side contract and don't carry the endpoint
+    *types* or the `degree` this read path needs; forcing this data into
+    them would mean adding fields Epic 2's writer never populates.
+
+    Tenancy (AD-2): every query below filters `{user_id: $user_id}` on
+    every `Entity` match -- the same guarantee `write_entities_and_
+    relationships` and `weaviate_client.search_passages` already give,
+    extended to the first read. `user_id` is always the caller-resolved
+    value (`kg/service.py` reads it off `get_current_user`), never
+    accepted from this function's own caller as client input.
+    """
+    driver = get_neo4j_driver()
+    with driver.session() as session:
+        total_entity_count = session.execute_read(_get_entity_count_tx, user_id)
+        entity_rows = session.execute_read(_get_entities_tx, user_id, limit)
+        keep_ids = [f"{row['type']}:{row['name']}" for row in entity_rows]
+        relationship_rows = session.execute_read(_get_relationships_tx, user_id, keep_ids)
+    return entity_rows, relationship_rows, total_entity_count
+
+
+def _get_entity_count_tx(tx, user_id) -> int:
+    result = tx.run(
+        "MATCH (e:Entity {user_id: $user_id}) RETURN count(e) AS total",
+        user_id=user_id,
+    )
+    return result.single()["total"]
+
+
+def _get_entities_tx(tx, user_id, limit) -> list[dict]:
+    """Ranks by degree computed across the *whole* graph (not just the
+    entities that end up surviving the cap), so "prominence" reflects true
+    connectivity rather than an artifact of the cap itself."""
+    result = tx.run(
+        "MATCH (e:Entity {user_id: $user_id}) "
+        "OPTIONAL MATCH (e)-[r]-(:Entity {user_id: $user_id}) "
+        "WITH e, count(r) AS degree "
+        "ORDER BY degree DESC, e.name ASC "
+        "LIMIT $limit "
+        "RETURN e.name AS name, e.type AS type, degree",
+        user_id=user_id,
+        limit=limit,
+    )
+    return [{"name": record["name"], "type": record["type"], "degree": record["degree"]} for record in result]
+
+
+def _get_relationships_tx(tx, user_id, keep_ids: list[str]) -> list[dict]:
+    """`keep_ids` are `"{type}:{name}"` strings for the entities the caller
+    already decided to keep (post-cap) -- a relationship only comes back
+    if *both* endpoints are in that set, so a dropped entity never leaves
+    a dangling edge pointing at nothing rendered.
+
+    No relationship *type* interpolation here, unlike the write path:
+    `type(r)` is a Cypher function returning the type as a value, not
+    syntax construction, so it needs no parameterization and reaches no
+    `_SAFE_RELATIONSHIP_TYPE_RE`-style guard -- that regex exists solely
+    because the write path's `MERGE (a)-[:{type}]->(b)` can't parameterize
+    a type in *write* position.
+
+    Skips the query entirely when `keep_ids` is empty (an empty-graph or
+    all-isolated user) -- Cypher's `IN []` would just match nothing, but
+    there's no reason to spend a round-trip proving that.
+    """
+    if not keep_ids:
+        return []
+    result = tx.run(
+        "MATCH (a:Entity {user_id: $user_id})-[r]->(b:Entity {user_id: $user_id}) "
+        "WHERE (a.type + ':' + a.name) IN $keep_ids AND (b.type + ':' + b.name) IN $keep_ids "
+        "RETURN a.name AS source_name, a.type AS source_type, "
+        "b.name AS target_name, b.type AS target_type, "
+        "type(r) AS relationship_type",
+        user_id=user_id,
+        keep_ids=keep_ids,
+    )
+    return [
+        {
+            "source_name": record["source_name"],
+            "source_type": record["source_type"],
+            "target_name": record["target_name"],
+            "target_type": record["target_type"],
+            "relationship_type": record["relationship_type"],
+        }
+        for record in result
+    ]
