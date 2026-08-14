@@ -1,9 +1,14 @@
-import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { getDocument } from '../api/documentsClient'
+import { deleteDocument, getDocument } from '../api/documentsClient'
 import StatusPill from '../components/StatusPill'
-import { formatFileSize, formatFileType, formatUploadedDate } from '../utils/documentFormat'
+import {
+  DELETE_BOUNDARY_TEXT,
+  formatFileSize,
+  formatFileType,
+  formatUploadedDate,
+} from '../utils/documentFormat'
 
 // Document Detail (Story 2.2), rendered at `/documents/:documentId`.
 //
@@ -48,9 +53,56 @@ function MetaItem({ label, value }) {
 export default function DocumentDetailPage() {
   const { documentId } = useParams()
   const { authFetch } = useAuth()
+  const navigate = useNavigate()
   const [doc, setDoc] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(null)
+
+  // Story 2.7: same inline-confirm pattern as DocumentCard.jsx, local to
+  // this page rather than shared -- there is no third place this same
+  // state needs to live.
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState(null)
+  const deleteButtonRef = useRef(null)
+  const cancelDeleteButtonRef = useRef(null)
+  const deleteBoundaryTextId = 'delete-document-boundary'
+
+  useEffect(() => {
+    if (isConfirmingDelete) cancelDeleteButtonRef.current?.focus()
+  }, [isConfirmingDelete])
+
+  function openDeleteConfirm() {
+    setDeleteError(null)
+    setIsConfirmingDelete(true)
+  }
+
+  function collapseDeleteConfirm() {
+    if (isDeleting) return
+    setIsConfirmingDelete(false)
+    setDeleteError(null)
+    deleteButtonRef.current?.focus()
+  }
+
+  function handleDeleteConfirmKeyDown(event) {
+    if (event.key !== 'Escape') return
+    collapseDeleteConfirm()
+  }
+
+  async function handleConfirmDelete() {
+    setIsDeleting(true)
+    setDeleteError(null)
+    try {
+      await deleteDocument(authFetch, documentId)
+      // Nothing left to show at this route once the document is gone --
+      // navigate back to the library rather than leaving a dead detail
+      // view. No focus-return here: the page itself is unmounting.
+      navigate('/documents')
+    } catch (err) {
+      setDeleteError(err.message)
+      setIsDeleting(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -110,7 +162,70 @@ export default function DocumentDetailPage() {
 
         return (
           <div className="rounded-xl border border-border bg-card-bg p-[26px]">
-            <h1 className="text-[18px] font-bold text-primary">{doc.filename}</h1>
+            <div className="flex items-start justify-between gap-3">
+              <h1 className="text-[18px] font-bold text-primary">{doc.filename}</h1>
+              {/* Story 2.7: Document Detail's own entry point to the same
+                  delete action DocumentCard.jsx's trash icon offers.
+                  "Danger: same shape as secondary, danger-colored text"
+                  (DESIGN.md) -- not a filled-red button until the
+                  confirmation step below. */}
+              <button
+                ref={deleteButtonRef}
+                type="button"
+                aria-expanded={isConfirmingDelete}
+                onClick={openDeleteConfirm}
+                className="shrink-0 rounded-md border border-border bg-surface2 px-3 py-1.5 text-xs font-semibold text-danger"
+              >
+                Delete
+              </button>
+            </div>
+
+            {isConfirmingDelete && (
+              // Inline confirm (UX-DR14): no modal. `role="alert"`
+              // announces its appearance, matching this app's existing
+              // error-announcement pattern. `border-danger/30 bg-danger/5`
+              // is a soft tint (DESIGN.md's danger-zone pattern), not a
+              // full-saturation border -- and the Delete button below is
+              // the same shape as Cancel, only its text is danger-colored,
+              // same as the trigger button above ("Danger: same shape as
+              // secondary, danger-colored text").
+              <div
+                role="alert"
+                onKeyDown={handleDeleteConfirmKeyDown}
+                className="mt-3 mb-3 flex flex-col gap-2 rounded-md border border-danger/30 bg-danger/5 p-3"
+              >
+                <p id={deleteBoundaryTextId} className="text-sm text-text">
+                  Delete {doc.filename}? {DELETE_BOUNDARY_TEXT}
+                </p>
+                {deleteError && (
+                  <p role="alert" className="text-sm text-danger">
+                    {deleteError}
+                  </p>
+                )}
+                <div className="flex justify-end gap-2">
+                  <button
+                    ref={cancelDeleteButtonRef}
+                    type="button"
+                    aria-describedby={deleteBoundaryTextId}
+                    onClick={collapseDeleteConfirm}
+                    disabled={isDeleting}
+                    className="rounded-md border border-border bg-card-bg px-3 py-1.5 text-xs font-semibold text-primary"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    aria-describedby={deleteBoundaryTextId}
+                    onClick={handleConfirmDelete}
+                    disabled={isDeleting}
+                    className="rounded-md border border-border bg-card-bg px-3 py-1.5 text-xs font-semibold text-danger"
+                  >
+                    {isDeleting ? 'Deleting…' : 'Delete'}
+                  </button>
+                </div>
+              </div>
+            )}
+
             <p className="mt-0.5 flex flex-wrap items-center gap-2 text-[13px] text-text2">
               <span>Uploaded {formatUploadedDate(doc.created_at)}</span>
               <StatusPill status={doc.status} />

@@ -193,6 +193,24 @@ export default function DocumentsPage() {
     navigate(`/documents/${documentId}`)
   }
 
+  // Story 2.7: on a successful delete, the row is removed from local
+  // state directly -- no refetch -- matching Story 2.2's existing
+  // client-side sort/filter-only pattern (`visibleDocuments` above is
+  // derived from `documents`, so this alone is enough to drop the card
+  // from the grid).
+  //
+  // Focus restoration (Spec Change Log): the card that unmounts held
+  // focus (the confirm box's own Delete button), so without this a
+  // keyboard/screen-reader user's focus silently falls back to
+  // `document.body` right after the one action in this story that most
+  // needed to stay legible. The Upload button is the simplest always-
+  // present, stable landing spot -- reuses the existing ref rather than
+  // introducing a new ownership path for it.
+  function handleDeleted(documentId) {
+    setDocuments((prev) => prev.filter((doc) => doc.id !== documentId))
+    uploadButtonRef.current?.focus()
+  }
+
   const hasDocuments = documents.length > 0
   const showGrid = !error && !isLoading && visibleDocuments.length > 0
   // Two genuinely different situations, so two different sentences: an
@@ -278,7 +296,12 @@ export default function DocumentsPage() {
       {showGrid && (
         <ul className="grid list-none grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-4 p-0">
           {visibleDocuments.map((doc) => (
-            <DocumentCard key={doc.id} document={doc} onCardClick={handleCardClick} />
+            <DocumentCard
+              key={doc.id}
+              document={doc}
+              onCardClick={handleCardClick}
+              onDeleted={handleDeleted}
+            />
           ))}
         </ul>
       )}

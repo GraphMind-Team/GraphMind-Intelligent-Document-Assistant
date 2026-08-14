@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { getDocument, listDocuments, uploadDocument, validateFile } from './documentsClient'
+import { deleteDocument, getDocument, listDocuments, uploadDocument, validateFile } from './documentsClient'
 
 describe('validateFile', () => {
   function makeFile(name, size, type = 'application/octet-stream') {
@@ -85,6 +85,66 @@ describe('getDocument', () => {
     const authFetch = vi.fn().mockResolvedValue(new Response('null', { status: 200 }))
 
     await expect(getDocument(authFetch, 'doc-1')).rejects.toThrow('unexpected response')
+  })
+})
+
+describe('deleteDocument', () => {
+  it('sends a DELETE to the by-id path', async () => {
+    const authFetch = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+
+    await deleteDocument(authFetch, 'doc-1')
+
+    expect(authFetch).toHaveBeenCalledWith('/documents/doc-1', { method: 'DELETE' })
+  })
+
+  it('encodes the id rather than interpolating it into the path raw', async () => {
+    const authFetch = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+
+    await deleteDocument(authFetch, '../auth/me')
+
+    expect(authFetch).toHaveBeenCalledWith('/documents/..%2Fauth%2Fme', { method: 'DELETE' })
+  })
+
+  it('resolves without needing or reading a body on a real 204 response', async () => {
+    // A genuine empty-body `Response` -- not a stand-in with a `.json()`
+    // that happens to return something parseable. If `deleteDocument` ever
+    // started unconditionally calling `response.json()` on every response
+    // (rather than only on the non-2xx branch), this would throw on the
+    // real empty body a 204 always carries, and this test would catch it
+    // where a mocked `deleteDocument` never could.
+    const response = new Response(null, { status: 204 })
+    const jsonSpy = vi.spyOn(response, 'json')
+    const authFetch = vi.fn().mockResolvedValue(response)
+
+    await expect(deleteDocument(authFetch, 'doc-1')).resolves.toBeUndefined()
+    expect(jsonSpy).not.toHaveBeenCalled()
+  })
+
+  it('throws the backend detail on a 404 (another account, or no such document)', async () => {
+    const authFetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ detail: 'Document not found.' }), { status: 404 }))
+
+    await expect(deleteDocument(authFetch, 'doc-1')).rejects.toThrow('Document not found.')
+  })
+
+  it('throws the backend detail on a 409 (still mid-ingestion)', async () => {
+    const authFetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ detail: "Document is still being processed and can't be deleted yet." }),
+        { status: 409 },
+      ),
+    )
+
+    await expect(deleteDocument(authFetch, 'doc-1')).rejects.toThrow(
+      "Document is still being processed and can't be deleted yet.",
+    )
+  })
+
+  it('falls back to a generic message when a non-2xx response has no parseable body', async () => {
+    const authFetch = vi.fn().mockResolvedValue(new Response('not json', { status: 500 }))
+
+    await expect(deleteDocument(authFetch, 'doc-1')).rejects.toThrow('Failed to delete document (500)')
   })
 })
 
