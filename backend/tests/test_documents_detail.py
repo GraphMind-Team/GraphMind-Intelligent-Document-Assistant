@@ -9,6 +9,8 @@ nothing about the other account's document at all.
 
 import uuid
 
+from app.shared.models import Document
+
 
 def _register_and_login(client, *, full_name, email, password):
     register_response = client.post(
@@ -82,10 +84,13 @@ def test_get_never_serializes_raw_content_or_owner(client):
         "status",
         "created_at",
         "chapter_breakdown",
+        "failed_reason",
     }
     # Not yet Ready -- Story 2.4 requires this stay None, never a
     # fabricated {} (mirrors UX-DR8's "Pending, never a fabricated 0" rule).
     assert body["chapter_breakdown"] is None
+    # Not Failed -- Story 2.5 requires this stay None too.
+    assert body["failed_reason"] is None
 
 
 def test_get_another_accounts_document_is_404_not_403(client):
@@ -173,3 +178,28 @@ def test_get_requires_authentication(client):
     response = client.get(f"/documents/{uploaded['id']}")
 
     assert response.status_code == 401
+
+
+def test_get_failed_document_includes_the_failed_reason(client, db_session):
+    """Story 2.5: a Failed document's response carries the stage-aware
+    reason set by `ingest_document`'s `except` block -- here simulated
+    directly on the row, since this file only exercises the read path."""
+    token = _register_and_login(
+        client,
+        full_name="Maria Ivanova",
+        email="maria-failed-detail@example.com",
+        password="password12345",
+    )
+    uploaded = _upload(client, token, filename="corrupt.pdf")
+
+    row = db_session.get(Document, uuid.UUID(uploaded["id"]))
+    row.status = "Failed"
+    row.failed_reason = "Could not read this document: unexpected EOF"
+    db_session.commit()
+
+    response = client.get(f"/documents/{uploaded['id']}", headers=_auth_headers(token))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "Failed"
+    assert body["failed_reason"] == "Could not read this document: unexpected EOF"

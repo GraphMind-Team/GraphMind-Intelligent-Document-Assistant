@@ -26,3 +26,7 @@ class DocumentResponse(BaseModel):
     # other status -- the frontend's Document Detail page renders "Pending"
     # rather than treating `None`/missing as zero (UX-DR8).
     chapter_breakdown: dict[str, int] | None = None
+    # Story 2.5: a short, human-readable, stage-aware reason, populated
+    # straight from the model -- `None` for every status other than
+    # `Failed` (set only in the same commit as `status = "Failed"`).
+    failed_reason: str | None = None

@@ -144,6 +144,25 @@ export default function DocumentDetailPage() {
                 </p>
               )}
             </section>
+
+            {/* Story 2.5: Detail-only, never inline in the Documents table
+                row (human decision) -- a short, human-readable,
+                stage-aware reason set server-side only in the same commit
+                as `status = "Failed"`. Rendered only when `status ===
+                'Failed'`; every other status renders nothing here. */}
+            {doc.status === 'Failed' && (
+              <section className="mt-[18px]">
+                <h2 className="text-eyebrow uppercase text-text2">Reason</h2>
+                {/* `break-words` (matching `DocumentCard.jsx`'s filename
+                    rendering) -- the backend allows up to ~340 chars of
+                    freeform text here. Falls back to a fixed string rather
+                    than rendering blank when `failed_reason` is null (e.g.
+                    a pre-migration row). */}
+                <p className="mt-2 text-sm text-text break-words">
+                  {doc.failed_reason || 'No further details available.'}
+                </p>
+              </section>
+            )}
           </div>
         )
       })()}

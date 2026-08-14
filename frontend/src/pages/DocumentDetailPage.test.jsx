@@ -121,6 +121,46 @@ describe('DocumentDetailPage', () => {
     expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument()
   })
 
+  it('renders the failed reason when the document is Failed', async () => {
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    vi.spyOn(documentsClient, 'getDocument').mockResolvedValue({
+      ...UPLOADED_DOC,
+      status: 'Failed',
+      failed_reason: 'Could not read this document: unexpected EOF',
+    })
+
+    renderDetail()
+
+    expect(await screen.findByText('Reason')).toBeInTheDocument()
+    expect(
+      screen.getByText('Could not read this document: unexpected EOF'),
+    ).toBeInTheDocument()
+  })
+
+  it('renders a fallback message when a Failed document has no failed_reason', async () => {
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    vi.spyOn(documentsClient, 'getDocument').mockResolvedValue({
+      ...UPLOADED_DOC,
+      status: 'Failed',
+      failed_reason: null,
+    })
+
+    renderDetail()
+
+    expect(await screen.findByText('Reason')).toBeInTheDocument()
+    expect(screen.getByText('No further details available.')).toBeInTheDocument()
+  })
+
+  it('renders no failed-reason block for a non-Failed document', async () => {
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    vi.spyOn(documentsClient, 'getDocument').mockResolvedValue(UPLOADED_DOC)
+
+    renderDetail()
+
+    await screen.findByRole('heading', { name: 'vendor-agreement.pdf', level: 1 })
+    expect(screen.queryByText('Reason')).not.toBeInTheDocument()
+  })
+
   it('offers a way back to the library', async () => {
     useAuth.mockReturnValue({ authFetch: vi.fn() })
     vi.spyOn(documentsClient, 'getDocument').mockResolvedValue(UPLOADED_DOC)

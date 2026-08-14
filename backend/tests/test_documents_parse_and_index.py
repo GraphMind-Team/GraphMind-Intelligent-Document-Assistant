@@ -277,6 +277,8 @@ def test_ingest_corrupt_file_marks_failed_instead_of_stuck(client, db_session, m
     row = db_session.get(Document, uuid.UUID(doc["id"]))
     assert row.status == "Failed"
     fake_write_passages.assert_not_called()
+    assert row.failed_reason is not None
+    assert row.failed_reason.startswith("Could not read this document")
 
 
 def test_ingest_weaviate_write_failure_marks_failed(client, db_session, monkeypatch):
@@ -298,6 +300,39 @@ def test_ingest_weaviate_write_failure_marks_failed(client, db_session, monkeypa
 
     row = db_session.get(Document, uuid.UUID(doc["id"]))
     assert row.status == "Failed"
+    assert row.failed_reason is not None
+    assert row.failed_reason.startswith("Could not index this document's content")
+    assert "Weaviate is unreachable" in row.failed_reason
+
+
+def test_ingest_failure_with_a_long_message_truncates_failed_reason(client, db_session, monkeypatch):
+    """Story 2.5: a provider payload or long exception message never lands
+    in `failed_reason` untruncated -- capped at 300 chars of `str(exc)`,
+    on top of the stage label."""
+    import app.documents.service as service_module
+
+    _stub_embeddings(monkeypatch)
+
+    long_message = "x" * 5000
+
+    def _raise(passages):
+        raise RuntimeError(long_message)
+
+    monkeypatch.setattr(service_module, "write_passages", _raise)
+
+    token = _register_and_login(
+        client, full_name="Ingest User", email="ingest-long-fail@example.com", password="password12345"
+    )
+    doc = _upload(client, token, "notes.md", _MARKDOWN, "text/markdown")
+
+    real_ingest_document(uuid.UUID(doc["id"]), session_factory=_session_factory(db_session))
+
+    row = db_session.get(Document, uuid.UUID(doc["id"]))
+    assert row.status == "Failed"
+    assert row.failed_reason is not None
+    label = "Could not index this document's content"
+    assert row.failed_reason == f"{label}: {'x' * 300}"
+    assert len(row.failed_reason) == len(label) + 2 + 300
 
 
 def test_ingest_missing_document_returns_silently(db_session):
