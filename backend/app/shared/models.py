@@ -75,3 +75,11 @@ class Document(Base):
     content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     chapter_breakdown: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Story 2.5: a short, human-readable, stage-aware reason, set only in
+    # the same commit that sets `status = "Failed"` (never a separate
+    # write) -- see `documents/service.py::ingest_document`'s `except`
+    # block. `None` for every other status. A plain `String`, not a typed
+    # error taxonomy (no error codes/i18n keys) -- matches this project's
+    # existing "reason goes to the logger" -> "reason goes to a text field"
+    # precedent from 2.3/2.4.
+    failed_reason: Mapped[str | None] = mapped_column(String, nullable=True)

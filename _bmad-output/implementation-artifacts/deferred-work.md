@@ -231,3 +231,38 @@
     genuinely pre-approved Boundaries section does. A retro-spec presenting itself as frozen
     would invite the mirror image of the UX-DR21 error -- a later story declining to revisit a
     line that was never actually negotiated.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-failed-ingestion-surfaced-with-a-readable-reason.md`
+  summary: >
+    `Document.failed_reason` is never cleared back to `None` on a subsequent successful ingestion,
+    so if a document that previously failed is ever re-ingested and reaches `Ready`, it would keep
+    displaying its old failure text alongside a `Ready` status.
+  evidence: >
+    Story 2.5 review (blind-hunter) raised this. Currently unreachable: no retry endpoint exists
+    anywhere in `routes.py` (confirmed by investigation during this story's planning), so
+    `ingest_document` only ever runs once per document today. Revisit when a retry story is built —
+    that story's spec should clear `failed_reason` in the same commit that sets `status = "Ready"`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-failed-ingestion-surfaced-with-a-readable-reason.md`
+  summary: >
+    `Document.failed_reason` truncates the underlying exception's `str()` to 300 characters but does
+    not scrub its content — a driver/provider error that happens to embed a connection string,
+    internal hostname, or other sensitive detail would be truncated, not redacted, and could reach
+    the API response and the UI.
+  evidence: >
+    Story 2.5 review (blind-hunter) raised this. No known instance today (Weaviate/Neo4j/OpenRouter
+    client errors observed in this codebase's tests are plain messages like "Weaviate is
+    unreachable"), and building a reliable redaction pass (allow-listing vs. pattern-matching
+    secrets in arbitrary third-party exception text) is real scope, not a one-line fix — worth a
+    deliberate design pass rather than folding into this story.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-failed-ingestion-surfaced-with-a-readable-reason.md`
+  summary: >
+    `ingest_document`'s recovery path (`db.rollback(); document.status = "Failed";
+    document.failed_reason = ...; db.commit()`) is itself wrapped in a bare `except Exception:` that
+    logs and swallows a failure there, with no test pinning what state the row is left in if that
+    second commit fails (e.g. a DB outage during the very commit meant to record the first failure).
+  evidence: >
+    Story 2.5 review (blind-hunter) raised this. Pre-existing pattern from Story 2.3/2.4 — this
+    story only added one more field write inside that same already-swallowed block, so the gap
+    predates this change and isn't specific to `failed_reason`.

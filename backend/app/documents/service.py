@@ -76,6 +76,22 @@ _ALLOWED_CONTENT_TYPES: Final = {
 
 _SUPPORTED_FORMATS_LABEL: Final = ".pdf, .md, .markdown, .html, .htm"
 
+# Story 2.5: short, human-readable, stage-aware labels prefixed onto a
+# truncated `str(exc)` to build `Document.failed_reason` -- never a raw
+# traceback or provider payload. In pipeline order; `_reason` below joins
+# whichever one was current when the exception was caught.
+_STAGE_LABEL_PARSING: Final = "Could not read this document"
+_STAGE_LABEL_INDEXING: Final = "Could not index this document's content"
+_STAGE_LABEL_EXTRACTION: Final = "Could not extract entities from this document"
+_STAGE_LABEL_GRAPH_WRITE: Final = "Could not save extracted entities to the graph"
+
+# Long tracebacks or provider payloads never land in the DB or UI.
+_FAILED_REASON_MAX_CHARS: Final = 300
+
+
+def _reason(stage_label: str, exc: Exception) -> str:
+    return f"{stage_label}: {str(exc)[:_FAILED_REASON_MAX_CHARS]}"
+
 
 def _normalize_content_type(content_type: str | None) -> str | None:
     if not content_type:
@@ -265,6 +281,14 @@ def ingest_document(
         document_id_str = str(document.id)
         user_id_str = str(document.user_id)
 
+        # Story 2.5: reassigned immediately before each risky call below
+        # (mirroring how `document.status` is already reassigned inline
+        # through this same function) -- whichever value is current when
+        # the `except` below catches an exception identifies which stage
+        # was in flight, without restructuring into per-stage try/except
+        # blocks that would fragment the single outer `except` AD-1's
+        # rollback logic already depends on.
+        stage = _STAGE_LABEL_PARSING
         try:
             document.status = "Extracting"
             db.commit()
@@ -280,6 +304,7 @@ def ingest_document(
             # `del`'d: the attribute stays valid and would simply re-load
             # from the DB if anything below touched it. Nothing does.
             db.expire(document, ["content"])
+            stage = _STAGE_LABEL_INDEXING
             delete_passages_for_document(document_id_str, user_id_str)
             for batch_start in range(0, len(chunks), PASSAGE_BATCH_SIZE):
                 batch = chunks[batch_start : batch_start + PASSAGE_BATCH_SIZE]
@@ -303,6 +328,14 @@ def ingest_document(
             # Story 2.4: the Weaviate write has fully succeeded by this
             # point -- advance to Graphing before the extraction call, per
             # AD-1's fixed write order (Weaviate first, Neo4j second).
+            # Story 2.5: `stage` flips to extraction here, not right before
+            # `_build_extraction_text` below -- a failure in this
+            # `db.commit()` (or anything between the Weaviate write loop
+            # finishing and the extraction call starting) is a
+            # Graphing-transition failure, not an indexing one, and must
+            # not be mislabeled as "Could not index this document's
+            # content".
+            stage = _STAGE_LABEL_EXTRACTION
             document.status = "Graphing"
             db.commit()
 
@@ -322,6 +355,7 @@ def ingest_document(
                 )
                 for relationship in extraction_result.relationships
             ]
+            stage = _STAGE_LABEL_GRAPH_WRITE
             write_entities_and_relationships(neo4j_entities, neo4j_relationships, user_id_str)
 
             # `chapter_breakdown` is built from the same `chunks` list the
@@ -333,7 +367,7 @@ def ingest_document(
             document.status = "Ready"
             document.chapter_breakdown = chapter_breakdown
             db.commit()
-        except Exception:
+        except Exception as exc:
             logger.exception("Ingestion failed for document %s", document_id)
             try:
                 # Best-effort: a failure partway through the batch loop
@@ -358,6 +392,10 @@ def ingest_document(
             try:
                 db.rollback()
                 document.status = "Failed"
+                # Story 2.5: set in the exact same commit as `status =
+                # "Failed"` above -- never a separate write, so the two
+                # fields can never disagree about whether a reason exists.
+                document.failed_reason = _reason(stage, exc)
                 db.commit()
             except Exception:
                 # The recovery path itself can fail -- e.g. the DB
