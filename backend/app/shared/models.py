@@ -8,7 +8,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, LargeBinary, String, Uuid, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, LargeBinary, String, Uuid, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -83,3 +83,25 @@ class Document(Base):
     # existing "reason goes to the logger" -> "reason goes to a text field"
     # precedent from 2.3/2.4.
     failed_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Story 2.6: sha256 of the raw uploaded bytes (`content`), hex-encoded
+    # (64 chars) -- never derived from `filename`, so a byte-identical
+    # rename still dedupes. Computed in `service.upload_document` before
+    # this row is constructed. `nullable=False` at the model level; the
+    # migration that adds this column adds it nullable first, backfills
+    # every existing row, then alters to NOT NULL, so the column is never
+    # briefly enforced against rows that don't have a value yet. Paired
+    # with a composite unique index on `(user_id, content_hash)` (added in
+    # the same migration) -- the DB-level guard against the concurrent-
+    # duplicate-upload race, mirroring Story 2.4's Neo4j uniqueness
+    # constraint for the identical race shape.
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    __table_args__ = (
+        # Story 2.6: DB-level guard closing the concurrent-duplicate-upload
+        # race that the pre-create hash lookup alone can't -- two requests
+        # racing past `get_document_by_content_hash` before either commits
+        # would otherwise both insert. The loser's `INSERT` raises
+        # `IntegrityError`, which `service.upload_document` catches, rolls
+        # back, and re-queries by hash to return the winner's row.
+        Index("ix_documents_user_id_content_hash", "user_id", "content_hash", unique=True),
+    )

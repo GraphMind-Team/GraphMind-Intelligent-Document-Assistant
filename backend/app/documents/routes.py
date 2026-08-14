@@ -14,7 +14,7 @@ synthetic.
 
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Response, UploadFile
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_user
@@ -54,6 +54,7 @@ async def _read_bounded(file: UploadFile) -> bytes:
 
 @router.post("", response_model=DocumentResponse, status_code=201)
 async def upload_document(
+    response: Response,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: Session = Depends(get_db_session),
@@ -71,13 +72,23 @@ async def upload_document(
         file_type = service.validate_format(file.filename or "", file.content_type)
         content = await _read_bounded(file)
         service.validate_size(len(content))
-        document = service.upload_document(
+        document, is_duplicate = service.upload_document(
             db,
             current_user,
             filename=file.filename or "",
             file_type=file_type,
             content=content,
         )
+    # Story 2.6: a hash match reuses the *existing* document -- nothing was
+    # created, so the response is 200, not the route's default 201, and
+    # ingestion is never scheduled (no parse/embed/LLM call for a
+    # byte-identical duplicate, the entire point of NFR-7). The
+    # `response_model=DocumentResponse` declared above still governs
+    # serialization regardless of which status code is set here.
+    if is_duplicate:
+        response.status_code = 200
+        return DocumentResponse.model_validate(document).model_copy(update={"is_duplicate": True})
+
     # Scheduled after the response is prepared, not awaited here -- Story
     # 2.3's parse/embed/index pipeline runs after the upload response is
     # sent, so upload latency stays independent of parsing time. Only

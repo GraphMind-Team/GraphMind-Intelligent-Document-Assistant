@@ -30,3 +30,8 @@ class DocumentResponse(BaseModel):
     # straight from the model -- `None` for every status other than
     # `Failed` (set only in the same commit as `status = "Failed"`).
     failed_reason: str | None = None
+    # Story 2.6: additive-only field, defaults to `False`, so no existing
+    # response consumer needs to change. `True` only when this response
+    # body is the *existing* document returned in place of creating a new
+    # one -- the route sets the 200 status code alongside this.
+    is_duplicate: bool = False

@@ -46,3 +46,17 @@ def get_document_for_user(db: Session, user_id: uuid.UUID, document_id: uuid.UUI
     """
     stmt = user_scoped_select(Document, user_id).where(Document.id == document_id)
     return db.execute(stmt).scalars().first()
+
+
+def get_document_by_content_hash(db: Session, user_id: uuid.UUID, content_hash: str) -> Document | None:
+    """One document by content hash, scoped to its owner (Story 2.6).
+
+    Mirrors `get_document_for_user`'s tenancy-scoped pattern -- hash lookup
+    never crosses users (AD-2, spec's "Never: no dedupe across users"), so
+    this goes through `user_scoped_select` rather than a bare
+    `content_hash` filter. Used both for the pre-create dedupe check in
+    `service.upload_document` and again after an `IntegrityError` on the
+    concurrent-upload race, to fetch the row the other request just won.
+    """
+    stmt = user_scoped_select(Document, user_id).where(Document.content_hash == content_hash)
+    return db.execute(stmt).scalars().first()

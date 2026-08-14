@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import UploadModal from './UploadModal'
 import { useAuth } from '../context/AuthContext'
@@ -9,6 +10,17 @@ vi.mock('../context/AuthContext', () => ({ useAuth: vi.fn() }))
 
 function makeFile(name, type = 'application/pdf') {
   return new File(['content'], name, { type })
+}
+
+// UploadModal renders a react-router `Link` in the duplicate-row branch
+// (Story 2.6) -- only that branch needs a Router ancestor, but wrapping
+// every render here keeps the helper uniform.
+function renderModal(props) {
+  return render(
+    <MemoryRouter>
+      <UploadModal {...props} />
+    </MemoryRouter>,
+  )
 }
 
 afterEach(() => {
@@ -162,5 +174,80 @@ describe('UploadModal file handling', () => {
 
     expect(uploadSpy).toHaveBeenCalledTimes(1)
     expect(abortCalled).toBe(false)
+  })
+})
+
+describe('UploadModal duplicate handling (Story 2.6)', () => {
+  it('shows "Already uploaded" and links to the existing document when is_duplicate is true', async () => {
+    useAuth.mockReturnValue({ token: 'a-token' })
+    vi.spyOn(documentsClient, 'uploadDocument').mockResolvedValue({
+      id: 'existing-doc-1',
+      status: 'Uploaded',
+      is_duplicate: true,
+    })
+    const user = userEvent.setup()
+
+    renderModal({ onClose: vi.fn() })
+
+    const input = screen.getByLabelText(/choose files to upload/i)
+    await user.upload(input, makeFile('report.pdf'))
+
+    expect(await screen.findByText(/already uploaded/i)).toBeInTheDocument()
+    const link = screen.getByRole('link', { name: /view document/i })
+    expect(link).toHaveAttribute('href', '/documents/existing-doc-1')
+  })
+
+  it('does not show the duplicate message for a genuinely new upload', async () => {
+    useAuth.mockReturnValue({ token: 'a-token' })
+    vi.spyOn(documentsClient, 'uploadDocument').mockResolvedValue({
+      id: 'new-doc-1',
+      status: 'Uploaded',
+      is_duplicate: false,
+    })
+    const onClose = vi.fn()
+    const user = userEvent.setup()
+
+    renderModal({ onClose })
+
+    const input = screen.getByLabelText(/choose files to upload/i)
+    await user.upload(input, makeFile('report.pdf'))
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(screen.queryByText(/already uploaded/i)).not.toBeInTheDocument()
+  })
+
+  it('auto-closes an all-duplicate batch, same as an all-success batch', async () => {
+    useAuth.mockReturnValue({ token: 'a-token' })
+    vi.spyOn(documentsClient, 'uploadDocument').mockResolvedValue({
+      id: 'existing-doc-2',
+      status: 'Uploaded',
+      is_duplicate: true,
+    })
+    const onClose = vi.fn()
+    const user = userEvent.setup()
+
+    renderModal({ onClose })
+
+    const input = screen.getByLabelText(/choose files to upload/i)
+    await user.upload(input, [makeFile('a.pdf'), makeFile('b.pdf')])
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+  })
+
+  it('does not auto-close a mixed duplicate+error batch until settled, but does once every row is settled with at least one duplicate', async () => {
+    useAuth.mockReturnValue({ token: 'a-token' })
+    vi.spyOn(documentsClient, 'uploadDocument').mockImplementation((_token, file) => {
+      if (file.name === 'fails.pdf') return Promise.reject(new Error('Upload failed (500).'))
+      return Promise.resolve({ id: 'existing-doc-3', status: 'Uploaded', is_duplicate: true })
+    })
+    const onClose = vi.fn()
+    const user = userEvent.setup()
+
+    renderModal({ onClose })
+
+    const input = screen.getByLabelText(/choose files to upload/i)
+    await user.upload(input, [makeFile('fails.pdf'), makeFile('dup.pdf')])
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
   })
 })

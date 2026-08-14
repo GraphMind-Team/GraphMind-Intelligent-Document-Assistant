@@ -5,6 +5,7 @@ Raises `HTTPException` directly (AD-3: no custom error envelope), mirroring
 the route layer stays thin and a rejected file never reaches the DB.
 """
 
+import hashlib
 import logging
 import pathlib
 import uuid
@@ -12,6 +13,7 @@ from collections import Counter
 from collections.abc import Callable
 from typing import Final
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from fastapi import HTTPException
@@ -144,8 +146,10 @@ def upload_document(
     filename: str,
     file_type: str,
     content: bytes,
-) -> Document:
-    """Stores one already-validated upload as a `Uploaded`-status row.
+) -> tuple[Document, bool]:
+    """Stores one already-validated upload as a `Uploaded`-status row, or
+    (Story 2.6) returns an existing byte-identical document instead of
+    creating a new one.
 
     Format/content-type (`validate_format`) and size (`validate_size`) are
     validated by the caller (route layer) before this runs -- by the time
@@ -153,8 +157,28 @@ def upload_document(
     `current_user` (resolved only from `get_current_user`, per AD-2) is
     the sole source of `user_id` written to the row -- never anything
     client-supplied. No parsing/indexing happens here (Story 2.3's job);
-    the row lands at `status="Uploaded"` and stays there.
+    a newly-created row lands at `status="Uploaded"` and stays there.
+
+    The hash is computed from raw bytes only (never `filename`), so a
+    byte-identical re-upload under a different name still dedupes (AC3).
+    The pre-create lookup runs before any `Document(...)` is constructed --
+    a hash match returns the *existing* row untouched, `is_duplicate=True`,
+    and never reaches the repository at all, so the caller (the route
+    layer) can never schedule ingestion for it.
+
+    On the rare race where two concurrent uploads of the identical new file
+    both miss this pre-create lookup, the composite unique index on
+    `(user_id, content_hash)` rejects the second `INSERT` with an
+    `IntegrityError`. Caught here: roll back, re-query by hash (the winning
+    request's commit is visible by now), and return that row as a
+    duplicate -- never let the exception propagate as a 500.
     """
+    content_hash = hashlib.sha256(content).hexdigest()
+
+    existing = repository.get_document_by_content_hash(db, current_user.id, content_hash)
+    if existing is not None:
+        return existing, True
+
     document = Document(
         id=uuid.uuid4(),
         user_id=current_user.id,
@@ -163,12 +187,24 @@ def upload_document(
         file_size_bytes=len(content),
         status="Uploaded",
         content=content,
+        content_hash=content_hash,
     )
 
-    document = repository.create_document(db, document)
-    db.commit()
+    try:
+        document = repository.create_document(db, document)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = repository.get_document_by_content_hash(db, current_user.id, content_hash)
+        if existing is None:
+            # The unique constraint fired for some other reason than the
+            # expected concurrent-duplicate race -- re-raise rather than
+            # silently returning `None` as if it were a duplicate.
+            raise
+        return existing, True
+
     db.refresh(document)
-    return document
+    return document, False
 
 
 def _build_extraction_text(chunks: list, budget: int = EXTRACTION_CHAR_BUDGET) -> str:

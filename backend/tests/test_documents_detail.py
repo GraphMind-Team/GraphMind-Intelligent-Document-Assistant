@@ -85,6 +85,9 @@ def test_get_never_serializes_raw_content_or_owner(client):
         "created_at",
         "chapter_breakdown",
         "failed_reason",
+        # Story 2.6: additive field, `False` for any document that isn't
+        # itself the response to a duplicate upload.
+        "is_duplicate",
     }
     # Not yet Ready -- Story 2.4 requires this stay None, never a
     # fabricated {} (mirrors UX-DR8's "Pending, never a fabricated 0" rule).
