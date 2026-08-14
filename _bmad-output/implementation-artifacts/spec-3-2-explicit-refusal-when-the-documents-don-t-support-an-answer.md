@@ -47,6 +47,8 @@ provenance: 'authored-before-implementation'
 | Empty library | Zero passages retrieved | `empty_reason="no_documents"` (Story 3.1, unchanged) — never conflated with `refusal` | N/A |
 | LLM wrapper fails | Timeout/5xx/429 exhausted, generation was reached (threshold was cleared) | 503 (Story 3.1, unchanged) — never rendered as a refusal | Logged |
 
+</frozen-after-approval>
+
 ## Code Map
 
 - `backend/app/shared/llm_client/__init__.py` -- edit: `RELEVANCE_THRESHOLD` constant, measured and documented
@@ -115,5 +117,3 @@ Caveat, carried forward rather than hidden: one document, mostly English (six of
 - Dark mode: switched the app to dark (`localStorage.theme = 'dark'`) and re-triggered a refusal. Computed styles on the live bubble: `background-color: rgba(227, 169, 74, 0.16)`, `color: rgb(227, 169, 74)` — exactly `--refusal-bg`/`--refusal-text`'s dark values, confirming the token pair resolves correctly at runtime through `@theme inline`, not just correct in source. `border-radius: 14px` uniform (symmetric, not the assistant bubble's asymmetric corner) and `font-weight: 500` also confirmed live.
 
 Note on process: `POST /documents` initially 500'd (unrelated pre-existing bug on `main` — `documents.content_hash` was `NOT NULL` with nothing populating it; fixed upstream by Story 2.6, merged into this branch mid-review). Local Neo4j also needed a temporary `neo4j+ssc://` scheme swap in `backend/.env` (self-signed-cert issue, dev-only, reverted after) to let ingestion reach `Ready` instead of `Failed` — neither blocker was specific to this story's code.
-
-</frozen-after-approval>
