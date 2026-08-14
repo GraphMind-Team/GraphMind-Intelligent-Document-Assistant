@@ -62,7 +62,7 @@ export default function ChatMessage({ message }) {
   // already passed Story 3.1's own accessibility review.
   if (message.role === 'refusal') {
     return (
-      <div className="mx-auto max-w-[78%] self-center rounded-xl border border-warning/40 bg-refusal-bg px-3.5 py-3 text-center text-[13.5px] font-medium text-refusal-text">
+      <div className="max-w-[78%] self-center rounded-xl border border-warning/40 bg-refusal-bg px-3.5 py-3 text-center text-[13.5px] font-medium text-refusal-text">
         <span className="sr-only">Refusal: </span>
         {REFUSAL_COPY}
       </div>

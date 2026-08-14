@@ -201,11 +201,14 @@ def test_ask_treats_exact_threshold_distance_as_relevant(client, monkeypatch):
     generate_answer_mock.assert_called_once()
 
 
-def test_ask_refuses_when_every_passage_has_no_distance_metadata(client, monkeypatch):
+def test_ask_refuses_when_every_passage_has_no_distance_metadata(client, monkeypatch, caplog):
     """A `distance` of None can't be verified as relevant, so it never
     clears the bar -- documents the conservative default for a retrieval
     metadata gap that can't happen today but shouldn't fail open if it
-    ever did."""
+    ever did. Also asserts the logger.warning fires: the refusal-response
+    assertions alone would still pass if that diagnostic were deleted as
+    "dead code" (its own comment says the gap "can't happen today"), and
+    that diagnostic is the only reason this branch exists."""
     token = _register_and_login(
         client, full_name="Maria", email="maria-chat-refusal-4@example.com", password="password12345"
     )
@@ -223,6 +226,7 @@ def test_ask_refuses_when_every_passage_has_no_distance_metadata(client, monkeyp
     assert response.status_code == 200
     assert response.json()["empty_reason"] == "refusal"
     generate_answer_mock.assert_not_called()
+    assert "no distance metadata" in caplog.text
 
 
 def test_ask_llm_wrapper_failure_surfaces_as_exactly_503(client, monkeypatch):
