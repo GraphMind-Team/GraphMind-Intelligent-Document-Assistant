@@ -22,9 +22,19 @@ import { formatFileSize, formatFileType, formatUploadedDate } from '../utils/doc
 // passages-indexed, and the chapter breakdown list all come from
 // `doc.chapter_breakdown` (`dict[chapter_name] -> passage_count`,
 // populated server-side only in the same commit that sets
-// `status = "Ready"`). Every other status still renders "Pending" exactly
-// as before -- unchanged from Story 2.2's original boundary.
+// `status = "Ready"`).
+//
+// Story 2.5 splits the non-Ready fallback in two. UX-DR8's "Pending, never
+// a fabricated 0" rule was written for a document still moving through the
+// pipeline -- "Pending" carries an implicit promise that the real value is
+// coming. That promise is false for a `Failed` document: ingestion is
+// terminal (nothing retries it today), so telling the user the breakdown
+// "appears once this document has been parsed and indexed" contradicts the
+// failure reason rendered directly below it. `Failed` therefore gets its
+// own terminal wording; every other non-Ready status keeps "Pending"
+// exactly as before.
 const PENDING = 'Pending'
+const UNAVAILABLE = 'Unavailable'
 
 function MetaItem({ label, value }) {
   return (
@@ -89,11 +99,14 @@ export default function DocumentDetailPage() {
         // also a defensive fallback) keeps rendering "Pending" -- never a
         // fabricated 0/empty list (UX-DR8).
         const isReady = doc.status === 'Ready' && doc.chapter_breakdown != null
+        const isFailed = doc.status === 'Failed'
         const chapterEntries = isReady ? Object.entries(doc.chapter_breakdown) : []
         const chapterCount = isReady ? chapterEntries.length : null
         const passagesIndexed = isReady
           ? chapterEntries.reduce((total, [, count]) => total + count, 0)
           : null
+        // Terminal for `Failed`, still-coming for anything else non-Ready.
+        const notReadyLabel = isFailed ? UNAVAILABLE : PENDING
 
         return (
           <div className="rounded-xl border border-border bg-card-bg p-[26px]">
@@ -109,12 +122,16 @@ export default function DocumentDetailPage() {
                 label="File type"
                 value={`${formatFileType(doc.file_type)} · ${formatFileSize(doc.file_size_bytes)}`}
               />
-              {/* Explicitly "Pending", never a fabricated 0 (UX-DR8): a 0
-                  here would read as "this document has no chapters", which
-                  is a different and false claim from "nothing has parsed it
-                  yet". */}
-              <MetaItem label="Chapters" value={isReady ? chapterCount : PENDING} />
-              <MetaItem label="Passages indexed" value={isReady ? passagesIndexed : PENDING} />
+              {/* Never a fabricated 0 (UX-DR8): a 0 here would read as
+                  "this document has no chapters", which is a different and
+                  false claim from "nothing has parsed it yet". "Pending"
+                  while still in flight, "Unavailable" once Failed -- see
+                  the note above the constants. */}
+              <MetaItem label="Chapters" value={isReady ? chapterCount : notReadyLabel} />
+              <MetaItem
+                label="Passages indexed"
+                value={isReady ? passagesIndexed : notReadyLabel}
+              />
             </dl>
 
             <section>
@@ -137,6 +154,13 @@ export default function DocumentDetailPage() {
                     </li>
                   ))}
                 </ul>
+              ) : isFailed ? (
+                // No "appears once parsed and indexed" promise here: this
+                // document's ingestion is over, and the reason it ended is
+                // rendered in the section directly below.
+                <p className="mt-2 text-sm text-text2">
+                  Unavailable — this document failed to process.
+                </p>
               ) : (
                 <p className="mt-2 text-sm text-text2">
                   Pending — the chapter breakdown appears once this document has been parsed and
@@ -144,6 +168,25 @@ export default function DocumentDetailPage() {
                 </p>
               )}
             </section>
+
+            {/* Story 2.5: Detail-only, never inline in the Documents table
+                row (human decision) -- a short, human-readable,
+                stage-aware reason set server-side only in the same commit
+                as `status = "Failed"`. Rendered only when `status ===
+                'Failed'`; every other status renders nothing here. */}
+            {doc.status === 'Failed' && (
+              <section className="mt-[18px]">
+                <h2 className="text-eyebrow uppercase text-text2">Reason</h2>
+                {/* `break-words` (matching `DocumentCard.jsx`'s filename
+                    rendering) -- the backend allows up to ~340 chars of
+                    freeform text here. Falls back to a fixed string rather
+                    than rendering blank when `failed_reason` is null (e.g.
+                    a pre-migration row). */}
+                <p className="mt-2 text-sm text-text break-words">
+                  {doc.failed_reason || 'No further details available.'}
+                </p>
+              </section>
+            )}
           </div>
         )
       })()}

@@ -245,6 +245,9 @@ def test_llm_extraction_failure_deletes_weaviate_passages_and_marks_failed(clien
     row = db_session.get(Document, uuid.UUID(doc["id"]))
     assert row.status == "Failed"
     assert row.chapter_breakdown is None
+    assert row.failed_reason is not None
+    assert row.failed_reason.startswith("Could not extract entities from this document")
+    assert "OpenRouter entity extraction failed after 2 attempts" in row.failed_reason
 
     # Once up front (before the Weaviate batch loop) and once more as the
     # AD-1 compensating rollback after the Graphing-step failure.
@@ -267,6 +270,9 @@ def test_neo4j_write_failure_deletes_weaviate_passages_and_marks_failed(client, 
     row = db_session.get(Document, uuid.UUID(doc["id"]))
     assert row.status == "Failed"
     assert row.chapter_breakdown is None
+    assert row.failed_reason is not None
+    assert row.failed_reason.startswith("Could not save extracted entities to the graph")
+    assert "Neo4j is unreachable" in row.failed_reason
     assert fake_delete.call_count == 2
 
 
@@ -291,3 +297,5 @@ def test_neo4j_write_failure_does_not_leave_document_stuck_at_graphing(client, d
     row = db_session.get(Document, uuid.UUID(doc["id"]))
     assert row.status != "Graphing"
     assert row.status == "Failed"
+    assert row.failed_reason is not None
+    assert row.failed_reason.startswith("Could not save extracted entities to the graph")

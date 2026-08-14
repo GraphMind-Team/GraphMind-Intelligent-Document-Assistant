@@ -75,6 +75,19 @@ describe('DocumentsPage', () => {
     ).toBeInTheDocument()
   })
 
+  it('never shows the failed reason inline in a Failed row (Detail-only, Story 2.5)', async () => {
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([
+      { ...PDF_DOC, status: 'Failed', failed_reason: 'Could not read this document: unexpected EOF' },
+    ])
+
+    renderPage()
+
+    const card = await screen.findByRole('listitem')
+    expect(within(card).getByText('Failed')).toBeInTheDocument()
+    expect(screen.queryByText(/unexpected EOF/)).not.toBeInTheDocument()
+  })
+
   it('shows "No documents yet." with an empty library, and keeps Upload actionable', async () => {
     useAuth.mockReturnValue({ authFetch: vi.fn() })
     vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([])
