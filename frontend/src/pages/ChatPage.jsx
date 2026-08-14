@@ -46,7 +46,12 @@ export default function ChatPage() {
 
     try {
       const result = await askQuestion(authFetch, trimmed)
-      if (result.empty_reason) {
+      if (result.empty_reason === 'refusal') {
+        // FR-10/UX-DR15: a designed refusal, not an empty-state notice --
+        // its own message role so ChatMessage renders a real bubble,
+        // never the plain notice paragraph the other two reasons use.
+        setMessages((previous) => [...previous, { role: 'refusal' }])
+      } else if (result.empty_reason) {
         setMessages((previous) => [...previous, { role: 'notice', reason: result.empty_reason }])
       } else {
         setMessages((previous) => [...previous, { role: 'assistant', segments: result.segments }])

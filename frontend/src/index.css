@@ -96,6 +96,16 @@
   --status-failed-bg: #FBE2E2;
   --status-failed-text: #CA1B1B;
 
+  /* Refusal bubble (Story 3.2, FR-10/UX-DR15) -- same values as
+     --status-uploaded-{bg,text} above, already proven >=4.5:1, but kept as
+     its own pair rather than reused directly: tokens in this file are
+     deliberately single-purpose (see the robot mascot's "locked,
+     independent namespace" note further down), so a future re-tint of the
+     upload-status pill can't silently retint the refusal bubble too, and
+     vice versa. */
+  --refusal-bg: #FBEFD6;
+  --refusal-text: #8A5200;
+
   /* Focus ring -- >=3:1 against bg and surface/surface-dark */
   --focus-ring: #3861A8;
   /* Sidebar-scoped focus ring -- the sidebar is a solid --primary fill in
@@ -214,6 +224,13 @@
   --status-failed-bg: rgba(228, 104, 95, .06);
   --status-failed-text: #E4685F;
 
+  /* Refusal bubble -- same values as --status-uploaded-{bg,text} above
+     (verified ~4.99:1 against --card-bg, where the chat thread renders
+     messages), duplicated rather than reused for the same single-purpose-
+     token reason as the light-mode pair. */
+  --refusal-bg: rgba(227, 169, 74, .16);
+  --refusal-text: #E3A94A;
+
   /* Focus ring -- accent-dark, verified >=3:1 against bg and surface2-dark */
   --focus-ring: #4C7DFF;
   /* Dark sidebar bg is --surface-dark, where --focus-ring already clears
@@ -277,6 +294,9 @@
   --color-status-graphing-text: var(--status-graphing-text);
   --color-status-failed-bg: var(--status-failed-bg);
   --color-status-failed-text: var(--status-failed-text);
+
+  --color-refusal-bg: var(--refusal-bg);
+  --color-refusal-text: var(--refusal-text);
 
   --color-focus-ring: var(--focus-ring);
   --color-sidebar-focus-ring: var(--sidebar-focus-ring);

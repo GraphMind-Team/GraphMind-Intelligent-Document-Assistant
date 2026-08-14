@@ -102,7 +102,7 @@ Chapter-level filtered search (chapters stay read-only metadata) · query histor
 | ID | Status | Decision or blocker |
 |---|---|---|
 | OD-1 | ✅ RESOLVED | **Entity/relationship type list (FR-5).** Entity types: `Person`, `Organization`, `Project`, `Product`, `Location`. Relationship types: `WORKS_AT`, `SUPPLIES`, `PART_OF`, `LOCATED_IN`, `RELATED_TO` (fallback so extraction never needs a type outside the closed set) |
-| OD-2 | 🔴 OPEN | **FR-10 threshold value.** Mechanism fixed by AD-6; the number is resolved inside Story 3.2 and lives as config in the LLM wrapper |
+| OD-2 | ✅ RESOLVED | **FR-10 threshold value.** `RELEVANCE_THRESHOLD = 0.75` (`shared/llm_client/__init__.py`), measured against real Weaviate retrieval (on-topic distances 0.162–0.459, off-topic 0.899–1.094, one Bulgarian cross-lingual probe at 0.182) — sits in the resulting gap, biased toward not refusing a genuinely answerable question. Small sample (one document); flagged for re-measurement once Epic 6's evaluation set exists (SM-2/SM-C1) |
 | OD-3 | 🔴 OPEN | **SM-1 numeric target.** 80% is a placeholder; confirmed in Story 6.1 after a baseline run |
 | OD-4 | 🔴 OPEN | Whether FR-8's delete/graph warning needs a stronger v1 mitigation. PM call, not architecture's |
 | OD-5 | ✅ RESOLVED | Chat document search is a **filter over the scope panel only**, not library search. Removes the §6.2 conflict; UX-DR10 amended |
@@ -129,7 +129,7 @@ Chapter-level filtered search (chapters stay read-only metadata) · query histor
 | UX-DR12 | **Settings page** — four independent cards (Profile, Change Password, Appearance, Delete Account) in a two-column grid. Each saves on its own. Delete Account uses the danger-tinted treatment |
 | UX-DR13 | **Toggle switch** — 40×22px pill track, border off / primary on, white thumb. Used for the theme toggle |
 | UX-DR14 | **Delete confirmation** (documents and account) — always an explicit inline confirm, never single-click destroy. Plain-language deletion boundary. Cancel/Confirm reachable by keyboard and screen reader |
-| UX-DR15 | 🔴 **Refusal bubble — OPEN GAP, no mock.** Must be visually *and* semantically distinct from a grounded answer, not just a bubble with zero citations. Needs a design decision at implementation |
+| UX-DR15 | ✅ **Refusal bubble — RESOLVED (Story 3.2).** Centered, symmetric-cornered bubble in a dedicated `--refusal-bg`/`--refusal-text` amber token pair (distinct from both the assistant bubble's fill and `--danger`), `font-medium`, with a screen-reader-only "Refusal: " prefix so it announces distinctly, not just looks distinct |
 | UX-DR16 | 🔴 **Failed ingestion state — OPEN GAP, no mock.** Must show a readable reason without dropping the row. Placement (row-inline vs Detail-only) undecided |
 | UX-DR17 | 🔴 **Empty library — OPEN GAP, no mock.** Assumed: "No documents yet." with Upload still primary-actionable. Do not over-design beyond this |
 | UX-DR18 | **Accessibility floor** — WCAG 2.2 AA. Status never colour-only; focus rings visible in both themes; tab order = sidebar → heading → content → secondary panels |

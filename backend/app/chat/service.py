@@ -15,7 +15,7 @@ from app.chat import repository
 from app.chat.schemas import AnswerSegmentResponse, AskResponse, CitationResponse
 from app.shared.data_access.weaviate_client import TOP_K_PASSAGES, search_passages
 from app.shared.embeddings import embed_texts
-from app.shared.llm_client import ChatCompletionError, generate_answer
+from app.shared.llm_client import RELEVANCE_THRESHOLD, ChatCompletionError, generate_answer
 from app.shared.models import User
 
 logger = logging.getLogger(__name__)
@@ -31,16 +31,17 @@ def ask_question(db: Session, current_user: User, question: str) -> AskResponse:
     The exact 503 point: only the `except ChatCompletionError` branch
     below. Nothing else in this function ever raises 503 -- the
     zero-passages branch returns 200 with `empty_reason="no_documents"`,
-    never an exception. This is the precise separation AC12 requires: the
-    zero-passages path and the LLM-wrapper-failure path never share a
-    status code or a branch (AD-3/AD-6).
+    the refusal branch returns 200 with `empty_reason="refusal"`, neither
+    is ever an exception. This is the precise separation AC12 requires:
+    the zero-passages path, the refusal path, and the LLM-wrapper-failure
+    path never share a status code or a branch (AD-3/AD-6) -- exactly one
+    of the three can produce a given response, by construction of the
+    branch order itself, not by an extra check.
 
-    Forward-compatibility note for Story 3.2 (not built here): the
-    relevance-threshold short-circuit AD-6 describes belongs right after
-    `search_passages` returns and before `generate_answer` is called --
-    exactly where the `if not passages:` branch sits below, which 3.2
-    will extend to also check each passage's `.distance` against OD-2's
-    (still-unset) threshold.
+    The refusal short-circuit (Story 3.2, FR-10/OD-2): if no retrieved
+    passage's `.distance` clears `RELEVANCE_THRESHOLD`
+    (`shared/llm_client`), this returns before `generate_answer` is ever
+    called -- no generation call is made at all, per AD-6.
 
     Capacity note: this is a sync `def` route, so FastAPI runs it in
     Starlette's anyio threadpool (a fixed-size worker pool, not the async
@@ -58,9 +59,25 @@ def ask_question(db: Session, current_user: User, question: str) -> AskResponse:
 
     if not passages:
         # AC12's degenerate case: an effectively-empty library. NOT the
-        # FR-10 refusal (that's Story 3.2's job, gated on a relevance
-        # threshold this story doesn't have).
+        # FR-10 refusal below -- an empty library and a library that has
+        # documents but none relevant enough are distinct outcomes, and
+        # the frontend renders them differently.
         return AskResponse(segments=[], empty_reason="no_documents")
+
+    if not any(p.distance is not None and p.distance <= RELEVANCE_THRESHOLD for p in passages):
+        # FR-10/OD-2: not one retrieved passage is close enough to trust.
+        # `distance is None` can't be verified as relevant, so it never
+        # counts toward clearing the bar -- the only path through which an
+        # all-`None` retrieval refuses rather than silently falling
+        # through to `generate_answer` with unverified passages.
+        if all(p.distance is None for p in passages):
+            # Can't happen today -- `search_passages` always requests
+            # distance metadata -- but if it ever did, every question
+            # would silently refuse and look like a correctly working
+            # system. Logged so that failure mode leaves a trace instead
+            # of being indistinguishable from "genuinely no evidence."
+            logger.warning("Refusing with no distance metadata on any retrieved passage")
+        return AskResponse(segments=[], empty_reason="refusal")
 
     try:
         answer = generate_answer(question, passages)

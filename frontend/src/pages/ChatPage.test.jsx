@@ -143,6 +143,24 @@ describe('ChatPage', () => {
     expect(screen.getByText('No documents are available to search yet.')).toBeInTheDocument()
   })
 
+  it('renders the refusal as a real bubble, distinct from the plain empty-state notices', async () => {
+    vi.spyOn(chatClient, 'askQuestion').mockResolvedValue({ segments: [], empty_reason: 'refusal' })
+    const user = userEvent.setup()
+    renderChatPage()
+
+    await user.type(screen.getByLabelText(/ask a question/i), 'q{Enter}')
+
+    const refusalText = await screen.findByText(
+      'No supporting evidence found in your documents for this question.',
+    )
+    // A real bubble (DIV with the dedicated refusal fill), unlike the
+    // no_documents/no_answer notices above which are bare <p> elements.
+    expect(refusalText.closest('div')).toHaveClass('bg-refusal-bg')
+    // Announced distinctly to screen readers, not merely styled
+    // differently -- its own sr-only prefix, never "GraphMind:".
+    expect(refusalText.closest('div')).toHaveTextContent(/^Refusal:/)
+  })
+
   it('carries aria-live="polite" on the message list', () => {
     renderChatPage()
 

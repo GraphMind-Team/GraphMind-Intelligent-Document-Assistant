@@ -55,7 +55,7 @@ development_status:
 
   epic-3: in-progress
   3-1-ask-a-question-and-receive-a-grounded-cited-answer: done
-  3-2-explicit-refusal-when-the-documents-don-t-support-an-answer: backlog
+  3-2-explicit-refusal-when-the-documents-don-t-support-an-answer: done
   3-3-scope-a-question-to-a-chosen-set-of-documents: backlog
   epic-3-retrospective: optional
 
