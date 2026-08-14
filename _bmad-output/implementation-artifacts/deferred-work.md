@@ -112,8 +112,19 @@
     line so a later cold-start latency spike isn't debugged as a mystery.
 
 - source_spec: `_bmad-output/planning-artifacts/epics.md` (Story 2.3: Parse and index documents into the vector store)
+  resolved: 2026-08-14 -- `spec-2-3-parse-and-index-documents-into-the-vector-store.md` written.
   summary: Author a `spec-2-3-parse-and-index-documents-into-the-vector-store.md` under `_bmad-output/implementation-artifacts/`, matching the pattern every other shipped story (1.1/1.2/1.5/2.1/2.2) has -- 2.3 was implemented directly against `epics.md`'s acceptance criteria plus `epic-2-context.md`, with no dedicated spec file of its own.
   evidence: Noted during a Story 2.3 review round; `sprint-status.yaml` and `deferred-work.md`'s own entries for 2.3 both reference `epics.md` directly rather than a spec file, unlike every neighboring story. Not a code defect -- a process/documentation gap worth closing before 2.4 sets the same precedent.
+  resolution_note: >
+    This was the FIRST occurrence of the gap, and its own "worth closing before 2.4 sets the same
+    precedent" warning was not heeded -- Story 3.1 shipped without a spec file too (see the
+    Story 3.1 entry above, now also resolved, and `spec-3-1`'s own provenance note, which cites
+    this exact entry). Story 1.3 and Story 1.4 have the same gap and are, as of this resolution,
+    still open -- not yet closed by a reconstructed spec. The new `spec-2-3` file carries the same
+    `reconstructed-after-implementation` provenance marker `spec-3-1` established, for the same
+    reason: its Boundaries describe what 2.3 turned out to be bound by, not decisions approved in
+    advance, and should not be read as carrying the authority a genuinely pre-approved Boundaries
+    section does.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-4-extract-entities-into-the-unified-graph-with-compensating-ro.md`
   summary: >
@@ -190,6 +201,48 @@
     poll-based mechanism itself remains the crude part, and the 3-minute ceiling is an assumption
     about ingestion duration that no benchmark backs (see also the `EXTRACTION_CHAR_BUDGET` entry).
 
+- source_spec: `_bmad-output/planning-artifacts/epics.md` (Story 3.1: Ask a question and receive a grounded, cited answer)
+  summary: >
+    AC14 (NFR-1, p95 chat-answer latency under 8 seconds) is knowingly not met by the shipped
+    configuration. `shared/llm_client`'s `_CHAT_TIMEOUT_SECONDS`/`_CHAT_MAX_ATTEMPTS` comment
+    documents a measured ~32s real call against the free-tier default model, with a ~120s worst
+    case across both attempts (45s + up to 30s of a 429's own `Retry-After` + 45s). No test
+    asserts NFR-1, so nothing in CI or the review loop will ever flag this as a regression --
+    only this line and the code comment record that it's a known, accepted gap rather than an
+    oversight. `OPENROUTER_CHAT_MODEL` (backend/.env.example) is the intended fix once a faster
+    free/paid model is chosen; unset, it falls back to the same slow default.
+  evidence: >
+    Story 3.1 review found the deviation was previously only discoverable by reading
+    `shared/llm_client/__init__.py`'s inline comments -- neither `deferred-work.md` nor
+    `sprint-status.yaml` carried any record of it, unlike every other knowingly-accepted gap in
+    this project (see e.g. the `TRUSTED_PROXY_HOSTS` and `EXTRACTION_CHAR_BUDGET` entries above).
+
+- source_spec: `_bmad-output/planning-artifacts/epics.md` (Story 3.1: Ask a question and receive a grounded, cited answer)
+  resolved: 2026-08-14 -- `spec-3-1-ask-a-question-and-receive-a-grounded-cited-answer.md` written.
+  summary: >
+    Author a `spec-3-1-ask-a-question-and-receive-a-grounded-cited-answer.md` under
+    `_bmad-output/implementation-artifacts/`, matching the pattern every other shipped story
+    (1.1/1.2/1.5/2.1/2.2/2.4) has -- 3.1 was implemented directly against `epics.md`'s
+    acceptance criteria, with no dedicated spec file of its own.
+  evidence: >
+    Same gap as the still-open Story 2.3 entry above, which explicitly warned this would
+    recur ("worth closing before 2.4 sets the same precedent") -- 2.4 did get a spec file, but
+    3.1 didn't. Concretely cost something this time: without a Boundaries section recording
+    UX-DR21's `#4A7FE0`/`#D1EEFE` pair as a documented, human-accepted deviation, Story 3.1's
+    review re-tuned the citation-chip contrast without first checking whether it was an
+    oversight or a recorded decision (it was the latter -- closing it was still correct, but the
+    docs it contradicted had to be reconciled after the fact instead of the spec surfacing the
+    tension up front).
+  resolution_note: >
+    Kept rather than deleted, with a `resolved:` line added, because the lesson is the point --
+    this is the second occurrence of the same gap and the Story 2.3 entry above is STILL open.
+    The new spec is explicit that it was reconstructed after implementation (see its provenance
+    block): its Boundaries describe what 3.1 turned out to be bound by, not decisions a human
+    approved in advance, so no future story should read those lines as carrying the authority a
+    genuinely pre-approved Boundaries section does. A retro-spec presenting itself as frozen
+    would invite the mirror image of the UX-DR21 error -- a later story declining to revisit a
+    line that was never actually negotiated.
+
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-5-failed-ingestion-surfaced-with-a-readable-reason.md`
   summary: >
     `Document.failed_reason` is never cleared back to `None` on a subsequent successful ingestion,
@@ -236,3 +289,39 @@
     runtime behavior and the `DocumentResponse` schema are both correct and tested; this is purely
     about API-doc completeness for prospective external consumers, none of which exist yet for
     this project.
+- source_spec: `_bmad-output/planning-artifacts/epics.md` (Story 1.3: Account registration)
+  resolved: 2026-08-14 -- `spec-1-3-account-registration.md` written.
+  summary: >
+    Author a `spec-1-3-account-registration.md` under `_bmad-output/implementation-artifacts/`,
+    matching the pattern every other shipped story has. 1.3 was implemented directly against
+    `epics.md`'s acceptance criteria plus `epic-1-context.md`, with no dedicated spec file of its
+    own.
+  evidence: >
+    Never previously recorded anywhere in this file -- found only while resolving the Story 2.3
+    and Story 3.1 spec-file entries above, both of which cite "every other shipped story" as
+    having one. 1.3 is actually the EARLIEST occurrence of this gap, predating 2.3's; its sibling
+    Story 1.4 has the identical gap and remains open (see the entry directly below).
+  resolution_note: >
+    Reconstructed from `epics.md`'s AC text and the one pre-merge review-round commit (`d92cdfd`).
+    Carries the same `provenance: reconstructed-after-implementation` marker as `spec-2-3` and
+    `spec-3-1`, for the same reason recorded in both of those files' own provenance notes: this
+    spec's Boundaries describe what 1.3 turned out to be bound by, not decisions approved in
+    advance.
+
+- source_spec: `_bmad-output/planning-artifacts/epics.md` (Story 1.4: Login and JWT session)
+  resolved: 2026-08-14 -- `spec-1-4-login-and-jwt-session.md` written.
+  summary: >
+    Author a `spec-1-4-login-and-jwt-session.md` under `_bmad-output/implementation-artifacts/`,
+    matching the pattern every other shipped story has. 1.4 was implemented directly against
+    `epics.md`'s acceptance criteria, with no dedicated spec file of its own.
+  evidence: >
+    Same gap as Story 1.3's entry directly above (and the now-resolved 2.3/3.1 entries) -- found
+    at the same time, closed within the hour rather than left open.
+  resolution_note: >
+    Reconstructed from `epics.md`'s AC text alone -- unlike 1.3/2.3/3.1, Story 1.4 shipped as a
+    single commit (`65ab9fd`) with no separate pre-merge review-round fix, so there is no Spec
+    Change Log to reconstruct. Carries the same `provenance: reconstructed-after-implementation`
+    marker as the other three, for the same reason recorded in each of their own provenance
+    notes: this spec's Boundaries describe what 1.4 turned out to be bound by, not decisions
+    approved in advance. All four missing-spec entries in this project (1.3, 1.4, 2.3, 3.1) are
+    now resolved.

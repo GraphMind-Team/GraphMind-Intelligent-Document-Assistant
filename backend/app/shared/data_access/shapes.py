@@ -50,6 +50,30 @@ class WeaviatePassage:
 
 
 @dataclass(frozen=True)
+class WeaviateSearchResult:
+    """One passage returned by `weaviate_client.search_passages`, ordered
+    nearest-first (Epic 3's chat retrieval).
+
+    Deliberately omits `user_id` (already proven by the caller's own query
+    filter -- re-surfacing it here would tempt a caller into re-checking
+    tenancy on data that's already scoped) and `embedding` (never needed
+    after the search that produced this result).
+
+    `distance` is Weaviate's cosine distance for this result (lower = more
+    similar); Story 3.1's chat generation only uses it for retrieval
+    ordering, never as a cutoff -- Story 3.2 is what reads this field to
+    apply OD-2's relevance threshold.
+    """
+
+    chunk_id: str
+    document_id: str
+    chapter: str
+    chunk_index: int
+    text: str
+    distance: float | None
+
+
+@dataclass(frozen=True)
 class Neo4jEntity:
     """One knowledge-graph entity node, as stored in Neo4j.
 

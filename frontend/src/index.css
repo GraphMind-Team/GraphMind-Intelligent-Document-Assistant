@@ -43,11 +43,28 @@
   --warning: #E08600;
   --danger: #E01E1E;
 
-  /* Citation chip -- accepted AA deviation (UX-DR21), do not re-tune */
+  /* Citation chip. The chip text is 11.5px bold -- WCAG's "large text"
+     exception only starts at ~18.7px bold, so this is normal text and
+     needs 4.5:1, not 3:1. The original #4A7FE0 only cleared 3.22:1 here;
+     re-tuned darker until it clears 4.5:1 against --citation's #D1EEFE
+     (4.62:1 here). The 2026-08-11 decision to ship the gap as-is was made
+     knowingly, with the same numbers -- not on a misread of the exemption;
+     Epic 3's own scoping always left UX-DR21 open for closure, and Story
+     3.1 (this pair's first real consumer, CitationChip.jsx) is it. See the
+     UX-DR21 row in epics.md. */
   --citation: #D1EEFE;
-  --citation-text: #4A7FE0;
+  --citation-text: #3064C6;
 
-  /* Robot mascot -- locked, independent namespace */
+  /* Robot mascot -- locked, independent namespace (fill colors only;
+     --robot-a/--robot-b have no dark override on purpose). The shadows
+     below DO need a dark override, same reasoning as --modal-shadow just
+     above: a navy-tinted shadow (rgba(10,46,99,...), the mockup's literal
+     value) reads as a color cast rather than a shadow once the surface
+     behind it is already dark -- switches to a neutral black shadow in
+     dark mode instead, at roughly double the light-mode opacity so it
+     stays visible against a darker surface. */
+  --robot-shadow-head: 0 2px 4px rgba(10, 46, 99, .18);
+  --robot-shadow-body: 0 3px 4px rgba(10, 46, 99, .15);
   --robot-a: #5B8DEF;
   --robot-b: #D1EEFE;
 
@@ -162,6 +179,11 @@
   /* Citation chip -- re-tuned pair, not an opacity trick */
   --citation: #2A3557;
   --citation-text: #8FB0FF;
+
+  /* Robot mascot shadows -- neutral black, not the light mode's navy tint;
+     see the light-mode comment above --robot-shadow-head/-body for why. */
+  --robot-shadow-head: 0 2px 4px rgba(0, 0, 0, .36);
+  --robot-shadow-body: 0 3px 4px rgba(0, 0, 0, .3);
 
   /* --sky is literally the citation-chip background per DESIGN.md ("sky's
      sole sanctioned use is as this citation-chip background") -- mirrors
