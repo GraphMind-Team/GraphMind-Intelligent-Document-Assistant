@@ -5,6 +5,7 @@ module, `AskResponse` is hand-assembled by `service.py` rather than built
 from an ORM row, so `from_attributes` isn't needed here.
 """
 
+import uuid
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -21,6 +22,15 @@ class AskRequest(BaseModel):
     # exists so a pathological input can't dominate
     # shared/llm_client's own prompt-size budget.
     question: str = Field(min_length=1, max_length=2000)
+
+    # Story 3.3/FR-11: empty (the default) means "search all of the user's
+    # documents" -- unchanged from Story 3.1's only behavior. No ownership
+    # check happens on these ids anywhere in the request path; the existing
+    # user_id filter search_passages already applies is what keeps a
+    # foreign/stale id from ever widening retrieval (see
+    # weaviate_client.search_passages). max_length is a defensive cap, same
+    # spirit as `question`'s above -- not a measured value.
+    document_ids: list[uuid.UUID] = Field(default_factory=list, max_length=200)
 
 
 class CitationResponse(BaseModel):
@@ -58,8 +68,17 @@ class AskResponse(BaseModel):
     # None when segments is non-empty. Distinguishes four otherwise-
     # identical-looking "nothing to show" cases so the frontend can render
     # four different things:
-    #   "no_documents" -- search_passages returned zero results (empty or
-    #                     not-yet-ingested library)
+    #   "no_documents" -- search_passages returned zero results with no
+    #                     scope requested (empty or not-yet-ingested
+    #                     library)
+    #   "empty_scope"  -- Story 3.3/FR-11: search_passages returned zero
+    #                     results, but a non-empty document_ids scope WAS
+    #                     requested -- the library isn't empty, the
+    #                     selected documents just have no matching
+    #                     passages (not yet Ready, or no relevant content).
+    #                     Kept distinct from "no_documents" so a user with
+    #                     a full library who scoped narrowly doesn't see
+    #                     copy implying they have nothing uploaded.
     #   "no_answer"    -- passages were found and generate_answer ran, but
     #                     every segment was either returned empty by the
     #                     model or dropped during citation resolution
@@ -71,4 +90,4 @@ class AskResponse(BaseModel):
     #                     notice paragraph the other two use (UX-DR15) --
     #                     it is a designed, correct outcome, not an error
     #                     and not an empty answer.
-    empty_reason: Literal["no_documents", "no_answer", "refusal"] | None = None
+    empty_reason: Literal["no_documents", "empty_scope", "no_answer", "refusal"] | None = None

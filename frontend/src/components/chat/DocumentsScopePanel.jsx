@@ -1,21 +1,30 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { listDocuments } from '../../api/documentsClient'
+import { useChatScope } from '../../context/ChatScopeContext'
 import StatusPill from '../StatusPill'
 
-// Documents-in-scope panel (Story 3.1, UX-DR9): a static, read-only list of
-// the user's documents (filename + status pill). No checkboxes, no
-// "select all", no filter -- that interactivity, and FR-11's all-vs-subset
-// retrieval logic, is explicitly Story 3.3's job. Retrieval in this story
-// always searches all of the user's documents.
+// Documents-in-scope panel (Story 3.1 built the static shell; Story 3.3
+// adds the interactivity FR-11 needs): per-document checkboxes, a
+// "Select all" for every Ready document, and a client-side filter over
+// this panel's own list only (OD-5 -- never a library-wide search).
+// Selected ids live in ChatScopeContext, shared with ChatPage's submit
+// handler.
 export default function DocumentsScopePanel({ authFetch }) {
   const [documents, setDocuments] = useState([])
   const [error, setError] = useState(null)
+  const [filterText, setFilterText] = useState('')
+  const { selectedDocumentIds, toggleDocument, selectAll, retainOnly } = useChatScope()
 
   useEffect(() => {
     let cancelled = false
     listDocuments(authFetch)
       .then((data) => {
-        if (!cancelled) setDocuments(data)
+        if (cancelled) return
+        setDocuments(data)
+        // Safety net, not a fix for a live bug today -- see
+        // ChatScopeContext.jsx's retainOnly comment. A no-op on this
+        // first load since the selection starts empty.
+        retainOnly(data.filter((doc) => doc.status === 'Ready').map((doc) => doc.id))
       })
       .catch((err) => {
         if (!cancelled) setError(err.message)
@@ -23,7 +32,18 @@ export default function DocumentsScopePanel({ authFetch }) {
     return () => {
       cancelled = true
     }
-  }, [authFetch])
+  }, [authFetch, retainOnly])
+
+  const readyDocumentIds = useMemo(
+    () => documents.filter((doc) => doc.status === 'Ready').map((doc) => doc.id),
+    [documents],
+  )
+
+  const visibleDocuments = useMemo(() => {
+    const needle = filterText.trim().toLowerCase()
+    if (!needle) return documents
+    return documents.filter((doc) => doc.filename.toLowerCase().includes(needle))
+  }, [documents, filterText])
 
   return (
     // Full width below 900px (the same breakpoint ChatPage.jsx collapses
@@ -39,16 +59,92 @@ export default function DocumentsScopePanel({ authFetch }) {
         </p>
       )}
       {!error && documents.length === 0 && <p className="text-xs text-text2">No documents yet.</p>}
+
+      {documents.length > 0 && (
+        <>
+          {/* OD-6: an all-unchecked panel must read as "asking across
+              everything," not "nothing selected" -- FR-11's default. */}
+          <p className="mb-2 text-[11px] text-text2">
+            {selectedDocumentIds.length === 0
+              ? `Asking across all ${documents.length} document${documents.length === 1 ? '' : 's'}.`
+              : `${selectedDocumentIds.length} of ${documents.length} selected.`}
+          </p>
+
+          <div className="mb-2 flex items-center gap-2">
+            <label htmlFor="scope-filter" className="sr-only">
+              Filter documents in scope
+            </label>
+            <input
+              id="scope-filter"
+              type="text"
+              value={filterText}
+              onChange={(event) => setFilterText(event.target.value)}
+              placeholder="Filter…"
+              className="min-w-0 flex-1 rounded-full border border-border bg-surface px-2.5 py-1.5 text-[12px]"
+            />
+            <button
+              type="button"
+              // Always the full list's Ready ids, not the filtered view's --
+              // UX-DR10's "every Ready document" is unqualified by the
+              // filter.
+              onClick={() => selectAll(readyDocumentIds)}
+              className="shrink-0 whitespace-nowrap text-[12px] font-semibold text-accent"
+            >
+              Select all
+            </button>
+          </div>
+        </>
+      )}
+
       <ul className="list-none space-y-1.5 p-0">
-        {documents.map((doc) => (
-          <li
-            key={doc.id}
-            className="flex items-center gap-2 rounded-lg border border-border bg-surface px-2.5 py-2 text-[12.5px]"
-          >
-            <span className="min-w-0 flex-1 truncate">{doc.filename}</span>
-            <StatusPill status={doc.status} />
-          </li>
-        ))}
+        {visibleDocuments.map((doc) => {
+          const isReady = doc.status === 'Ready'
+          const inputId = `scope-doc-${doc.id}`
+          return (
+            <li
+              key={doc.id}
+              className="flex items-center gap-2 rounded-lg border border-border bg-surface px-2.5 py-2 text-[12.5px]"
+            >
+              {isReady ? (
+                <label htmlFor={inputId} className="flex min-w-0 flex-1 items-center gap-2">
+                  <input
+                    id={inputId}
+                    type="checkbox"
+                    checked={selectedDocumentIds.includes(doc.id)}
+                    onChange={() => toggleDocument(doc.id)}
+                    className="shrink-0"
+                  />
+                  <span className="min-w-0 flex-1 truncate">{doc.filename}</span>
+                </label>
+              ) : (
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <input
+                    id={inputId}
+                    type="checkbox"
+                    // Controlled, same as the enabled branch, even though a
+                    // non-Ready id can never actually be in
+                    // selectedDocumentIds (retainOnly prunes to Ready ids
+                    // only) -- always false in practice, but an explicit
+                    // `checked` means this can't render as checked no
+                    // matter what dispatches an event at it, rather than
+                    // relying solely on `disabled` to block that.
+                    checked={selectedDocumentIds.includes(doc.id)}
+                    onChange={() => {}}
+                    disabled
+                    // UX-DR27: the disabled reason must be exposed
+                    // programmatically, not left as sighted-only inline
+                    // text -- StatusPill next to it already covers "status
+                    // noted inline" as real DOM text.
+                    aria-label={`${doc.filename} — not available yet (${doc.status})`}
+                    className="shrink-0"
+                  />
+                  <span className="min-w-0 flex-1 truncate">{doc.filename}</span>
+                </div>
+              )}
+              <StatusPill status={doc.status} />
+            </li>
+          )
+        })}
       </ul>
     </aside>
   )

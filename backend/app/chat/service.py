@@ -7,6 +7,7 @@ rather than talking to Postgres/Weaviate/Neo4j directly (AD-2).
 """
 
 import logging
+import uuid
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -21,12 +22,18 @@ from app.shared.models import User
 logger = logging.getLogger(__name__)
 
 
-def ask_question(db: Session, current_user: User, question: str) -> AskResponse:
+def ask_question(
+    db: Session, current_user: User, question: str, document_ids: list[uuid.UUID]
+) -> AskResponse:
     """Embed -> search -> (degenerate zero-passage case) -> generate ->
     resolve -> assemble.
 
     `question` arrives already validated non-blank/length-bounded by
-    `AskRequest` (chat/schemas.py) -- no manual check here.
+    `AskRequest` (chat/schemas.py) -- no manual check here. `document_ids`
+    (Story 3.3/FR-11) arrives as whatever the client sent, unvalidated for
+    ownership -- `search_passages`'s own `user_id` filter is what keeps a
+    foreign/stale id from ever widening retrieval, so no extra check is
+    needed here.
 
     The exact 503 point: only the `except ChatCompletionError` branch
     below. Nothing else in this function ever raises 503 -- the
@@ -55,14 +62,23 @@ def ask_question(db: Session, current_user: User, question: str) -> AskResponse:
     found the hard way rather than a known, documented limit.
     """
     query_vector = embed_texts([question])[0]
-    passages = search_passages(query_vector, str(current_user.id), limit=TOP_K_PASSAGES)
+    scoped_ids = [str(document_id) for document_id in document_ids]
+    passages = search_passages(
+        query_vector, str(current_user.id), limit=TOP_K_PASSAGES, document_ids=scoped_ids or None
+    )
 
     if not passages:
-        # AC12's degenerate case: an effectively-empty library. NOT the
-        # FR-10 refusal below -- an empty library and a library that has
-        # documents but none relevant enough are distinct outcomes, and
-        # the frontend renders them differently.
-        return AskResponse(segments=[], empty_reason="no_documents")
+        # AC12's degenerate case, split in two by Story 3.3: an
+        # effectively-empty library ("no_documents") vs. a non-empty scope
+        # whose selected documents just have no matching passages
+        # ("empty_scope") -- the library isn't empty in that second case,
+        # so it must not read like it is. Neither is the FR-10 refusal
+        # below -- a library/scope with nothing to retrieve and a
+        # library/scope that has relevant-search candidates but none
+        # relevant enough are distinct outcomes, and the frontend renders
+        # all three differently.
+        reason = "empty_scope" if scoped_ids else "no_documents"
+        return AskResponse(segments=[], empty_reason=reason)
 
     if not any(p.distance is not None and p.distance <= RELEVANCE_THRESHOLD for p in passages):
         # FR-10/OD-2: not one retrieved passage is close enough to trust.

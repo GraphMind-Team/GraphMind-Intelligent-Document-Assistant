@@ -61,4 +61,22 @@ describe('askQuestion', () => {
 
     await expect(askQuestion(authFetch, 'q')).rejects.toThrow('unexpected response')
   })
+
+  it('sends the given document_ids in the request body', async () => {
+    const authFetch = vi.fn().mockResolvedValue(jsonResponse(200, { segments: [], empty_reason: null }))
+
+    await askQuestion(authFetch, 'q', ['doc-1', 'doc-2'])
+
+    const [, options] = authFetch.mock.calls[0]
+    expect(JSON.parse(options.body).document_ids).toEqual(['doc-1', 'doc-2'])
+  })
+
+  it('defaults document_ids to an empty array when omitted', async () => {
+    const authFetch = vi.fn().mockResolvedValue(jsonResponse(200, { segments: [], empty_reason: null }))
+
+    await askQuestion(authFetch, 'q')
+
+    const [, options] = authFetch.mock.calls[0]
+    expect(JSON.parse(options.body).document_ids).toEqual([])
+  })
 })
