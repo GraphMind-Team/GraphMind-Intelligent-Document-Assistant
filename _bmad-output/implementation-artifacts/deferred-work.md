@@ -277,3 +277,32 @@
     Story 2.5 review (blind-hunter) raised this. Pre-existing pattern from Story 2.3/2.4 — this
     story only added one more field write inside that same already-swallowed block, so the gap
     predates this change and isn't specific to `failed_reason`.
+
+- source_spec: `_bmad-output/planning-artifacts/epics.md` (Story 1.3: Account registration)
+  resolved: 2026-08-14 -- `spec-1-3-account-registration.md` written.
+  summary: >
+    Author a `spec-1-3-account-registration.md` under `_bmad-output/implementation-artifacts/`,
+    matching the pattern every other shipped story has. 1.3 was implemented directly against
+    `epics.md`'s acceptance criteria plus `epic-1-context.md`, with no dedicated spec file of its
+    own.
+  evidence: >
+    Never previously recorded anywhere in this file -- found only while resolving the Story 2.3
+    and Story 3.1 spec-file entries above, both of which cite "every other shipped story" as
+    having one. 1.3 is actually the EARLIEST occurrence of this gap, predating 2.3's; its sibling
+    Story 1.4 has the identical gap and remains open (see the entry directly below).
+  resolution_note: >
+    Reconstructed from `epics.md`'s AC text and the one pre-merge review-round commit (`d92cdfd`).
+    Carries the same `provenance: reconstructed-after-implementation` marker as `spec-2-3` and
+    `spec-3-1`, for the same reason recorded in both of those files' own provenance notes: this
+    spec's Boundaries describe what 1.3 turned out to be bound by, not decisions approved in
+    advance.
+
+- source_spec: `_bmad-output/planning-artifacts/epics.md` (Story 1.4: Login and JWT session)
+  summary: >
+    Author a `spec-1-4-login-and-jwt-session.md` under `_bmad-output/implementation-artifacts/`,
+    matching the pattern every other shipped story has. 1.4 was implemented directly against
+    `epics.md`'s acceptance criteria, with no dedicated spec file of its own.
+  evidence: >
+    Same gap as Story 1.3's entry directly above (and the now-resolved 2.3/3.1 entries) -- found
+    at the same time, not yet closed. The next story to touch `auth/` should close this one too
+    rather than letting a fourth occurrence accumulate.
