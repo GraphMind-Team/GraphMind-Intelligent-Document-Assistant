@@ -479,10 +479,10 @@ def test_upload_concurrent_duplicate_race_resolves_to_one_row_never_500s(db_sess
 
     content = b"%PDF-1.4 racing concurrent uploads"
 
-    document_1, is_duplicate_1 = service.upload_document(
+    document_1, outcome_1 = service.upload_document(
         db_session, user, filename="a.pdf", file_type="pdf", content=content
     )
-    assert is_duplicate_1 is False
+    assert outcome_1 == "created"
 
     real_lookup = repository.get_document_by_content_hash
     calls = {"count": 0}
@@ -495,10 +495,142 @@ def test_upload_concurrent_duplicate_race_resolves_to_one_row_never_500s(db_sess
 
     monkeypatch.setattr(repository, "get_document_by_content_hash", _lookup_missing_once)
 
-    document_2, is_duplicate_2 = service.upload_document(
+    document_2, outcome_2 = service.upload_document(
         db_session, user, filename="b.pdf", file_type="pdf", content=content
     )
 
-    assert is_duplicate_2 is True
+    assert outcome_2 == "duplicate"
     assert document_2.id == document_1.id
+    assert db_session.query(Document).count() == 1
+
+
+def test_upload_byte_identical_reupload_of_a_failed_document_reingests_in_place(
+    client, db_session, _stub_ingestion_pipeline
+):
+    # A real bug found by independent review after this story's first
+    # merge: re-uploading a Failed document's exact bytes used to be
+    # swallowed as a plain duplicate, silently removing the only recovery
+    # path a user had (no retry endpoint exists anywhere in this
+    # codebase). Fixed: a hash match against a Failed document is reset to
+    # Uploaded and retried in place -- no second row, but ingestion *is*
+    # scheduled, same as a fresh upload.
+    from app.shared.models import Document
+
+    token = _register_and_login(
+        client, full_name="Maria Ivanova", email="maria-reingest1@example.com", password="password12345"
+    )
+    content = b"%PDF-1.4 was failed, reuploaded identical"
+
+    first = client.post(
+        "/documents",
+        headers=_auth_headers(token),
+        files={"file": ("report.pdf", content, "application/pdf")},
+    )
+    assert first.status_code == 201, first.text
+    document_id = first.json()["id"]
+
+    import uuid as uuid_module
+
+    row = db_session.get(Document, uuid_module.UUID(document_id))
+    row.status = "Failed"
+    row.failed_reason = "Could not read this document: unexpected EOF"
+    db_session.commit()
+
+    _stub_ingestion_pipeline.reset_mock()
+
+    second = client.post(
+        "/documents",
+        headers=_auth_headers(token),
+        files={"file": ("report.pdf", content, "application/pdf")},
+    )
+
+    assert second.status_code == 200, second.text
+    body = second.json()
+    assert body["id"] == document_id
+    assert body["status"] == "Uploaded"
+    assert body["is_duplicate"] is False
+    assert body["failed_reason"] is None
+
+    assert _stub_ingestion_pipeline.call_count == 1
+    assert db_session.query(Document).count() == 1
+
+
+def test_upload_byte_identical_reupload_of_a_ready_document_does_not_reingest(
+    client, _stub_ingestion_pipeline
+):
+    # The counterpart to the reingest test above: a hash match against a
+    # non-Failed document (Ready, Uploaded, Extracting, Graphing) is still
+    # a plain duplicate -- reingest-in-place is specific to Failed.
+    token = _register_and_login(
+        client, full_name="Maria Ivanova", email="maria-reingest2@example.com", password="password12345"
+    )
+    content = b"%PDF-1.4 was never failed"
+
+    first = client.post(
+        "/documents",
+        headers=_auth_headers(token),
+        files={"file": ("report.pdf", content, "application/pdf")},
+    )
+    assert first.status_code == 201, first.text
+    assert _stub_ingestion_pipeline.call_count == 1
+
+    second = client.post(
+        "/documents",
+        headers=_auth_headers(token),
+        files={"file": ("report.pdf", content, "application/pdf")},
+    )
+
+    assert second.status_code == 200, second.text
+    assert second.json()["is_duplicate"] is True
+    # Still only the first upload's ingestion call -- unchanged from the
+    # already-covered duplicate path.
+    assert _stub_ingestion_pipeline.call_count == 1
+
+
+def test_claim_failed_document_for_reingest_loses_race_falls_back_to_duplicate(
+    db_session, monkeypatch
+):
+    # Mirrors the concurrent-create race test above, but for the
+    # concurrent-reingest race: two identical re-uploads of the same
+    # Failed document both see status == "Failed" before either claims it.
+    # `claim_failed_document_for_reingest` is the atomic guard -- simulated
+    # here by forcing it to report a lost claim (as it genuinely would if a
+    # concurrent request's UPDATE landed first), and asserting the loser
+    # falls back to "duplicate" rather than scheduling a second pipeline
+    # against a row someone else is already reprocessing.
+    import uuid as uuid_module
+
+    from app.auth.repository import create_user
+    from app.auth.service import hash_password
+    from app.documents import repository, service
+    from app.shared.models import Document, User
+
+    user = create_user(
+        db_session,
+        User(
+            id=uuid_module.uuid4(),
+            full_name="Race Tester",
+            email="maria-reingest-race@example.com",
+            password_hash=hash_password("password12345"),
+        ),
+    )
+    db_session.commit()
+
+    content = b"%PDF-1.4 racing reingest of a failed document"
+    document, outcome = service.upload_document(
+        db_session, user, filename="a.pdf", file_type="pdf", content=content
+    )
+    assert outcome == "created"
+    document.status = "Failed"
+    document.failed_reason = "Could not read this document: boom"
+    db_session.commit()
+
+    monkeypatch.setattr(repository, "claim_failed_document_for_reingest", lambda db, doc_id: False)
+
+    document_2, outcome_2 = service.upload_document(
+        db_session, user, filename="b.pdf", file_type="pdf", content=content
+    )
+
+    assert outcome_2 == "duplicate"
+    assert document_2.id == document.id
     assert db_session.query(Document).count() == 1

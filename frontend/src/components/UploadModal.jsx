@@ -90,11 +90,19 @@ export default function UploadModal({ onClose }) {
   // auto-close the instant it's added -- before the user has any chance
   // to read why. An all-rejected batch now waits for explicit Cancel/
   // Escape instead, same as if nothing had been added.
+  //
+  // `'duplicate'` deliberately does NOT count as a reason to auto-close
+  // (Story 2.6, corrected after a real duplicate upload closed the modal
+  // before the "Already uploaded" message or its link were ever visible):
+  // a duplicate result is exactly the kind of thing this gate exists to
+  // protect -- informational, not a "nothing more to do here" signal, so
+  // it's treated the same as an error for this purpose even though it's
+  // still a *settled* row for the every-row-resolved check above.
   useEffect(() => {
     if (
       files.length > 0 &&
       files.every((row) => isSettled(row.status)) &&
-      files.some((row) => row.status === 'success' || row.status === 'duplicate')
+      files.some((row) => row.status === 'success')
     ) {
       onClose()
     }

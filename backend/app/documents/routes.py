@@ -72,7 +72,7 @@ async def upload_document(
         file_type = service.validate_format(file.filename or "", file.content_type)
         content = await _read_bounded(file)
         service.validate_size(len(content))
-        document, is_duplicate = service.upload_document(
+        document, outcome = service.upload_document(
             db,
             current_user,
             filename=file.filename or "",
@@ -80,14 +80,21 @@ async def upload_document(
             content=content,
         )
     # Story 2.6: a hash match reuses the *existing* document -- nothing was
-    # created, so the response is 200, not the route's default 201, and
-    # ingestion is never scheduled (no parse/embed/LLM call for a
-    # byte-identical duplicate, the entire point of NFR-7). The
-    # `response_model=DocumentResponse` declared above still governs
-    # serialization regardless of which status code is set here.
-    if is_duplicate:
+    # created, so a "duplicate" outcome's response is 200, not the route's
+    # default 201. "reingested" is also 200 (still no row created) but,
+    # unlike "duplicate", schedules ingestion the same as a fresh "created"
+    # upload -- retrying a *failed* document in place is not the duplicated
+    # work NFR-7 forbids. The `response_model=DocumentResponse` declared
+    # above still governs serialization regardless of which status code is
+    # set here.
+    if outcome == "duplicate":
         response.status_code = 200
         return DocumentResponse.model_validate(document).model_copy(update={"is_duplicate": True})
+
+    if outcome == "reingested":
+        response.status_code = 200
+        background_tasks.add_task(service.ingest_document, document.id)
+        return DocumentResponse.model_validate(document)
 
     # Scheduled after the response is prepared, not awaited here -- Story
     # 2.3's parse/embed/index pipeline runs after the upload response is

@@ -1,4 +1,5 @@
-"""Repository-level tests for `get_document_by_content_hash` (Story 2.6).
+"""Repository-level tests for `get_document_by_content_hash` and
+`claim_failed_document_for_reingest` (Story 2.6).
 
 Exercises `app.documents.repository` directly against the `db_session`
 fixture -- no HTTP layer -- to pin down tenancy scoping the way
@@ -75,3 +76,73 @@ def test_get_document_by_content_hash_never_matches_across_users(db_session):
     found = repository.get_document_by_content_hash(db_session, other.id, "c" * 64)
 
     assert found is None
+
+
+def _make_failed_document(db_session, user, content_hash, filename="report.pdf"):
+    document = Document(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        filename=filename,
+        file_type="pdf",
+        file_size_bytes=4,
+        status="Failed",
+        failed_reason="Could not read this document: unexpected EOF",
+        chapter_breakdown=None,
+        content=b"data",
+        content_hash=content_hash,
+    )
+    repository.create_document(db_session, document)
+    db_session.commit()
+    return document
+
+
+def test_claim_failed_document_for_reingest_wins_and_resets_the_row(db_session):
+    user = _make_user(db_session, "repo-claim-owner@example.com")
+    document = _make_failed_document(db_session, user, "d" * 64)
+
+    won = repository.claim_failed_document_for_reingest(db_session, document.id)
+    db_session.commit()
+
+    assert won is True
+    db_session.refresh(document)
+    assert document.status == "Uploaded"
+    assert document.failed_reason is None
+
+
+def test_claim_failed_document_for_reingest_clears_a_stale_chapter_breakdown(db_session):
+    # Defensive: a Failed row should never carry a populated
+    # chapter_breakdown (Story 2.4/2.5's invariant is that it's only ever
+    # set on the same commit as status = "Ready"), but the claim clears it
+    # unconditionally rather than trusting that invariant never lapses.
+    user = _make_user(db_session, "repo-claim-stale@example.com")
+    document = _make_failed_document(db_session, user, "e" * 64)
+    document.chapter_breakdown = {"Chapter 1": 3}
+    db_session.commit()
+
+    repository.claim_failed_document_for_reingest(db_session, document.id)
+    db_session.commit()
+
+    db_session.refresh(document)
+    assert document.chapter_breakdown is None
+
+
+def test_claim_failed_document_for_reingest_refuses_a_non_failed_row(db_session):
+    # The retry lock: only a genuinely Failed row can be claimed. A
+    # document mid-pipeline (Extracting/Graphing) must never be reset out
+    # from under an in-flight ingestion.
+    user = _make_user(db_session, "repo-claim-inflight@example.com")
+    document = _make_document(db_session, user, "f" * 64)
+    document.status = "Graphing"
+    db_session.commit()
+
+    won = repository.claim_failed_document_for_reingest(db_session, document.id)
+
+    assert won is False
+    db_session.refresh(document)
+    assert document.status == "Graphing"
+
+
+def test_claim_failed_document_for_reingest_returns_false_for_an_unknown_id(db_session):
+    result = repository.claim_failed_document_for_reingest(db_session, uuid.uuid4())
+
+    assert result is False

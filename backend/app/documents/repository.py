@@ -11,7 +11,7 @@ can't ship without it by omission.
 
 import uuid
 
-from sqlalchemy import desc
+from sqlalchemy import desc, update
 from sqlalchemy.orm import Session
 
 from app.shared.data_access.tenancy import user_scoped_select
@@ -46,6 +46,37 @@ def get_document_for_user(db: Session, user_id: uuid.UUID, document_id: uuid.UUI
     """
     stmt = user_scoped_select(Document, user_id).where(Document.id == document_id)
     return db.execute(stmt).scalars().first()
+
+
+def claim_failed_document_for_reingest(db: Session, document_id: uuid.UUID) -> bool:
+    """Atomically flip a `Failed` document back to `Uploaded` so its
+    ingestion can be retried in place (Story 2.6). Returns `True` if this
+    caller won the claim, `False` if the row was no longer `Failed`.
+
+    A conditional `UPDATE ... WHERE id = :id AND status = 'Failed'`, not a
+    read-then-write on the ORM object, because this *is* AD-1's retry lock
+    made real: two concurrent re-uploads of the same failed document could
+    both read `status == "Failed"` before either wrote, and both schedule
+    `ingest_document` against one row -- two pipelines racing on the same
+    document, exactly what the retry lock exists to prevent. A single
+    conditional statement makes the check and the claim one atomic
+    operation, so `rowcount` is an honest answer to "did I win?".
+
+    `failed_reason` and `chapter_breakdown` are cleared in the same
+    statement: a row that is about to be re-ingested must not keep
+    displaying the previous attempt's failure text (Story 2.5's field), and
+    `chapter_breakdown` is only ever repopulated on a successful `Ready`
+    commit anyway.
+
+    Does not commit -- the caller (service layer) owns the transaction
+    boundary, mirroring `create_document` above.
+    """
+    result = db.execute(
+        update(Document)
+        .where(Document.id == document_id, Document.status == "Failed")
+        .values(status="Uploaded", failed_reason=None, chapter_breakdown=None)
+    )
+    return result.rowcount == 1
 
 
 def get_document_by_content_hash(db: Session, user_id: uuid.UUID, content_hash: str) -> Document | None:

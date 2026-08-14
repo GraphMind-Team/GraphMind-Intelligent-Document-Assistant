@@ -227,20 +227,6 @@
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-6-content-hash-dedupe-on-upload.md`
   summary: >
-    Re-uploading a `Failed` document's exact bytes silently returns `is_duplicate: true` and
-    surfaces the existing (still-Failed) row -- ingestion is never retried, with no distinct
-    messaging for "this is the document that already failed" versus a genuinely-Ready duplicate.
-  evidence: >
-    Story 2.6 review (blind-hunter and edge-case-hunter, independently) raised this. Not a
-    regression: no retry endpoint exists anywhere in this codebase yet (confirmed during Story
-    2.5's investigation), so re-upload was never a working retry path this story could have
-    broken. But it does foreclose the one path a user might intuitively try ("upload it again"),
-    silently. Revisit when a retry story is built -- that story should decide whether a hash match
-    against a `Failed` document should behave differently (e.g. re-attempt ingestion in place)
-    rather than being treated identically to a match against a `Ready` document.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-2-6-content-hash-dedupe-on-upload.md`
-  summary: >
     `POST /documents` can now return 200 (duplicate) in addition to 201 (created), and
     `DocumentResponse` gained `is_duplicate` -- neither is reflected in FastAPI's generated
     OpenAPI schema via an explicit `responses={...}` declaration, so auto-generated API docs
@@ -250,17 +236,3 @@
     runtime behavior and the `DocumentResponse` schema are both correct and tested; this is purely
     about API-doc completeness for prospective external consumers, none of which exist yet for
     this project.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-2-6-content-hash-dedupe-on-upload.md`
-  summary: >
-    A lone duplicate upload (the common single-file case) auto-closes `UploadModal` the instant
-    the request resolves, before a user has a realistic chance to read "Already uploaded" or click
-    the link to the existing document -- the link is only reachable in a mixed batch where another
-    row stays unsettled long enough to delay auto-close.
-  evidence: >
-    Story 2.6 review (verification-gap) raised this. Matches the spec exactly as written (the
-    auto-close gate was deliberately extended to treat `'duplicate'` like `'success'`), so it's
-    not a defect in this story's implementation -- but the feature's most valuable payoff (the
-    link to the existing document, OD-7) is close to unreachable in its most common single-file
-    trigger case. Worth a UX pass (e.g. a longer settle delay specifically for a duplicate result,
-    or not auto-closing on an all-duplicate batch) whenever this modal is next touched.

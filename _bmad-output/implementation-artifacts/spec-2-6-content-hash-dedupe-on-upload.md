@@ -54,15 +54,15 @@ baseline_commit: 'a120f93d1e8607ca6c4509a0c24eab27416dd904'
 
 - `backend/alembic/versions/` -- new: adds nullable `documents.content_hash` (`String(64)`), backfills by hashing each row's `content`, then alters to `nullable=False`; adds unique index on `(user_id, content_hash)` — chains off `d4e9b1f3a7c2`
 - `backend/app/shared/models.py` -- edit: `Document.content_hash: Mapped[str] = mapped_column(String(64), nullable=False)`
-- `backend/app/documents/repository.py` -- edit: `get_document_by_content_hash(db, user_id, content_hash) -> Document | None`, mirrors `get_document_for_user`'s tenancy-scoped pattern (line ~36)
-- `backend/app/documents/service.py` -- edit: `upload_document` (lines ~140-171) computes the hash, checks for an existing match first, returns `(document, is_duplicate)`; catches `IntegrityError` on the race case
+- `backend/app/documents/repository.py` -- edit: `get_document_by_content_hash(db, user_id, content_hash) -> Document | None`, mirrors `get_document_for_user`'s tenancy-scoped pattern; `claim_failed_document_for_reingest(db, document_id) -> bool`, an atomic conditional `UPDATE ... WHERE status = 'Failed'` (the retry lock for the reingest path)
+- `backend/app/documents/service.py` -- edit: `upload_document` computes the hash, checks for an existing match first (branching on `Failed` vs. not), returns `(document, UploadOutcome)` where `UploadOutcome = Literal["created", "duplicate", "reingested"]`; catches `IntegrityError` on the create-race case
 - `backend/app/documents/schemas.py` -- edit: `DocumentResponse.is_duplicate: bool = False`
-- `backend/app/documents/routes.py` -- edit: `upload_document` route (line 55) unpacks `(document, is_duplicate)`, sets `response.status_code = 200 if is_duplicate else 201` (needs a `response: Response` param), only schedules `background_tasks.add_task(...)` (line 88) when `not is_duplicate`
-- `frontend/src/components/UploadModal.jsx` -- edit: `startUpload` (line 144) branches on `is_duplicate`; new `'duplicate'` row status added to `isSettled()` (line 19) and the auto-close success-gate (line 96); new render branch (~line 269) showing "Already uploaded" + a `Link` to the existing document
-- `backend/tests/test_documents_upload.py` -- edit: new tests for hash-match (same/different filename), edited-content non-match, no-ingestion-on-duplicate, cross-user isolation, and the concurrent-upload race
-- `backend/tests/test_documents_repository.py` -- new: `get_document_by_content_hash` tenancy scoping (cross-user hash collision never matches)
-- `backend/tests/test_content_hash_migration.py` -- new: the migration's backfill loop computes the correct sha256 per existing row (`op` mocked; DDL calls aren't under test, only the hashing/UPDATE logic) -- added during the matrix audit, closing the "pre-migration document re-uploaded" row
-- `frontend/src/components/UploadModal.test.jsx` -- edit: duplicate-response row rendering, `isSettled`/auto-close behavior with an all-duplicate batch
+- `backend/app/documents/routes.py` -- edit: `upload_document` route unpacks `(document, outcome)`, branches on all three outcomes (200 for `duplicate`/`reingested`, 201 for `created`; `background_tasks.add_task(...)` scheduled for `created` and `reingested`, never for `duplicate`) (needs a `response: Response` param)
+- `frontend/src/components/UploadModal.jsx` -- edit: `startUpload` branches on `is_duplicate`; new `'duplicate'` row status added to `isSettled()` but deliberately *excluded* from the auto-close "good enough to close" gate (kept `'success'`-only after the auto-close bug fix); new render branch showing "Already uploaded" + a `Link` to the existing document, `role="status"`, guarded against a missing `documentId`
+- `backend/tests/test_documents_upload.py` -- edit: new tests for hash-match (same/different filename), edited-content non-match, no-ingestion-on-duplicate, cross-user isolation, the concurrent-create race, the reingest-on-Failed-match path, the no-reingest-on-Ready-match path, and the concurrent-reingest race
+- `backend/tests/test_documents_repository.py` -- new: `get_document_by_content_hash` tenancy scoping; `claim_failed_document_for_reingest` wins/loses/clears-stale-chapter_breakdown/unknown-id
+- `backend/tests/test_content_hash_migration.py` -- new: the migration's backfill loop computes the correct sha256 per existing row, plus the pre-existing-collision `RuntimeError` guard -- added during the matrix audit, closing the "pre-migration document re-uploaded" row
+- `frontend/src/components/UploadModal.test.jsx` -- edit: duplicate-response row rendering; auto-close behavior for a lone duplicate, an all-duplicate batch, a mixed duplicate+error batch (all now correctly stay open), a mixed duplicate+success batch (still auto-closes), and Cancel dismissing an all-duplicate batch
 
 ## Tasks & Acceptance
 
@@ -78,6 +78,8 @@ baseline_commit: 'a120f93d1e8607ca6c4509a0c24eab27416dd904'
 - [x] Repository-level test -- cross-user hash isolation
 - [x] `frontend/src/components/UploadModal.test.jsx` -- duplicate row rendering + settle/auto-close behavior
 - [x] `backend/tests/test_content_hash_migration.py` -- migration backfill hashing correctness (matrix audit addition)
+- [x] `backend/app/documents/repository.py` + `service.py` -- `claim_failed_document_for_reingest`, three-outcome `UploadOutcome`, reingest-in-place on a `Failed` match (post-merge fix)
+- [x] `frontend/src/components/UploadModal.jsx` -- exclude `'duplicate'` from the auto-close gate so the message is actually visible (post-merge fix, from a real user bug report)
 
 **Acceptance Criteria:**
 - Given a byte-identical re-upload (any filename), when processed, then no second row is created, no parse/embed/LLM call is made, and the response identifies the existing document.
@@ -86,6 +88,8 @@ baseline_commit: 'a120f93d1e8607ca6c4509a0c24eab27416dd904'
 - Given two concurrent uploads of the identical new file, when the race is resolved, then exactly one document row exists and neither request 500s.
 - Given a document uploaded before this story shipped, when re-uploaded byte-identical, then it is still recognized as a duplicate (backfilled hash).
 - Given pre-existing `(user_id, content_hash)` collisions in the database when the migration runs, then it fails loudly with a clear, actionable error naming the colliding rows, and never creates the unique index over data that would violate it.
+- Given a `Failed` document, when its exact bytes are re-uploaded, then it is reset to `Uploaded` and re-ingested in place — no second row, ingestion scheduled same as a fresh upload.
+- Given a single duplicate (or all-duplicate) upload batch, when the request resolves, then the modal stays open with "Already uploaded" visible until the user explicitly dismisses it, rather than auto-closing before it can be read.
 
 ## Spec Change Log
 
@@ -98,13 +102,20 @@ baseline_commit: 'a120f93d1e8607ca6c4509a0c24eab27416dd904'
 - **Investigated, not fixed here:** a lone duplicate upload (the common single-file case) auto-closes the modal as soon as the request resolves, before a user has a realistic chance to see or click the "Already uploaded" link — only reachable in a mixed batch. Matches the spec exactly as written; logged in `deferred-work.md` as a UX gap for whenever the modal is next touched, not treated as a defect in this story.
 - **KEEP:** every already-approved boundary above — hash-before-create ordering, the `(document, is_duplicate)` return shape, the DB-level unique-index race guard, and the additive `is_duplicate` field — none altered by this entry.
 
+- **Trigger:** A second, independent human-requested review (after the story was already committed) corrected a claim in the entry above, then a real user bug report against the running app found a second, related defect.
+- **Correction to the record:** the "Investigated, not fixed here" entry above claimed re-uploading a `Failed` document "was never a working retry path this story could have broken." That is false, and the review that produced it didn't check the baseline. At the pre-2.6 commit (`a120f93`), `POST /documents` unconditionally created a new row and called `background_tasks.add_task(service.ingest_document, ...)` for every upload, including a re-upload of a previously-failed file — so a byte-identical re-upload *was* a working, if informal, retry: a fresh row, a fresh pipeline run, a real chance to succeed the second time. Story 2.6 silently removed that path by routing every hash match — including one against a `Failed` document — into the no-op duplicate branch. That is a regression, not a pre-existing gap, and the epic already treats `Failed` as an expected, often-transient state (Story 2.4's 429-retryable fix exists for exactly this reason).
+- **Bug fixed (the regression above):** a hash match against a `Failed` document is no longer treated as a plain duplicate. `repository.claim_failed_document_for_reingest` atomically flips it back to `Uploaded` (conditional `UPDATE ... WHERE status = 'Failed'`, so two concurrent re-uploads of the same failed document can't both claim it — the loser correctly falls back to `"duplicate"`), clears `failed_reason` and `chapter_breakdown`, and `service.upload_document` now returns one of three outcomes — `"created"`, `"duplicate"`, `"reingested"` — instead of the `is_duplicate` boolean this spec originally specified. This narrows the frozen Boundaries line "On a match: no new row, `document.status`/`content`/everything else untouched... status code 200" — that line now holds only for a match against a *non*-`Failed` document; a `Failed` match still creates no new row (NFR-7 still holds — retrying a failed attempt is not the duplicated work NFR-7 forbids) but does reset status and schedule ingestion, same as `"created"`. `is_duplicate` in the API response stays `false` for `"reingested"`, since nothing was skipped. New tests: `test_upload_byte_identical_reupload_of_a_failed_document_reingests_in_place`, `test_upload_byte_identical_reupload_of_a_ready_document_does_not_reingest`, `test_claim_failed_document_for_reingest_loses_race_falls_back_to_duplicate`, plus four repository-level tests pinning the atomic claim (wins, clears a stale `chapter_breakdown` defensively, refuses a non-`Failed` row, and a not-found id).
+- **Bug fixed (found by the user against the running app, not by any review layer):** a single-file duplicate upload — the common case — auto-closed `UploadModal` the instant the request resolved, so "Already uploaded" and its link were never visible; the earlier review round had flagged this exact defect and mis-triaged it as "matches the spec exactly as written, not a defect" rather than fixing it. Fixed: the auto-close gate's "at least one good-enough-to-close outcome" check no longer counts `'duplicate'` — a duplicate result is now treated like an error for auto-close purposes (informational, requires an explicit Cancel/Escape to dismiss) even though it remains a normal, expected, *settled* outcome, not a failure. A batch containing at least one genuinely new (`'success'`) upload alongside a duplicate still auto-closes, unchanged. New tests cover: a lone duplicate staying open, an all-duplicate batch staying open, a mixed duplicate+error batch staying open, a mixed duplicate+success batch still auto-closing, and Cancel still working to dismiss an all-duplicate batch.
+- **Superseded:** the two "Investigated, not fixed here" bullets above and their corresponding `deferred-work.md` entries are resolved by this entry and have been removed from `deferred-work.md` — left in place above only as the append-only historical record of what the first review round concluded.
+- **KEEP:** the hash-before-create ordering, the DB-level unique-index race guard, the additive `is_duplicate` field on `DocumentResponse`, and the migration/collision-guard work from the entry above — none altered by this entry.
+
 ## Design Notes
 
 Migration backfill: iterate existing `documents` rows, `hashlib.sha256(row.content).hexdigest()`, `UPDATE` in place — cheap at this project's scale (no pagination needed), then `ALTER COLUMN content_hash SET NOT NULL` once every row has a value. Column added nullable first specifically so the backfill step itself doesn't violate a NOT NULL constraint mid-migration.
 
-`service.upload_document`'s new return shape `(document, is_duplicate)` is this function's only breaking change — its only caller is the POST route, so no other module needs updating.
+`service.upload_document`'s new return shape `(document, UploadOutcome)` (`Literal["created", "duplicate", "reingested"]`, narrowed from an earlier `is_duplicate: bool`) is this function's only breaking change — its only caller is the POST route, so no other module needs updating.
 
-FastAPI status-code override: declare `response: Response` as a route parameter and set `response.status_code = 200` in the duplicate branch; the declared `response_model=DocumentResponse` still governs serialization regardless of which status code the handler sets.
+FastAPI status-code override: declare `response: Response` as a route parameter and set `response.status_code = 200` in the duplicate/reingested branches; the declared `response_model=DocumentResponse` still governs serialization regardless of which status code the handler sets.
 
 ## Verification
 
@@ -117,40 +128,49 @@ FastAPI status-code override: declare `response: Response` as a route parameter 
 
 ## Suggested Review Order
 
-**Dedupe core (backend)**
+**Dedupe core, including the three-outcome reingest fix (backend)**
 
-- Hash-before-create ordering, race handling via `IntegrityError` — the mechanism the whole story hangs off.
-  [`service.py:142`](../../backend/app/documents/service.py#L142), [`service.py:176`](../../backend/app/documents/service.py#L176), [`service.py:196`](../../backend/app/documents/service.py#L196)
+- `upload_document`'s hash-before-create ordering, now branching on `Failed` vs. not before deciding the outcome.
+  [`service.py:147`](../../backend/app/documents/service.py#L147), [`service.py:198`](../../backend/app/documents/service.py#L198), [`service.py:202`](../../backend/app/documents/service.py#L202)
 
-- Tenancy-scoped hash lookup, reused both for the pre-create check and the post-race re-query.
+- The atomic retry-lock claim — this is what makes reingest safe under concurrency, the same shape as AD-1's original retry lock.
   [`repository.py:51`](../../backend/app/documents/repository.py#L51)
 
-- Status-code branch and the conditional `background_tasks.add_task` — where a duplicate is guaranteed to never schedule ingestion.
-  [`routes.py:56`](../../backend/app/documents/routes.py#L56), [`routes.py:88`](../../backend/app/documents/routes.py#L88)
+- Tenancy-scoped hash lookup, reused for the pre-create check and the post-race re-query.
+  [`repository.py:82`](../../backend/app/documents/repository.py#L82)
 
-**Data model & migration (deploy-blocking issue found and fixed here — see Spec Change Log)**
+- The three-way status-code/scheduling branch in the route — `created`/`reingested` both schedule ingestion, only `duplicate` doesn't.
+  [`routes.py:56`](../../backend/app/documents/routes.py#L56), [`routes.py:90`](../../backend/app/documents/routes.py#L90), [`routes.py:94`](../../backend/app/documents/routes.py#L94)
+
+**Data model & migration (deploy-blocking issue found and fixed pre-merge — see Spec Change Log)**
 
 - Column + composite unique index, the DB-level guard against the concurrent-upload race.
   [`models.py:97`](../../backend/app/shared/models.py#L97), [`models.py:106`](../../backend/app/shared/models.py#L106)
 
-- Backfill + the pre-existing-collision safety check added during review — confirmed against real production data.
+- Backfill + the pre-existing-collision safety check — confirmed against real production data.
   [`e1f5c8a2b4d7_add_content_hash_to_documents.py`](../../backend/alembic/versions/e1f5c8a2b4d7_add_content_hash_to_documents.py#L1)
 
-**Frontend rendering**
+**Frontend: the auto-close fix (found by a real user bug report, not by review)**
 
-- `'duplicate'` terminal status, settle/auto-close gate, and the "Already uploaded" + link render branch (a11y role + defensive `documentId` guard added during review).
-  [`UploadModal.jsx:20`](../../frontend/src/components/UploadModal.jsx#L20), [`UploadModal.jsx:284`](../../frontend/src/components/UploadModal.jsx#L284)
+- `isSettled` still treats `'duplicate'` as terminal, but the auto-close gate now excludes it — the actual line that was wrong.
+  [`UploadModal.jsx:20`](../../frontend/src/components/UploadModal.jsx#L20), [`UploadModal.jsx:105`](../../frontend/src/components/UploadModal.jsx#L105)
+
+- The "Already uploaded" render branch itself (a11y role + defensive `documentId` guard).
+  [`UploadModal.jsx:300`](../../frontend/src/components/UploadModal.jsx#L300)
 
 **Tests**
 
-- Hash-match/no-match/race/cross-user coverage on the real HTTP path.
+- Reingest-on-Failed-match, no-reingest-on-Ready-match, and the concurrent-reingest race.
+  [`test_documents_upload.py:507`](../../backend/tests/test_documents_upload.py#L507), [`test_documents_upload.py:590`](../../backend/tests/test_documents_upload.py#L590)
+
+- Repository-level claim semantics (wins, refuses a non-`Failed` row, clears a stale `chapter_breakdown`, unknown id) and hash-lookup tenancy scoping.
+  [`test_documents_repository.py:99`](../../backend/tests/test_documents_repository.py#L99), [`test_documents_repository.py:48`](../../backend/tests/test_documents_repository.py#L48)
+
+- Hash-match/no-match/create-race/cross-user coverage on the real HTTP path.
   [`test_documents_upload.py:305`](../../backend/tests/test_documents_upload.py#L305), [`test_documents_upload.py:335`](../../backend/tests/test_documents_upload.py#L335), [`test_documents_upload.py:398`](../../backend/tests/test_documents_upload.py#L398), [`test_documents_upload.py:422`](../../backend/tests/test_documents_upload.py#L422), [`test_documents_upload.py:451`](../../backend/tests/test_documents_upload.py#L451)
 
-- Repository-level tenancy scoping.
-  [`test_documents_repository.py:48`](../../backend/tests/test_documents_repository.py#L48)
-
-- Migration backfill correctness and the collision-guard's `RuntimeError` path (matrix audit addition).
+- Migration backfill correctness and the collision-guard's `RuntimeError` path.
   [`test_content_hash_migration.py:77`](../../backend/tests/test_content_hash_migration.py#L77), [`test_content_hash_migration.py:141`](../../backend/tests/test_content_hash_migration.py#L141)
 
-- Frontend duplicate-row rendering.
-  [`UploadModal.test.jsx:181`](../../frontend/src/components/UploadModal.test.jsx#L181)
+- Frontend: the auto-close regression tests — a lone duplicate staying open (the exact reported bug), an all-duplicate batch, a mixed duplicate+error batch, a mixed duplicate+success batch still closing, and Cancel still working.
+  [`UploadModal.test.jsx:219`](../../frontend/src/components/UploadModal.test.jsx#L219), [`UploadModal.test.jsx:244`](../../frontend/src/components/UploadModal.test.jsx#L244), [`UploadModal.test.jsx:286`](../../frontend/src/components/UploadModal.test.jsx#L286), [`UploadModal.test.jsx:305`](../../frontend/src/components/UploadModal.test.jsx#L305)
