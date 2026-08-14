@@ -72,12 +72,16 @@ def test_generate_answer_returns_segments_with_resolved_citations_on_success(mon
         llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content=_valid_content())
     )
 
-    result = generate_answer("What is the refund window?", [_passage()])
+    passage = _passage()
+    result = generate_answer("What is the refund window?", [passage])
 
     assert isinstance(result, AnswerResult)
     assert len(result.segments) == 1
     assert result.segments[0].text == "TechCorp's refund window is 30 days."
     assert result.segments[0].passage_numbers == [1]
+    # The exact list the prompt was built from -- chat/service.py resolves
+    # citations against this, not the caller's original `passages`.
+    assert result.included_passages == [passage]
 
 
 def test_generate_answer_empty_segments_is_a_valid_outcome_not_an_error(monkeypatch):
@@ -128,15 +132,20 @@ def test_select_passages_within_budget_logs_when_it_truncates(monkeypatch, caplo
     small_passage = _passage(chunk_id="chunk-0", text="short")
     huge_passage = _passage(chunk_id="chunk-1", text="x" * 500)
 
-    with caplog.at_level("DEBUG"):
+    # WARNING, not DEBUG: nothing in this project configures a root log
+    # level, so only WARNING-and-above is guaranteed visible without extra
+    # setup -- this test asserts the level that's actually reachable in
+    # production, not merely that some level was used.
+    with caplog.at_level("WARNING"):
         selected = llm_client_module._select_passages_within_budget([small_passage, huge_passage])
 
     assert len(selected) == 1
     assert "included 1/2 passages" in caplog.text
+    assert caplog.records[0].levelname == "WARNING"
 
 
 def test_select_passages_within_budget_logs_nothing_when_everything_fits(caplog):
-    with caplog.at_level("DEBUG"):
+    with caplog.at_level("WARNING"):
         llm_client_module._select_passages_within_budget([_passage()])
 
     assert caplog.text == ""
@@ -331,3 +340,6 @@ def test_generate_answer_prompt_budget_drops_whole_trailing_passages(monkeypatch
     # passage_numbers=[2] is out of range against only 1 included passage,
     # so the segment citing it is dropped entirely.
     assert result.segments == []
+    # The trimmed list, not the original two-passage input -- this is what
+    # chat/service.py would resolve citations against.
+    assert result.included_passages == [small_passage]

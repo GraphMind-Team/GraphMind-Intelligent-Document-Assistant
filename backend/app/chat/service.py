@@ -73,8 +73,15 @@ def ask_question(db: Session, current_user: User, question: str) -> AskResponse:
 
     document_ids = {p.document_id for p in passages}
     filenames = repository.get_filenames_for_documents(db, current_user.id, document_ids)
-    # 1-based, matches generate_answer's prompt numbering.
-    passages_by_number = {i + 1: p for i, p in enumerate(passages)}
+    # 1-based, matches generate_answer's prompt numbering -- built from
+    # `answer.included_passages` (the actual, budget-trimmed list the
+    # prompt was built from), never the full `passages` retrieval
+    # returned. Using the full list would only happen to work today
+    # because _select_passages_within_budget drops exclusively from the
+    # tail; keying off included_passages instead means citation
+    # resolution can't silently desync from generate_answer's own
+    # selection, whatever it becomes.
+    passages_by_number = {i + 1: p for i, p in enumerate(answer.included_passages)}
 
     segments: list[AnswerSegmentResponse] = []
     for seg in answer.segments:

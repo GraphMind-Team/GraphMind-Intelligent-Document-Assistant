@@ -120,8 +120,17 @@ export default function ChatPage() {
                 />
                 <button
                   type="submit"
-                  disabled={isAsking}
-                  className="shrink-0 rounded-full border border-transparent bg-primary px-4.5 py-2.5 text-[13px] font-semibold text-on-primary disabled:opacity-60"
+                  // aria-disabled, not disabled: same reasoning as the
+                  // input's readOnly above -- a disabled button that
+                  // currently holds focus (a keyboard user who activated
+                  // Ask, rather than pressing Enter from the input) drops
+                  // focus to <body> with no reliable moment to restore it.
+                  // Still functionally blocked: handleSubmit's own
+                  // `isAsking` guard makes a click/Enter/Space while
+                  // asking a no-op, exactly as it already does for the
+                  // input's readOnly re-submit case.
+                  aria-disabled={isAsking}
+                  className={`shrink-0 rounded-full border border-transparent bg-primary px-4.5 py-2.5 text-[13px] font-semibold text-on-primary ${isAsking ? 'cursor-not-allowed opacity-60' : ''}`}
                 >
                   Ask
                 </button>

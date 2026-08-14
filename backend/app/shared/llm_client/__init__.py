@@ -120,7 +120,17 @@ _CHAT_RETRY_DELAY_SECONDS = 3.0
 # nearest-first-ordered) list once the next one wouldn't fit -- never
 # truncated mid-passage, since a half-sentence passage is worse context than
 # one fewer whole passage.
-_MAX_PROMPT_CHARS = 6000
+#
+# 12,000, not the original 6,000: measured against the real chunker
+# (documents/parsing.py's _CHUNK_WORD_COUNT=250), a 6,000 budget let only
+# 3 of TOP_K_PASSAGES=8 candidates reach the model for average English
+# text, and as few as 2 of 8 for denser Bulgarian text -- systematically
+# discarding the back half of retrieval on almost every real question,
+# undermining the multi-document grounding TOP_K_PASSAGES's own comment
+# argues for. Matches EXTRACTION_CHAR_BUDGET (documents/service.py), a
+# value already measured safe under this same free model's context limit
+# for a similarly-sized block of concatenated document text.
+_MAX_PROMPT_CHARS = 12000
 
 _SYSTEM_PROMPT = (
     "You extract entities and relationships from a document's text for a "
@@ -452,9 +462,23 @@ class AnswerResult:
     is a valid, non-error outcome -- the model finding nothing in the
     given passages worth answering with mirrors `ExtractionResult`'s "no
     notable entities" precedent, not a failure this function should raise
-    for."""
+    for.
+
+    `included_passages` is the trimmed, budget-filtered list this call
+    actually sent to the model -- in the same order `segments[*]
+    .passage_numbers` indexes into (1-based). `chat/service.py` resolves
+    citations against THIS list, never the full `passages` it originally
+    handed to `generate_answer` -- the two only happen to line up today
+    because `_select_passages_within_budget` drops exclusively from the
+    tail, preserving the caller's prefix. Surfacing the actual list here
+    means a future change to that selection strategy (e.g. dropping from
+    the middle, or reordering) can't silently desync a citation's
+    passage_number from the document/chapter the caller thinks it points
+    to -- a failure mode that would be wrong, plausible-looking, and
+    invisible in every existing test."""
 
     segments: list[AnswerSegment] = field(default_factory=list)
+    included_passages: list[WeaviateSearchResult] = field(default_factory=list)
 
 
 class ChatCompletionError(Exception):
@@ -503,7 +527,16 @@ def _select_passages_within_budget(passages: list[WeaviateSearchResult]) -> list
         # The first thing worth checking when investigating "why wasn't
         # this document cited" -- silent truncation here would otherwise
         # look identical to the model simply not finding it relevant.
-        logger.debug(
+        # `warning`, not `debug`: nothing in this project configures a
+        # root/handler log level (no `logging.basicConfig`/`dictConfig`
+        # anywhere in `app/`), so Python's default root level (WARNING)
+        # silently swallows `debug` -- and `info` -- records with zero
+        # indication anything was dropped. `warning` is the actual floor
+        # for "will be seen without separately wiring up logging config",
+        # matching how this same module already treats other
+        # worth-noticing-but-not-fatal conditions (e.g. an out-of-
+        # vocabulary entity/relationship type, above).
+        logger.warning(
             "_select_passages_within_budget: included %s/%s passages (_MAX_PROMPT_CHARS=%s)",
             len(selected),
             len(passages),
@@ -544,7 +577,8 @@ def generate_answer(question: str, passages: list[WeaviateSearchResult]) -> Answ
     for attempt in range(1, _CHAT_MAX_ATTEMPTS + 1):
         try:
             content = _call_openrouter_for_chat(system_prompt, question)
-            return _parse_and_validate_answer(content, len(included_passages))
+            parsed = _parse_and_validate_answer(content, len(included_passages))
+            return AnswerResult(segments=parsed.segments, included_passages=included_passages)
         except _RetryableChatError as exc:
             last_error = exc
             logger.warning(

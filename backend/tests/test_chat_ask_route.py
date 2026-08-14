@@ -130,16 +130,18 @@ def test_ask_success_resolves_real_chapter_and_filename_citations(client, monkey
     token = _register_and_login(client, full_name="Maria", email="maria-chat-6@example.com", password="password12345")
     document = _upload(client, token, filename="Vendor_Agreement_2026.pdf")
     _stub_embed(monkeypatch)
-    monkeypatch.setattr(
-        chat_service_module,
-        "search_passages",
-        lambda *a, **k: [_passage(document["id"], chapter="Chapter 4")],
-    )
+    passages = [_passage(document["id"], chapter="Chapter 4")]
+    monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: passages)
     monkeypatch.setattr(
         chat_service_module,
         "generate_answer",
+        # included_passages mirrors what the real generate_answer would
+        # return: the (here, unbudgeted) list its prompt was built from --
+        # chat/service.py resolves citations against this, not the
+        # search_passages result directly.
         lambda *a, **k: AnswerResult(
-            segments=[AnswerSegment(text="The refund window is 30 days.", passage_numbers=[1])]
+            segments=[AnswerSegment(text="The refund window is 30 days.", passage_numbers=[1])],
+            included_passages=passages,
         ),
     )
 
@@ -165,21 +167,19 @@ def test_ask_deduplicates_repeated_chapter_and_filename_citations(client, monkey
     token = _register_and_login(client, full_name="Maria", email="maria-chat-dedup@example.com", password="password12345")
     document = _upload(client, token, filename="Vendor_Agreement_2026.pdf")
     _stub_embed(monkeypatch)
-    monkeypatch.setattr(
-        chat_service_module,
-        "search_passages",
-        lambda *a, **k: [
-            _passage(document["id"], chapter="Chapter 4", chunk_id="chunk-a", text="first chunk"),
-            _passage(document["id"], chapter="Chapter 4", chunk_id="chunk-b", text="second chunk"),
-        ],
-    )
+    passages = [
+        _passage(document["id"], chapter="Chapter 4", chunk_id="chunk-a", text="first chunk"),
+        _passage(document["id"], chapter="Chapter 4", chunk_id="chunk-b", text="second chunk"),
+    ]
+    monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: passages)
     monkeypatch.setattr(
         chat_service_module,
         "generate_answer",
         lambda *a, **k: AnswerResult(
             segments=[
                 AnswerSegment(text="A claim supported by both chunks.", passage_numbers=[1, 2]),
-            ]
+            ],
+            included_passages=passages,
         ),
     )
 
@@ -210,16 +210,14 @@ def test_ask_cross_tenant_citation_is_dropped_not_leaked(client, monkeypatch):
     document_a = _upload(client, token_a, filename="account-a-only.pdf")
 
     _stub_embed(monkeypatch)
-    monkeypatch.setattr(
-        chat_service_module,
-        "search_passages",
-        lambda *a, **k: [_passage(document_a["id"])],
-    )
+    passages = [_passage(document_a["id"])]
+    monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: passages)
     monkeypatch.setattr(
         chat_service_module,
         "generate_answer",
         lambda *a, **k: AnswerResult(
-            segments=[AnswerSegment(text="A claim about account A's document.", passage_numbers=[1])]
+            segments=[AnswerSegment(text="A claim about account A's document.", passage_numbers=[1])],
+            included_passages=passages,
         ),
     )
 

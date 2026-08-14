@@ -189,3 +189,35 @@
     a document ever reached `Ready`. Widening the status set fixed the correctness bug; the
     poll-based mechanism itself remains the crude part, and the 3-minute ceiling is an assumption
     about ingestion duration that no benchmark backs (see also the `EXTRACTION_CHAR_BUDGET` entry).
+
+- source_spec: `_bmad-output/planning-artifacts/epics.md` (Story 3.1: Ask a question and receive a grounded, cited answer)
+  summary: >
+    AC14 (NFR-1, p95 chat-answer latency under 8 seconds) is knowingly not met by the shipped
+    configuration. `shared/llm_client`'s `_CHAT_TIMEOUT_SECONDS`/`_CHAT_MAX_ATTEMPTS` comment
+    documents a measured ~32s real call against the free-tier default model, with a ~120s worst
+    case across both attempts (45s + up to 30s of a 429's own `Retry-After` + 45s). No test
+    asserts NFR-1, so nothing in CI or the review loop will ever flag this as a regression --
+    only this line and the code comment record that it's a known, accepted gap rather than an
+    oversight. `OPENROUTER_CHAT_MODEL` (backend/.env.example) is the intended fix once a faster
+    free/paid model is chosen; unset, it falls back to the same slow default.
+  evidence: >
+    Story 3.1 review found the deviation was previously only discoverable by reading
+    `shared/llm_client/__init__.py`'s inline comments -- neither `deferred-work.md` nor
+    `sprint-status.yaml` carried any record of it, unlike every other knowingly-accepted gap in
+    this project (see e.g. the `TRUSTED_PROXY_HOSTS` and `EXTRACTION_CHAR_BUDGET` entries above).
+
+- source_spec: `_bmad-output/planning-artifacts/epics.md` (Story 3.1: Ask a question and receive a grounded, cited answer)
+  summary: >
+    Author a `spec-3-1-ask-a-question-and-receive-a-grounded-cited-answer.md` under
+    `_bmad-output/implementation-artifacts/`, matching the pattern every other shipped story
+    (1.1/1.2/1.5/2.1/2.2/2.4) has -- 3.1 was implemented directly against `epics.md`'s
+    acceptance criteria, with no dedicated spec file of its own.
+  evidence: >
+    Same gap as the already-recorded Story 2.3 entry above, which explicitly warned this would
+    recur ("worth closing before 2.4 sets the same precedent") -- 2.4 did get a spec file, but
+    3.1 didn't. Concretely cost something this time: without a Boundaries section recording
+    UX-DR21's `#4A7FE0`/`#D1EEFE` pair as a documented, human-accepted deviation, Story 3.1's
+    review re-tuned the citation-chip contrast without first checking whether it was an
+    oversight or a recorded decision (it was the latter -- closing it was still correct, but the
+    docs it contradicted had to be reconciled after the fact instead of the spec surfacing the
+    tension up front).

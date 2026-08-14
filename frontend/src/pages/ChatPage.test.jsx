@@ -178,4 +178,53 @@ describe('ChatPage', () => {
 
     resolveAsk({ segments: [], empty_reason: null })
   })
+
+  it('keeps focus on the Ask button through a pending request instead of dropping it to <body>', async () => {
+    let resolveAsk
+    vi.spyOn(chatClient, 'askQuestion').mockReturnValue(
+      new Promise((resolve) => {
+        resolveAsk = resolve
+      }),
+    )
+    const user = userEvent.setup()
+    renderChatPage()
+
+    await user.type(screen.getByLabelText(/ask a question/i), 'q')
+    const button = screen.getByRole('button', { name: /ask/i })
+    await user.click(button)
+
+    // aria-disabled, not disabled -- a disabled button that currently
+    // holds focus (a keyboard/mouse user who activated Ask directly,
+    // rather than Enter from the input) would drop focus to <body> with
+    // no reliable moment to restore it, same reasoning as the input's
+    // readOnly case above.
+    expect(button).toHaveAttribute('aria-disabled', 'true')
+    expect(button).not.toBeDisabled()
+    expect(document.activeElement).toBe(button)
+
+    resolveAsk({ segments: [], empty_reason: null })
+  })
+
+  it('does not submit a second time when Ask is clicked again while a request is already pending', async () => {
+    let resolveAsk
+    const askSpy = vi.spyOn(chatClient, 'askQuestion').mockReturnValue(
+      new Promise((resolve) => {
+        resolveAsk = resolve
+      }),
+    )
+    const user = userEvent.setup()
+    renderChatPage()
+
+    await user.type(screen.getByLabelText(/ask a question/i), 'q')
+    const button = screen.getByRole('button', { name: /ask/i })
+    await user.click(button)
+    // Button is only aria-disabled (see above), so a second click still
+    // reaches handleSubmit -- must be blocked there by the isAsking guard,
+    // not by the browser refusing to dispatch the click at all.
+    await user.click(button)
+
+    expect(askSpy).toHaveBeenCalledTimes(1)
+
+    resolveAsk({ segments: [], empty_reason: null })
+  })
 })
