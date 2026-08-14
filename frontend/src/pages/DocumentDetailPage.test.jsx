@@ -151,6 +151,43 @@ describe('DocumentDetailPage', () => {
     expect(screen.getByText('No further details available.')).toBeInTheDocument()
   })
 
+  it('never promises a Failed document is still being parsed and indexed', async () => {
+    // A Failed document's ingestion is terminal, so "Pending" and the
+    // "appears once this document has been parsed and indexed" copy would
+    // contradict the failure reason rendered directly below them.
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    vi.spyOn(documentsClient, 'getDocument').mockResolvedValue({
+      ...UPLOADED_DOC,
+      status: 'Failed',
+      chapter_breakdown: null,
+      failed_reason: 'Could not read this document: unexpected EOF',
+    })
+
+    renderDetail()
+
+    await screen.findByText('Reason')
+    expect(screen.queryByText(/appears once this document has been parsed/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Pending')).not.toBeInTheDocument()
+    expect(screen.getByText('Unavailable — this document failed to process.')).toBeInTheDocument()
+    expect(screen.getAllByText('Unavailable')).toHaveLength(2) // Chapters, Passages indexed
+  })
+
+  it('still shows Pending for a document that is genuinely still in flight', async () => {
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    vi.spyOn(documentsClient, 'getDocument').mockResolvedValue({
+      ...UPLOADED_DOC,
+      status: 'Graphing',
+      chapter_breakdown: null,
+    })
+
+    renderDetail()
+
+    await screen.findByRole('heading', { name: 'vendor-agreement.pdf', level: 1 })
+    expect(screen.getByText(/appears once this document has been parsed/)).toBeInTheDocument()
+    expect(screen.getAllByText('Pending')).toHaveLength(2)
+    expect(screen.queryByText('Unavailable')).not.toBeInTheDocument()
+  })
+
   it('renders no failed-reason block for a non-Failed document', async () => {
     useAuth.mockReturnValue({ authFetch: vi.fn() })
     vi.spyOn(documentsClient, 'getDocument').mockResolvedValue(UPLOADED_DOC)
