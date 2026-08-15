@@ -266,19 +266,23 @@ def _build_extraction_text(chunks: list, budget: int = EXTRACTION_CHAR_BUDGET) -
     defined in words by the chunker, and `" ".join` on a word slice is not
     guaranteed to reproduce the original whitespace byte-for-byte, so a
     string-suffix comparison would silently fail to strip anything.
+
+    Gated on `chunk.is_chapter_start`, not a `chapter == previous_chapter`
+    title comparison: two distinct chapters can share the exact same title
+    (e.g. two "Overview" sections under different parts of one document),
+    which a title comparison reads as one chapter continuing and wrongly
+    strips real, non-overlapping words off the second section's opening
+    chunk. `is_chapter_start` is set by the chunker itself, the only code
+    that actually knows whether overlap was applied to a given chunk.
     """
     parts: list[str] = []
     remaining = budget
-    previous_chapter: str | None = None
     for chunk in chunks:
         if remaining <= 0:
             break
         text = chunk.text
-        # Only chunks after the first *in the same chapter* overlap --
-        # a new chapter starts a fresh chunk with no carried-over words.
-        if chunk.chapter == previous_chapter:
+        if not chunk.is_chapter_start:
             text = " ".join(text.split(" ")[CHUNK_OVERLAP_WORDS:])
-        previous_chapter = chunk.chapter
         if not text:
             continue
         piece = text[:remaining]
@@ -430,6 +434,18 @@ def ingest_document(
                 for relationship in extraction_result.relationships
             ]
             stage = _STAGE_LABEL_GRAPH_WRITE
+            # Story 2.8 follow-up: clear this document's own prior graph
+            # attribution before writing its new extraction, mirroring the
+            # `delete_passages_for_document` call above the batch loop --
+            # without this, a reingest (Story 2.6's retry-from-Failed path,
+            # or any future retry feature) only ever appends. Extraction is
+            # LLM-driven and non-deterministic, so an entity the previous
+            # run produced but this run doesn't would otherwise stay
+            # attributed to this document forever, silently surviving under
+            # `source_document_ids` even though nothing currently in the
+            # document supports it. Idempotent and safe on a document's
+            # first-ever ingestion too (prunes zero rows).
+            prune_document_from_graph(document_id_str, user_id_str)
             write_entities_and_relationships(
                 neo4j_entities, neo4j_relationships, user_id_str, document_id_str
             )
@@ -463,6 +479,25 @@ def ingest_document(
                 # failure below still needs to be recorded either way.
                 logger.exception(
                     "Failed to clean up partially-written passages for document %s",
+                    document_id,
+                )
+            try:
+                # Same reasoning as the Weaviate cleanup directly above,
+                # for the graph half of AD-1: if the failure happened after
+                # `write_entities_and_relationships` already committed (e.g.
+                # the final `db.commit()` that sets `Ready` is what failed),
+                # this document's entities/relationships are live in Neo4j,
+                # attributed via `source_document_ids` to a row that's about
+                # to be marked `Failed`. Left unpruned, they'd survive
+                # indefinitely -- unreachable by any future successful
+                # reingest's own pre-write prune, since that only fires on
+                # the *next* run, which may never come. Idempotent and safe
+                # even if the failure happened before any graph write this
+                # run (prunes zero rows).
+                prune_document_from_graph(document_id_str, user_id_str)
+            except Exception:
+                logger.exception(
+                    "Failed to clean up partially-written graph data for document %s",
                     document_id,
                 )
             try:

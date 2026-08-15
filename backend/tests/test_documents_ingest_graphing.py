@@ -71,12 +71,20 @@ def _session_factory(db_session):
     return sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False)
 
 
-def _stub_pipeline(monkeypatch, *, write_passages=None, extract=None, write_graph=None):
+def _stub_pipeline(
+    monkeypatch, *, write_passages=None, extract=None, write_graph=None, prune_graph=None
+):
     """Stubs every external call `ingest_document` makes -- embeddings,
     Weaviate, OpenRouter (via `llm_client`), Neo4j -- so a test can control
     exactly one of them (the one it's exercising) while the rest behave
     like a normal success. Returns the `delete_passages_for_document` mock
-    so callers can assert on cleanup calls."""
+    so callers can assert on cleanup calls.
+
+    `prune_document_from_graph` (Story 2.8 follow-up: `ingest_document` now
+    calls it right before `write_entities_and_relationships`, and again in
+    the failure branch) is stubbed here the same as every other external
+    call -- left un-stubbed, every test in this module that calls the real
+    `ingest_document` would hit real Neo4j."""
     import app.documents.service as service_module
 
     monkeypatch.setattr(service_module, "embed_texts", lambda texts: [[0.0] * 384 for _ in texts])
@@ -89,6 +97,7 @@ def _stub_pipeline(monkeypatch, *, write_passages=None, extract=None, write_grap
         extract or (lambda text: ExtractionResult()),
     )
     monkeypatch.setattr(service_module, "write_entities_and_relationships", write_graph or Mock())
+    monkeypatch.setattr(service_module, "prune_document_from_graph", prune_graph or Mock())
     return fake_delete
 
 
@@ -106,7 +115,12 @@ def test_extraction_text_drops_the_chunk_overlap_within_a_chapter():
 
     chunks = [
         ParsedChunk(chapter="Chapter One", chunk_index=0, text=" ".join(first_words)),
-        ParsedChunk(chapter="Chapter One", chunk_index=1, text=" ".join(overlap + second_only)),
+        ParsedChunk(
+            chapter="Chapter One",
+            chunk_index=1,
+            text=" ".join(overlap + second_only),
+            is_chapter_start=False,
+        ),
     ]
 
     text = _build_extraction_text(chunks)
@@ -126,6 +140,23 @@ def test_extraction_text_keeps_a_new_chapters_first_chunk_intact():
     chunks = [
         ParsedChunk(chapter="Chapter One", chunk_index=0, text="alpha beta gamma"),
         ParsedChunk(chapter="Chapter Two", chunk_index=1, text="delta epsilon zeta"),
+    ]
+
+    text = _build_extraction_text(chunks)
+
+    for word in ("alpha", "beta", "gamma", "delta", "epsilon", "zeta"):
+        assert word in text
+
+
+def test_extraction_text_keeps_a_same_titled_new_chapters_first_chunk_intact():
+    """Two distinct chapters can share the exact same title (e.g. two
+    "Overview" sections under different parts of one document) -- gating
+    off `chunk.is_chapter_start` rather than a `chapter == previous_chapter`
+    title comparison must not mistake the second section's first chunk for
+    a continuation of the first and strip real words off it."""
+    chunks = [
+        ParsedChunk(chapter="Notes", chunk_index=0, text="alpha beta gamma"),
+        ParsedChunk(chapter="Notes", chunk_index=1, text="delta epsilon zeta"),
     ]
 
     text = _build_extraction_text(chunks)

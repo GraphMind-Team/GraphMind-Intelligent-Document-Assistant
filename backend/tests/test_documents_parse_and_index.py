@@ -90,13 +90,14 @@ def _stub_embeddings(monkeypatch):
 
 def _stub_graphing(monkeypatch):
     """Stubs Story 2.4's Graphing step (`extract_entities_and_relationships`
-    + `write_entities_and_relationships`) so tests in this file -- which
-    predate Story 2.4 and only care about the Weaviate write path -- can
-    let `ingest_document` run all the way to `Ready` without a real
-    OpenRouter/Neo4j connection. An empty extraction result is a valid,
-    successful outcome (the story's own "no notable entities" scenario),
-    not a failure -- exactly what's wanted here, since these tests aren't
-    exercising entity extraction at all."""
+    + `write_entities_and_relationships`, and Story 2.8's own
+    `prune_document_from_graph`, called by `ingest_document` right before
+    the write) so tests in this file -- which predate Story 2.4 and only
+    care about the Weaviate write path -- can let `ingest_document` run
+    all the way to `Ready` without a real OpenRouter/Neo4j connection. An
+    empty extraction result is a valid, successful outcome (the story's own
+    "no notable entities" scenario), not a failure -- exactly what's wanted
+    here, since these tests aren't exercising entity extraction at all."""
     from unittest.mock import Mock
 
     import app.documents.service as service_module
@@ -106,6 +107,7 @@ def _stub_graphing(monkeypatch):
         service_module, "extract_entities_and_relationships", lambda text: ExtractionResult()
     )
     monkeypatch.setattr(service_module, "write_entities_and_relationships", Mock())
+    monkeypatch.setattr(service_module, "prune_document_from_graph", Mock())
 
 
 def test_ingest_markdown_produces_passages_tagged_with_document_chapter_chunk_index(
