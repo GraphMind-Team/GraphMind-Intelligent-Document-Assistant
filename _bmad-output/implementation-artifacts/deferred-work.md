@@ -414,6 +414,12 @@
     reconsidering only if abuse (rapid delete spam) is ever observed in practice.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-7-delete-a-document-with-an-honest-deletion-boundary.md`
+  resolved: >
+    2026-08-15 -- Story 2.8 (`prune_document_from_graph`, OD-4) reverses this boundary, and its
+    one-time `rebuild_graph_with_provenance.py` rebuild has been run against the real Aura
+    database: a live query (`MATCH (e:Entity) WHERE e.source_document_ids IS NOT NULL`) confirmed
+    all 6 entities on the standing QA account carry `source_document_ids`, zero legacy entities
+    without it.
   summary: >
     Epic 4's knowledge graph view will show entities/relationships with no way to tell they came
     from a document that no longer exists -- confirmed live against the real Neo4j/Postgres data:
