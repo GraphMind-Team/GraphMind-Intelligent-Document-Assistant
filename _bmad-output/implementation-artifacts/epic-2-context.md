@@ -15,6 +15,7 @@ A user can upload documents, watch them move through ingestion to a queryable st
 - Story 2.5: Failed ingestion surfaced with a readable reason
 - Story 2.6: Content-hash dedupe on upload
 - Story 2.7: Delete a document with an honest deletion boundary
+- Story 2.8: Prune orphaned graph entities when a document is deleted
 
 ## Requirements & Constraints
 
@@ -24,7 +25,7 @@ A user can upload documents, watch them move through ingestion to a queryable st
 - Entity/relationship extraction merges into one unified graph per user (not a graph per document); matching entities merge, non-matches stay distinct. Extraction is constrained to a fixed, closed type set: entity types `Person`, `Organization`, `Project`, `Product`, `Location`; relationship types `WORKS_AT`, `SUPPLIES`, `PART_OF`, `LOCATED_IN`, `RELATED_TO` (the last one is the fallback so extraction never needs a type outside this closed set).
 - Re-uploading a byte-identical file (matched by content hash, not filename) does not create a second document row, does not re-parse, and makes no embedding or LLM call — this exists specifically to protect the project's zero-cost, free-tier-only constraint.
 - The document list and detail view show only the authenticated user's own documents — verified with two real test accounts, not just a blocked-query check. This is a launch-blocking requirement, not best-effort.
-- Deleting a document removes its passages/embeddings from the vector index immediately; graph entities/relationships derived from it are deliberately not pruned (avoids reference-counting complexity in a unified multi-document graph). The UI must state this boundary plainly at delete time, in declarative language with no apologetic filler. A deleted document must no longer appear in the library, in chat scope, or as a citation.
+- Deleting a document removes its passages/embeddings from the vector index immediately; graph entities/relationships are reference-counted across documents — an entity/relationship unique to the deleted document is pruned from the graph, while one still supported by a surviving document is kept. The UI must state this boundary plainly at delete time, in declarative language with no apologetic filler. A deleted document must no longer appear in the library, in chat scope, or as a citation.
 - Upload accepts both drag-and-drop and click-to-browse into the same dropzone; each queued file shows independent progress so a slow file never blocks the others.
 
 ## Technical Decisions
@@ -37,6 +38,7 @@ A user can upload documents, watch them move through ingestion to a queryable st
 - `user_id` on every passage/entity write is resolved server-side from the JWT, never trusted from client input.
 - Module layout: the `documents` module owns `routes.py` / `service.py` / `repository.py`; parsing, chunking, dedupe, and ingestion + rollback orchestration live in `service.py`.
 - **Resolved (OD-7):** on a content-hash match, no new row is created; the upload modal shows an explicit "already uploaded" message and surfaces the existing document. Dedupe keys on content hash only, never filename.
+- **Resolved (OD-4): graph deletion is reference-counted, not all-or-nothing.** Every entity/relationship node written during ingestion (Story 2.4) carries a `source_document_ids` field recording which document(s) contributed it. On document deletion, that document's id is removed from the field; the node/relationship itself is deleted only once no surviving document still supports it. This reverses Story 2.7's original "deliberately not pruned" boundary — confirmed live that undeleted entities carried zero document attribution and so could never have been cleaned up after the fact. Ships with a one-time operational rebuild: existing Neo4j data is cleared and every current `Ready` document is re-extracted so no already-orphaned entity survives untracked; the app does not repeat this automatically.
 
 ## UX & Interaction Patterns
 
@@ -45,7 +47,7 @@ A user can upload documents, watch them move through ingestion to a queryable st
 - Document table columns: Title, Type, Status, Uploaded date, trash icon. Clicking a row anywhere but the trash icon opens Document Detail; the trash icon is a separate hit target that never navigates.
 - Document Detail shows title, status, upload date, file type/size, chapter count, passages-indexed count, and a chapter list with per-chapter passage counts once Ready. Before Ready, those fields show as pending/unavailable — never fabricated as zero.
 - Status pills use one shared token pair (tint + text label) per state, color never standing alone, label as real selectable DOM text (not an icon-font glyph or pseudo-element). Only 2 of the 5 states (`ready`/success, `uploaded`/warning) have a concretely specified, AA-tuned text color in the design source; `extracting`/`graphing`/`failed` are described only as "extend the same pattern" (warning for in-progress, danger for failed) without a confirmed tuned value — confirm all five clear 4.5:1 contrast before shipping pill-rendering surfaces in this epic.
-- Delete uses an inline confirm (not a modal), on both the table row and Document Detail. Its copy states plainly that passages are removed from search immediately and that already-merged graph entities remain and may still influence future answers. Its a11y: appearance is announced, the boundary text is programmatically tied to Confirm/Cancel so it's read before acting, focus moves into the box, Escape collapses it, focus returns to the triggering control on close.
+- Delete uses an inline confirm (not a modal), on both the table row and Document Detail. Its copy states plainly that passages are removed from search immediately, and — per the reference-counted pruning model — that graph entities/relationships unique to this document are removed while ones shared with a surviving document are kept; it no longer unconditionally claims entities "remain." Its a11y: appearance is announced, the boundary text is programmatically tied to Confirm/Cancel so it's read before acting, focus moves into the box, Escape collapses it, focus returns to the triggering control on close.
 - Two open UX gaps with no existing mock, decided as part of this epic's stories: how a Failed reason is placed (inline in the row vs. Detail-only — Story 2.5), and the empty-library state (assumed to be a plain "No documents yet." message with Upload still primary-actionable — Story 2.2).
 - Voice throughout: plain, declarative, specific about why; no hedging, apology filler, or decorative emoji.
 
@@ -53,5 +55,6 @@ A user can upload documents, watch them move through ingestion to a queryable st
 
 - This epic builds on Epic 1's authenticated shell, JWT-derived `user_id` resolution, and the shared data-access layer scaffolding — ingestion and library stories assume those already exist.
 - Within the epic, ingestion is a pipeline: 2.1 (upload) feeds 2.2 (library list); 2.3 (parse/index) must land before 2.4 (entity extraction/graph merge) and 2.6 (dedupe, which short-circuits before 2.3's parse step); 2.5 (failed-state surfacing) depends on the status vocabulary and rollback behavior established in 2.4; 2.7 (delete) depends on the vector-store write path from 2.3.
+- Story 2.8 depends on and reverses part of Story 2.7: it requires `source_document_ids` to be written onto graph entities/relationships during Story 2.4's extraction, and needs a one-time Neo4j rebuild (clear + re-extract every `Ready` document) since existing data has no document attribution to prune by.
 - OD-1 (the entity/relationship type list) is resolved, so Story 2.4's extraction-prompt work is unblocked.
 - The Weaviate passage shape this epic writes (flat `chunk_id, document_id, user_id, chapter, chunk_index, text, embedding`) is a hard contract that Epic 3's chat/retrieval module reads — changing it here breaks that epic.

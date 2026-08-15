@@ -412,3 +412,22 @@
     protect the project's zero-cost, free-tier LLM/embedding budget (AD-8) -- delete has no
     equivalent external cost to protect against, so the same guard doesn't obviously apply. Worth
     reconsidering only if abuse (rapid delete spam) is ever observed in practice.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-7-delete-a-document-with-an-honest-deletion-boundary.md`
+  summary: >
+    Epic 4's knowledge graph view will show entities/relationships with no way to tell they came
+    from a document that no longer exists -- confirmed live against the real Neo4j/Postgres data:
+    a test account's `hr_handbook.md` was deleted (gone from Postgres and Weaviate), but its
+    entities (`Employees`, `Manager`, `Paid vacation`, `Remote`, `Calendar year`) remain in Neo4j
+    under the same `user_id`, and the `Entity` node schema carries only `(name, type, user_id)` --
+    no document reference at all, so there is no query that could even attempt to attribute or
+    filter them by source document.
+  evidence: >
+    Human-requested spot check after Story 2.7 shipped, verified directly against the live
+    databases (not just read from code). This is FR-8's deliberate, permanent boundary working
+    exactly as designed -- Story 2.7's delete confirm box already tells the user this plainly
+    ("entities... remain and may still influence future answers") -- not a defect in 2.7 or
+    anything it should have closed. Recorded here because `epic/4-knowledge-graph-view` already
+    exists as a branch at the time of this entry: whoever builds that view will need to decide how
+    to present (or knowingly not distinguish) entities whose source document is gone, and should
+    not discover this gap by surprise mid-implementation.
