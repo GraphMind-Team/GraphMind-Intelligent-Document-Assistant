@@ -176,7 +176,9 @@ def test_full_pipeline_reaches_ready_with_populated_chapter_breakdown(client, db
     assert row.chapter_breakdown == {"Chapter One": 1, "Chapter Two": 1}
 
     fake_write_graph.assert_called_once()
-    written_entities, written_relationships, written_user_id = fake_write_graph.call_args.args
+    written_entities, written_relationships, written_user_id, written_document_id = (
+        fake_write_graph.call_args.args
+    )
     assert {(e.name, e.type) for e in written_entities} == {
         ("Maria Ivanova", "Person"),
         ("TechCorp", "Organization"),
@@ -185,6 +187,7 @@ def test_full_pipeline_reaches_ready_with_populated_chapter_breakdown(client, db
         ("Maria Ivanova", "TechCorp", "WORKS_AT")
     ]
     assert written_user_id == str(row.user_id)
+    assert written_document_id == str(row.id)
     assert all(e.user_id == written_user_id for e in written_entities)
     assert all(r.user_id == written_user_id for r in written_relationships)
 
@@ -255,7 +258,7 @@ def test_llm_extraction_failure_deletes_weaviate_passages_and_marks_failed(clien
 
 
 def test_neo4j_write_failure_deletes_weaviate_passages_and_marks_failed(client, db_session, monkeypatch):
-    def _raise(entities, relationships, user_id):
+    def _raise(entities, relationships, user_id, document_id):
         raise RuntimeError("Neo4j is unreachable")
 
     fake_delete = _stub_pipeline(monkeypatch, write_graph=_raise)
@@ -282,7 +285,7 @@ def test_neo4j_write_failure_does_not_leave_document_stuck_at_graphing(client, d
     like `Extracting` does, so a stuck `Graphing` row would be permanently
     unrecoverable."""
 
-    def _raise(entities, relationships, user_id):
+    def _raise(entities, relationships, user_id, document_id):
         raise RuntimeError("Neo4j is unreachable")
 
     _stub_pipeline(monkeypatch, write_graph=_raise)

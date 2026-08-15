@@ -57,9 +57,9 @@ describe('DocumentCard delete', () => {
     await openConfirm(user)
 
     const box = screen.getByRole('alert')
-    expect(within(box).getByText(/removed from search immediately/)).toBeInTheDocument()
+    expect(within(box).getByText(/Removes its passages/)).toBeInTheDocument()
     expect(
-      within(box).getByText(/remain and may still influence future answers/),
+      within(box).getByText(/not shared with another document/),
     ).toBeInTheDocument()
     expect(within(box).getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
     expect(within(box).getByRole('button', { name: 'Delete' })).toBeInTheDocument()
@@ -83,7 +83,7 @@ describe('DocumentCard delete', () => {
     renderCard()
     await openConfirm(user)
 
-    const boundaryText = screen.getByText(/removed from search immediately/)
+    const boundaryText = screen.getByText(/Removes its passages/)
     expect(boundaryText).toHaveAttribute('id')
     const boundaryId = boundaryText.getAttribute('id')
 

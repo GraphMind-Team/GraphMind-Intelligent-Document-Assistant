@@ -20,7 +20,10 @@ from fastapi import HTTPException
 
 from app.documents import repository
 from app.documents.parsing import CHUNK_OVERLAP_WORDS, parse_document
-from app.shared.data_access.neo4j_client import write_entities_and_relationships
+from app.shared.data_access.neo4j_client import (
+    prune_document_from_graph,
+    write_entities_and_relationships,
+)
 from app.shared.data_access.session import get_session_factory
 from app.shared.data_access.shapes import Neo4jEntity, Neo4jRelationship, WeaviatePassage
 from app.shared.data_access.weaviate_client import (
@@ -427,7 +430,9 @@ def ingest_document(
                 for relationship in extraction_result.relationships
             ]
             stage = _STAGE_LABEL_GRAPH_WRITE
-            write_entities_and_relationships(neo4j_entities, neo4j_relationships, user_id_str)
+            write_entities_and_relationships(
+                neo4j_entities, neo4j_relationships, user_id_str, document_id_str
+            )
 
             # `chapter_breakdown` is built from the same `chunks` list the
             # Weaviate write already used above -- no re-parsing. Counter
@@ -518,28 +523,27 @@ _DELETABLE_STATUSES: Final = {"Ready", "Failed"}
 
 
 def delete_document(db: Session, current_user: User, document_id: uuid.UUID) -> None:
-    """Hard-deletes one document and its Weaviate passages (Story 2.7).
-    Raises `HTTPException(404)` for a missing/not-owned document, via the
-    same `get_document` lookup and message the read path already uses --
-    so "not yours" and "doesn't exist" stay indistinguishable here too.
-    Raises `HTTPException(409)` if the document is still mid-ingestion
-    (`Uploaded`, `Extracting`, or `Graphing`) -- see `_DELETABLE_STATUSES`.
+    """Hard-deletes one document, its Weaviate passages, and its graph
+    attribution (Story 2.7 + Story 2.8). Raises `HTTPException(404)` for a
+    missing/not-owned document, via the same `get_document` lookup and
+    message the read path already uses -- so "not yours" and "doesn't
+    exist" stay indistinguishable here too. Raises `HTTPException(409)` if
+    the document is still mid-ingestion (`Uploaded`, `Extracting`, or
+    `Graphing`) -- see `_DELETABLE_STATUSES`.
 
     Delete order is fixed and load-bearing: `delete_passages_for_document`
-    (Weaviate) runs first, then the row is deleted and committed. If the
-    Weaviate call raises, nothing below it has run -- no row deleted, no
-    commit -- so the document still exists and the user can safely retry
-    the same delete. The reverse order would risk deleting the row first
-    and then failing to reach Weaviate, orphaning passages for a document
-    that no longer exists in Postgres with no way left to find and clean
-    them up.
+    (Weaviate) runs first, then `prune_document_from_graph` (Neo4j), then
+    the row is deleted and committed. Each step only runs once the previous
+    one has succeeded, so a mid-failure never leaves a document row
+    pointing at partially-cleaned stores -- e.g. if the Neo4j prune raises,
+    the row still exists and the user can safely retry the same delete
+    (`prune_document_from_graph` is idempotent, so re-running it after a
+    partial success matches zero additional rows the second time).
 
-    Neo4j is never touched here -- no query, no import of the Neo4j
-    client into this function. FR-8's explicit, permanent boundary: a
-    document's entities/relationships, once merged into the unified
-    multi-document graph, are not pruned back out on delete (avoids
-    reference-counting complexity across documents that may share an
-    entity). Not a deferred TODO.
+    `prune_document_from_graph` (Story 2.8, OD-4) reverses Story 2.7's
+    original boundary: entities/relationships unique to this document are
+    removed from the graph, while ones a surviving document still
+    contributes to are kept, reference-counted via `source_document_ids`.
     """
     document = get_document(db, current_user, document_id)
     if document.status not in _DELETABLE_STATUSES:
@@ -548,5 +552,6 @@ def delete_document(db: Session, current_user: User, document_id: uuid.UUID) -> 
             detail="Document is still being processed and can't be deleted yet.",
         )
     delete_passages_for_document(str(document.id), str(current_user.id))
+    prune_document_from_graph(str(document.id), str(current_user.id))
     repository.delete_document_for_user(db, current_user.id, document_id)
     db.commit()

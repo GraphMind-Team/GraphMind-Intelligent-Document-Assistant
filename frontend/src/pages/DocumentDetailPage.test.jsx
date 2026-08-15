@@ -222,8 +222,8 @@ describe('DocumentDetailPage', () => {
       await user.click(screen.getByRole('button', { name: 'Delete' }))
 
       const box = screen.getByRole('alert')
-      expect(box).toHaveTextContent(/removed from search immediately/)
-      expect(box).toHaveTextContent(/remain and may still influence future answers/)
+      expect(box).toHaveTextContent(/Removes its passages/)
+      expect(box).toHaveTextContent(/not shared with another document/)
       expect(deleteSpy).not.toHaveBeenCalled()
     })
 
@@ -241,7 +241,7 @@ describe('DocumentDetailPage', () => {
       const cancelButton = screen.getByRole('button', { name: 'Cancel' })
       expect(cancelButton).toHaveFocus()
 
-      const boundaryText = screen.getByText(/removed from search immediately/)
+      const boundaryText = screen.getByText(/Removes its passages/)
       const boundaryId = boundaryText.getAttribute('id')
       expect(boundaryId).toBeTruthy()
       expect(cancelButton).toHaveAttribute('aria-describedby', boundaryId)

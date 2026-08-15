@@ -146,13 +146,14 @@ def delete_document(
     db: Session = Depends(get_db_session),
     current_user: User = Depends(get_current_user),
 ) -> Response:
-    """Hard-deletes one document and its Weaviate passages (Story 2.7).
+    """Hard-deletes one document, its Weaviate passages, and its graph
+    attribution (Story 2.7 + Story 2.8).
 
     Same tenancy-scoped 404 as `get_document` above -- a cross-tenant or
     nonexistent id both come back as "Document not found.", never a 403
-    that would confirm the id exists. Neo4j entities/relationships from
-    this document are deliberately left untouched (FR-8's permanent
-    boundary); see `service.delete_document`'s docstring.
+    that would confirm the id exists. Neo4j entities/relationships unique
+    to this document are pruned (reference-counted against any surviving
+    document, OD-4); see `service.delete_document`'s docstring.
 
     204 with no body on success -- there is nothing left to describe once
     the row is gone.

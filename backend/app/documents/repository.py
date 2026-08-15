@@ -97,8 +97,9 @@ def delete_document_for_user(db: Session, user_id: uuid.UUID, document_id: uuid.
     No soft-delete flag, no `deleted_at` column -- a genuine `db.delete`.
     `Document` has no incoming FK from any other table (only `User` and
     `Document` exist), so there is no cascade to handle. Neo4j is never
-    touched here or anywhere in this call chain -- FR-8's permanent
-    boundary, not a deferred TODO.
+    touched *here* -- the caller (`service.delete_document`) runs the
+    Neo4j prune (Story 2.8's `prune_document_from_graph`) as its own step,
+    before ever reaching this function.
     """
     document = get_document_for_user(db, user_id, document_id)
     if document is None:

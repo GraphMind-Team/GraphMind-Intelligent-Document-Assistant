@@ -125,6 +125,7 @@ def write_entities_and_relationships(
     entities: list[Neo4jEntity],
     relationships: list[Neo4jRelationship],
     user_id: str,
+    document_id: str,
 ) -> None:
     """The only function `documents/` calls to reach Neo4j (AD-2) -- no raw
     Cypher may appear anywhere in `documents/`.
@@ -145,6 +146,15 @@ def write_entities_and_relationships(
     document's owner, never from client input (AD-2) -- this check is
     defense-in-depth against a future caller constructing the dataclasses
     with a mismatched value, not the primary tenancy guarantee.
+
+    `document_id` (Story 2.8, OD-4) is required and stamped onto every
+    entity's and relationship's `source_document_ids` list property --
+    appended only if not already present (`coalesce(existing, []) + id`
+    guarded by a membership check), so calling this twice for the same
+    document (Story 2.6's reingest-on-Failed path) never produces a
+    duplicate entry. This is what makes `prune_document_from_graph` able to
+    reference-count: an entity/relationship is deleted only once every
+    document that ever contributed it has removed its id from this list.
 
     `Neo4jRelationship` (see `shapes.py`) carries entity *names*, not
     types -- the same name can legitimately belong to two different-typed
@@ -196,10 +206,29 @@ def write_entities_and_relationships(
 
     driver = get_neo4j_driver()
     with driver.session() as session:
-        session.execute_write(_write_entities_and_relationships_tx, entities, relationships, entity_type_by_name, user_id)
+        session.execute_write(
+            _write_entities_and_relationships_tx,
+            entities,
+            relationships,
+            entity_type_by_name,
+            user_id,
+            document_id,
+        )
 
 
-def _write_entities_and_relationships_tx(tx, entities, relationships, entity_type_by_name, user_id) -> None:
+# Shared between the entity and relationship `MERGE` statements below --
+# appends `$document_id` to `source_document_ids` only if it isn't already
+# there, so writing the same document's entities twice (Story 2.6's
+# reingest-on-Failed path) never produces a duplicate list entry.
+_APPEND_SOURCE_DOCUMENT_ID = (
+    "coalesce({var}.source_document_ids, []) + "
+    "CASE WHEN $document_id IN coalesce({var}.source_document_ids, []) THEN [] ELSE [$document_id] END"
+)
+
+
+def _write_entities_and_relationships_tx(
+    tx, entities, relationships, entity_type_by_name, user_id, document_id
+) -> None:
     """Batched via `UNWIND` rather than one `tx.run` per item.
 
     A per-item loop is one network round-trip to Aura each: a document
@@ -223,9 +252,11 @@ def _write_entities_and_relationships_tx(tx, entities, relationships, entity_typ
     if entities:
         tx.run(
             "UNWIND $rows AS row "
-            "MERGE (e:Entity {name: row.name, type: row.type, user_id: $user_id})",
+            "MERGE (e:Entity {name: row.name, type: row.type, user_id: $user_id}) "
+            f"SET e.source_document_ids = {_APPEND_SOURCE_DOCUMENT_ID.format(var='e')}",
             rows=[{"name": entity.name, "type": entity.type} for entity in entities],
             user_id=user_id,
+            document_id=document_id,
         ).consume()
 
     # Grouped by relationship type -- the one part of the query that can't
@@ -270,6 +301,83 @@ def _write_entities_and_relationships_tx(tx, entities, relationships, entity_typ
             "UNWIND $rows AS row "
             "MATCH (a:Entity {name: row.source_name, type: row.source_type, user_id: $user_id}) "
             "MATCH (b:Entity {name: row.target_name, type: row.target_type, user_id: $user_id}) "
-            f"MERGE (a)-[:{relationship_type}]->(b)"
+            f"MERGE (a)-[r:{relationship_type}]->(b) "
+            f"SET r.source_document_ids = {_APPEND_SOURCE_DOCUMENT_ID.format(var='r')}"
         )
-        tx.run(query, rows=rows, user_id=user_id).consume()
+        tx.run(query, rows=rows, user_id=user_id, document_id=document_id).consume()
+
+
+def prune_document_from_graph(document_id: str, user_id: str) -> None:
+    """Removes `document_id`'s attribution from every entity/relationship it
+    contributed, deleting the node/relationship itself once no surviving
+    document still supports it (Story 2.8, OD-4's reference-counted
+    pruning). The only new *request-path* Neo4j entry point this story
+    adds -- called from `documents/service.py::delete_document` after the
+    existing Weaviate passage delete and before the Postgres row delete.
+    (`wipe_all_entities_and_relationships` below is also new, but is never
+    called from request-serving code -- see its own docstring.)
+
+    Relationships are pruned first, then entities, inside a single
+    transaction -- matching the order `write_entities_and_relationships`
+    writes them in (a relationship is only ever written alongside both its
+    endpoint entities in the same call, per that function's own name
+    resolution), so a relationship never outlives an entity it depends on
+    having survived, nor is an entity ever deleted while a still-alive
+    relationship still names it. `DETACH DELETE` on the entity pass is
+    what would clean up any such relationship anyway, but pruning
+    relationships first keeps the two passes independently correct rather
+    than relying on that as a safety net.
+
+    A legacy entity/relationship with no `source_document_ids` at all
+    (written before this story's rebuild) is treated as already-empty by
+    `coalesce(..., [])` -- `document_id` is never found in an empty list,
+    so it's never matched and never touched, exactly the "untracked, left
+    alone" behavior the story's I/O matrix requires for that case.
+
+    Idempotent: pruning the same `document_id` twice (or pruning a
+    document that contributed nothing) matches zero rows on the second
+    call and deletes nothing further.
+    """
+    driver = get_neo4j_driver()
+    with driver.session() as session:
+        session.execute_write(_prune_document_from_graph_tx, document_id, user_id)
+
+
+def _prune_document_from_graph_tx(tx, document_id, user_id) -> None:
+    tx.run(
+        "MATCH (:Entity {user_id: $user_id})-[r]->(:Entity {user_id: $user_id}) "
+        "WHERE $document_id IN coalesce(r.source_document_ids, []) "
+        "SET r.source_document_ids = [id IN r.source_document_ids WHERE id <> $document_id] "
+        "WITH r WHERE size(r.source_document_ids) = 0 "
+        "DELETE r",
+        user_id=user_id,
+        document_id=document_id,
+    ).consume()
+
+    tx.run(
+        "MATCH (e:Entity {user_id: $user_id}) "
+        "WHERE $document_id IN coalesce(e.source_document_ids, []) "
+        "SET e.source_document_ids = [id IN e.source_document_ids WHERE id <> $document_id] "
+        "WITH e WHERE size(e.source_document_ids) = 0 "
+        "DETACH DELETE e",
+        user_id=user_id,
+        document_id=document_id,
+    ).consume()
+
+
+def wipe_all_entities_and_relationships() -> None:
+    """Deletes every `:Entity` node (and, via `DETACH DELETE`, every
+    relationship between them) across all users -- destructive, and not
+    scoped to a single `user_id` like every other function in this module.
+
+    Not a request-path function: the only caller is
+    `backend/scripts/rebuild_graph_with_provenance.py` (Story 2.8's
+    one-time operational rebuild), which requires its own explicit `--yes`
+    flag before it will call this at all. Kept here, not as raw Cypher in
+    that script, purely to hold AD-2's line ("no raw Cypher outside
+    `neo4j_client.py`") -- it is not meant to be reused as a general-
+    purpose reset, and no other caller should add itself here.
+    """
+    driver = get_neo4j_driver()
+    with driver.session() as session:
+        session.execute_write(lambda tx: tx.run("MATCH (n:Entity) DETACH DELETE n").consume())
