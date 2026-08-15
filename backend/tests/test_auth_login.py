@@ -23,6 +23,9 @@ def test_login_success_returns_jwt(client):
     body = response.json()
     assert body["access_token"]
     assert body["token_type"] == "bearer"
+    # Returned directly on login (Story 5.2) so the frontend never has to
+    # make a second request just to learn the account's theme.
+    assert body["theme"] == "light"
 
 
 def test_login_token_works_against_me(client):
@@ -38,6 +41,7 @@ def test_login_token_works_against_me(client):
     assert body["full_name"] == "Maria Ivanova"
     assert "id" in body
     assert "created_at" in body
+    assert body["theme"] == "light"
     assert "password" not in body
     assert "password_hash" not in body
 

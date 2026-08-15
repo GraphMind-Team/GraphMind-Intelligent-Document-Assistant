@@ -48,6 +48,14 @@ export function AuthProvider({ children }) {
   // same place `setToken` is called, sidesteps that entirely.
   const tokenRef = useRef(token)
 
+  // The account's stored theme (Story 5.2) -- deliberately just this one
+  // field, not a full user-profile object, since nothing here needs more
+  // than that yet and guessing at Story 5.1's eventual profile shape isn't
+  // this story's job. `null` means "not known yet" (pre-login, or the boot
+  // /auth/me check hasn't resolved); ThemeAccountSync treats that as
+  // "nothing to sync".
+  const [accountTheme, setAccountTheme] = useState(null)
+
   const setTokenEverywhere = useCallback((next) => {
     tokenRef.current = next
     setToken(next)
@@ -58,6 +66,7 @@ export function AuthProvider({ children }) {
     async ({ email, password }) => {
       const data = await loginAccount({ email, password })
       setTokenEverywhere(data.access_token)
+      setAccountTheme(data.theme)
       return data
     },
     [setTokenEverywhere],
@@ -65,6 +74,7 @@ export function AuthProvider({ children }) {
 
   const logout = useCallback(() => {
     setTokenEverywhere(null)
+    setAccountTheme(null)
   }, [setTokenEverywhere])
 
   // Reusable by later stories (documents/chat/kg) for any authenticated
@@ -104,6 +114,21 @@ export function AuthProvider({ children }) {
     }
     let cancelled = false
     authFetch('/auth/me', { signal: AbortSignal.timeout(AUTH_ME_CHECK_TIMEOUT_MS) })
+      // authFetch resolves (doesn't throw) on a 401/500 too -- response.ok
+      // must be checked before parsing, otherwise a rejected/expired token
+      // would either set accountTheme to undefined or throw inside .then
+      // on a non-JSON error body.
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        // tokenRef.current (not just data truthiness) matters here: if the
+        // user calls logout() while this request is still in flight,
+        // `cancelled` stays false (AuthProvider itself doesn't unmount on
+        // logout, so the effect's cleanup never runs) -- but tokenRef was
+        // already nulled out synchronously by setTokenEverywhere. Without
+        // this check, the stale response would silently repopulate
+        // accountTheme right after logout() just reset it to null.
+        if (data && tokenRef.current) setAccountTheme(data.theme)
+      })
       .catch(() => {})
       .finally(() => {
         if (!cancelled) setIsInitializing(false)
@@ -117,6 +142,11 @@ export function AuthProvider({ children }) {
     token,
     isAuthenticated: Boolean(token),
     isInitializing,
+    accountTheme,
+    // Exposed so AppearanceCard can keep this in sync after a successful
+    // theme save -- otherwise accountTheme goes stale relative to the
+    // just-persisted value until the next login/boot check.
+    setAccountTheme,
     login,
     logout,
     authFetch,

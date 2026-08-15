@@ -10,6 +10,7 @@ import DocumentDetailPage from './pages/DocumentDetailPage'
 import ChatPage from './pages/ChatPage'
 import GraphPage from './pages/GraphPage'
 import SettingsPage from './pages/SettingsPage'
+import ThemeAccountSync from './components/ThemeAccountSync'
 
 // Catch-all for anything that isn't a real route.
 function NotFoundPage() {
@@ -23,6 +24,7 @@ function NotFoundPage() {
 function App() {
   return (
     <BrowserRouter>
+      <ThemeAccountSync />
       <Routes>
         <Route path="/health" element={<HealthPage />} />
 

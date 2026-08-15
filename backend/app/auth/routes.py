@@ -10,6 +10,8 @@ from app.auth.schemas import (
     MeResponse,
     RegisterRequest,
     RegisterResponse,
+    ThemeResponse,
+    UpdateThemeRequest,
 )
 from app.shared.data_access import get_db_session
 from app.shared.models import User
@@ -48,9 +50,19 @@ def login(
     user = service.authenticate_user(db, data.email, data.password)
     limiter.reset(client_ip, data.email)
     token = service.create_access_token(user.id)
-    return LoginResponse(access_token=token, token_type="bearer")
+    return LoginResponse(access_token=token, token_type="bearer", theme=user.theme)
 
 
 @router.get("/me", response_model=MeResponse)
 def me(current_user: User = Depends(get_current_user)) -> MeResponse:
     return MeResponse.model_validate(current_user)
+
+
+@router.patch("/theme", response_model=ThemeResponse)
+def update_theme(
+    data: UpdateThemeRequest,
+    db: Session = Depends(get_db_session),
+    current_user: User = Depends(get_current_user),
+) -> ThemeResponse:
+    service.update_theme(db, current_user, data.theme)
+    return ThemeResponse(theme=data.theme)

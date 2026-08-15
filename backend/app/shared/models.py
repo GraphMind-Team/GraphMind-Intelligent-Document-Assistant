@@ -32,6 +32,11 @@ class User(Base):
     email: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    # Python-side default (Story 5.2), mirroring `id` above -- tests build
+    # the schema via Base.metadata.create_all() rather than Alembic, so
+    # every ORM insert needs the value regardless of the migration's
+    # server_default, which only exists to backfill pre-5.2 Postgres rows.
+    theme: Mapped[str] = mapped_column(String(5), nullable=False, default="light")
 
 
 class Document(Base):

@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
@@ -54,6 +55,11 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    # Returned directly here (rather than making the frontend fetch /auth/me
+    # separately after login) so the account's theme is known synchronously
+    # on login -- a second request would leave a render or two painted in
+    # the wrong theme before it resolves (Story 5.2).
+    theme: str
 
 
 class MeResponse(BaseModel):
@@ -63,3 +69,12 @@ class MeResponse(BaseModel):
     full_name: str
     email: str
     created_at: datetime
+    theme: str
+
+
+class UpdateThemeRequest(BaseModel):
+    theme: Literal["light", "dark"]
+
+
+class ThemeResponse(BaseModel):
+    theme: str
