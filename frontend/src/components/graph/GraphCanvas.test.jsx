@@ -47,10 +47,12 @@ function makeCtx(overrides = {}) {
     save: vi.fn(),
     restore: vi.fn(),
     beginPath: vi.fn(),
+    closePath: vi.fn(),
     arc: vi.fn(),
     fill: vi.fn(),
     stroke: vi.fn(),
     fillText: vi.fn(),
+    strokeText: vi.fn(),
     measureText: vi.fn((text) => ({ width: text.length * 6 })),
     ...overrides,
   }
@@ -62,6 +64,21 @@ const GRAPH = {
     { id: 'Organization:TechCorp', name: 'TechCorp', type: 'Organization', degree: 1 },
   ],
   edges: [{ source: 'Person:Maria', target: 'Organization:TechCorp', type: 'WORKS_AT' }],
+  total_node_count: 2,
+}
+
+// Two distinct relationship types between the exact same pair -- a real
+// shape under OD-1's closed vocabulary (see `assignParallelEdgeCurvature`'s
+// own comment), not a data error this fixture is inventing.
+const PARALLEL_EDGES_GRAPH = {
+  nodes: [
+    { id: 'Person:Maria', name: 'Maria', type: 'Person', degree: 2 },
+    { id: 'Organization:TechCorp', name: 'TechCorp', type: 'Organization', degree: 2 },
+  ],
+  edges: [
+    { source: 'Person:Maria', target: 'Organization:TechCorp', type: 'WORKS_AT' },
+    { source: 'Person:Maria', target: 'Organization:TechCorp', type: 'RELATED_TO' },
+  ],
   total_node_count: 2,
 }
 
@@ -226,13 +243,13 @@ describe('GraphCanvas', () => {
       }),
     })
 
-    // The palest light-mode fill (#90E0EF, 1.49:1 on white) -- the one the
-    // outline exists for.
+    // The palest light-mode fill (#B7D3F6, 1.43:1 on the graph canvas bg)
+    // -- the one the outline exists for.
     props.nodeCanvasObject({ x: 0, y: 0, degree: 3, type: 'Location', name: 'Sofia' }, ctx, 1)
 
     expect(ctx.stroke).toHaveBeenCalled()
-    // `--text2`, 8.36:1 against the light canvas.
-    expect(strokeAtOutlineTime).toBe('#454E60')
+    // graphTheme.js's `ink`, 14.56:1 against the light graph canvas bg.
+    expect(strokeAtOutlineTime).toBe('#132340')
     // Cleared first, so the outline doesn't repaint the fill's shadow.
     expect(shadowAtOutlineTime).toBe(0)
   })
@@ -338,6 +355,42 @@ describe('GraphCanvas', () => {
     expect(radiusAt(1)).toBe(radiusAt(0.3))
   })
 
+  it('keeps re-fitting on every simulation tick, not just once the layout settles', async () => {
+    render(<GraphCanvas graph={GRAPH} />)
+    await screen.findByTestId('force-graph-stub')
+
+    const props = MockForceGraph2D.mock.calls.at(-1)[0]
+    mockEngine.zoomToFit.mockClear()
+
+    // Without this, the first thing a viewer sees is force-graph's own
+    // unfit initial layout (nodes clustered near centre, spreading out
+    // over the warmup) with the fit only snapping in once it settles --
+    // `onEngineTick` fires on every step of that settling, not only the
+    // last one.
+    props.onEngineTick()
+    props.onEngineTick()
+
+    expect(mockEngine.zoomToFit).toHaveBeenCalledTimes(2)
+  })
+
+  it('stops auto-fitting on tick once the user has zoomed or panned deliberately', async () => {
+    render(<GraphCanvas graph={GRAPH} />)
+    await screen.findByTestId('force-graph-stub')
+
+    const props = MockForceGraph2D.mock.calls.at(-1)[0]
+    mockEngine.zoomToFit.mockClear()
+
+    // A wheel event on the canvas frame is force-graph's own zoom
+    // gesture (`markUserViewChange`, wired to the container's `onWheel`) --
+    // the same signal `stepZoom` and the existing pan-drag test already
+    // use to mark a deliberate user gesture.
+    fireEvent.wheel(screen.getByLabelText('Knowledge graph visualization'))
+
+    props.onEngineTick()
+
+    expect(mockEngine.zoomToFit).not.toHaveBeenCalled()
+  })
+
   it('fits the graph into the canvas once the layout settles, without magnifying past the spec size', async () => {
     render(<GraphCanvas graph={GRAPH} />)
     await screen.findByTestId('force-graph-stub')
@@ -404,16 +457,53 @@ describe('GraphCanvas', () => {
     expect(Math.sqrt(props.nodeVal({ degree: 3 })) * props.nodeRelSize).toBeGreaterThan(20)
   })
 
+  it('pushes nodes apart harder as the graph grows, so a many-entity account does not collapse into a dense tangle', async () => {
+    // A real 8-entity account graph was reported crowding into an
+    // overlapping clump even with `collide` in place -- `collide` alone
+    // only stops circles landing exactly on top of each other, not the
+    // layout as a whole from crowding. Charge/link-distance must scale
+    // with node count, not stay fixed, for this to actually resolve as
+    // accounts grow rather than only at the exact size this was tuned
+    // against.
+    const bigGraph = {
+      nodes: Array.from({ length: 20 }, (_, i) => ({
+        id: `Person:P${i}`,
+        name: `Person ${i}`,
+        type: 'Person',
+        degree: 1,
+      })),
+      edges: [],
+      total_node_count: 20,
+    }
+
+    const { unmount } = render(<GraphCanvas graph={GRAPH} />)
+    await screen.findByTestId('force-graph-stub')
+    const smallGraphCharge = mockChargeForce.strength.mock.calls.at(-1)[0]
+    const smallGraphLinkDistance = mockLinkForce.distance.mock.calls.at(-1)[0]
+    unmount()
+
+    mockChargeForce.strength.mockClear()
+    mockLinkForce.distance.mockClear()
+    render(<GraphCanvas graph={bigGraph} />)
+    await screen.findByTestId('force-graph-stub')
+    const bigGraphCharge = mockChargeForce.strength.mock.calls.at(-1)[0]
+    const bigGraphLinkDistance = mockLinkForce.distance.mock.calls.at(-1)[0]
+
+    // Charge is negative (repulsive) -- "stronger" means more negative.
+    expect(bigGraphCharge).toBeLessThan(smallGraphCharge)
+    expect(bigGraphLinkDistance).toBeGreaterThan(smallGraphLinkDistance)
+  })
+
   it('gives links a visible theme colour and a direction arrow', async () => {
     render(<GraphCanvas graph={GRAPH} />)
     await screen.findByTestId('force-graph-stub')
 
     const props = MockForceGraph2D.mock.calls.at(-1)[0]
     expect(props.linkDirectionalArrowLength).toBeGreaterThan(0)
-    // 3.38:1 against the light canvas -- an edge is the relationship this
-    // view exists to show, so WCAG 1.4.11's 3:1 applies to it. The
-    // original 0.45 alpha composited to 2.19:1.
-    expect(props.linkColor()).toBe('rgba(69, 78, 96, 0.65)')
+    // 3.67:1 against the light graph canvas bg -- an edge is the
+    // relationship this view exists to show, so WCAG 1.4.11's 3:1 applies
+    // to it (see graphTheme.js's PALETTE comment for the derivation).
+    expect(props.linkColor()).toBe('rgba(34, 80, 143, 0.7)')
   })
 
   it('spells out each two-letter type badge in a legend, for the types on the canvas', async () => {

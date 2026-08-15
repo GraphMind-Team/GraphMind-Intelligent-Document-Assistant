@@ -7,12 +7,21 @@ a connection directly. `list_documents_for_user` is built through
 hand-writing `select(Document).where(Document.user_id == ...)` here --
 that's the one place the tenancy filter is applied, so this call site
 can't ship without it by omission.
+
+`Document.content` (the raw uploaded bytes, up to the 20MB cap) is deferred
+on every read below except `ingest_document`'s own `db.get(Document, ...)`
+in `service.py`, which is the only caller that actually parses it. Without
+`defer()`, a plain `select(Document)` loads that column on every row it
+touches -- the list endpoint alone would pull the full bytes of every
+document a user has just to render a card grid of filename/type/status/
+date, and the content-hash dedupe lookup would pull it just to read a
+column that isn't `content` at all.
 """
 
 import uuid
 
 from sqlalchemy import desc, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 from app.shared.data_access.tenancy import user_scoped_select
 from app.shared.models import Document
@@ -29,7 +38,11 @@ def create_document(db: Session, document: Document) -> Document:
 
 
 def list_documents_for_user(db: Session, user_id: uuid.UUID) -> list[Document]:
-    stmt = user_scoped_select(Document, user_id).order_by(desc(Document.created_at))
+    stmt = (
+        user_scoped_select(Document, user_id)
+        .order_by(desc(Document.created_at))
+        .options(defer(Document.content))
+    )
     return list(db.execute(stmt).scalars().all())
 
 
@@ -44,7 +57,11 @@ def get_document_for_user(db: Session, user_id: uuid.UUID, document_id: uuid.UUI
     service layer answer both with an identical 404 rather than a 403 that
     would confirm the id exists.
     """
-    stmt = user_scoped_select(Document, user_id).where(Document.id == document_id)
+    stmt = (
+        user_scoped_select(Document, user_id)
+        .where(Document.id == document_id)
+        .options(defer(Document.content))
+    )
     return db.execute(stmt).scalars().first()
 
 
@@ -118,5 +135,9 @@ def get_document_by_content_hash(db: Session, user_id: uuid.UUID, content_hash: 
     `service.upload_document` and again after an `IntegrityError` on the
     concurrent-upload race, to fetch the row the other request just won.
     """
-    stmt = user_scoped_select(Document, user_id).where(Document.content_hash == content_hash)
+    stmt = (
+        user_scoped_select(Document, user_id)
+        .where(Document.content_hash == content_hash)
+        .options(defer(Document.content))
+    )
     return db.execute(stmt).scalars().first()
