@@ -35,7 +35,7 @@ This document provides the complete epic and story breakdown for GraphMind-Intel
 | FR-5 | Entity extraction into the unified graph | One graph per user; matching entities merge rather than duplicate; fixed type set |
 | FR-6 | Ingestion dedupe | Byte-identical re-upload (content hash) triggers no re-parse, no embedding call, no LLM call |
 | FR-7 | List and inspect documents | Own documents only; detail view shows metadata and chapters |
-| FR-8 | Delete a document | Passages leave the vector index immediately; graph entities deliberately not pruned; UI states this at delete time |
+| FR-8 | Delete a document | Passages leave the vector index immediately; graph entities/relationships unique to that document are pruned too, once no other surviving document still supports them (OD-4, Story 2.8); UI states this at delete time |
 | FR-9 | Answer with structured citations | Every claim-bearing sentence traceable to ≥1 citation; citations name a specific document *and* passage |
 | FR-10 | Explicit refusal below threshold | Short-circuits before the generation call and returns an explicit refusal |
 | FR-11 | Document scoping | All documents or a chosen subset; default is all; out-of-scope passages never appear as citations |
@@ -104,7 +104,7 @@ Chapter-level filtered search (chapters stay read-only metadata) · query histor
 | OD-1 | ✅ RESOLVED | **Entity/relationship type list (FR-5).** Entity types: `Person`, `Organization`, `Project`, `Product`, `Location`. Relationship types: `WORKS_AT`, `SUPPLIES`, `PART_OF`, `LOCATED_IN`, `RELATED_TO` (fallback so extraction never needs a type outside the closed set) |
 | OD-2 | ✅ RESOLVED | **FR-10 threshold value.** `RELEVANCE_THRESHOLD = 0.75` (`shared/llm_client/__init__.py`), measured against real Weaviate retrieval (on-topic distances 0.162–0.459, off-topic 0.899–1.094, one Bulgarian cross-lingual probe at 0.182) — sits in the resulting gap, biased toward not refusing a genuinely answerable question. Small sample (one document); flagged for re-measurement once Epic 6's evaluation set exists (SM-2/SM-C1) |
 | OD-3 | 🔴 OPEN | **SM-1 numeric target.** 80% is a placeholder; confirmed in Story 6.1 after a baseline run |
-| OD-4 | 🔴 OPEN | Whether FR-8's delete/graph warning needs a stronger v1 mitigation. PM call, not architecture's |
+| OD-4 | ✅ RESOLVED | **FR-8's delete/graph mitigation is pruning, not just a warning.** Reversed after a live spot-check on the running app showed a deleted document's entities surviving in Neo4j with zero document attribution. Entities/relationships now carry `source_document_ids`; a document's own contribution is removed on delete, and the node/edge itself is deleted only once no surviving document still supports it (Story 2.8) |
 | OD-5 | ✅ RESOLVED | Chat document search is a **filter over the scope panel only**, not library search. Removes the §6.2 conflict; UX-DR10 amended |
 | OD-6 | ✅ RESOLVED | Scope panel **not pre-checked**. Empty selection still means all documents (FR-11 default) — and must visibly read that way, or it looks like "nothing selected" |
 | OD-7 | ✅ RESOLVED | Hash match shows "already uploaded" and surfaces the existing document. No second row, no reprocessing. Keyed on content hash, not filename. Replace-by-filename rejected as scope beyond FR-6 |
@@ -160,7 +160,7 @@ Chapter-level filtered search (chapters stay read-only metadata) · query histor
 | FR-5 | 2 | Entity extraction merged into the unified graph, exact-match |
 | FR-6 | 2 | Content-hash dedupe |
 | FR-7 | 2 | Document list and detail |
-| FR-8 | 2 | Deletion with the vector-removed / graph-persists boundary |
+| FR-8 | 2 | Deletion with the vector-removed / graph-pruned-when-unshared boundary |
 | FR-9 | 3 | Grounded answers with structured citations |
 | FR-10 | 3 | Refusal below threshold, short-circuited before the LLM call |
 | FR-11 | 3 | Document scoping |
@@ -638,6 +638,40 @@ So that I am never later surprised to find a deleted document still shaping an a
 **Given** the inline confirm box appears
 **When** a screen-reader or keyboard user encounters it
 **Then** its appearance is announced, the deletion-boundary text is programmatically associated with the Confirm and Cancel buttons so the warning is read before the action, focus moves into the box, Escape collapses it back to the resting Delete control, and focus returns to the triggering control on close (UX-DR26)
+
+### Story 2.8: Prune orphaned graph entities when a document is deleted
+
+As a user,
+I want deleting a document to also remove the Knowledge Graph entities and relationships nothing else supports anymore,
+So that my graph never keeps carrying information from something I've already removed.
+
+**Reverses Story 2.7's original boundary** ("graph entities deliberately not pruned") — resolves OD-4. Confirmed live before this story: a deleted document's entities remained in Neo4j with zero document attribution (no field on the `Entity` node points back to any document at all), so there was no query that could ever have cleaned them up after the fact.
+
+**Acceptance Criteria:**
+
+**Given** an entity or relationship that only one document ever contributed
+**When** I confirm that document's deletion
+**Then** the entity/relationship is removed from my Knowledge Graph, not left behind (FR-8)
+
+**Given** an entity or relationship that multiple documents contributed (e.g. "TechCorp" merged from two uploads, AD-4's exact-match merge)
+**When** I delete only one of those documents
+**Then** the entity/relationship remains, since a surviving document still supports it — deletion is reference-counted, not all-or-nothing
+
+**Given** entities and relationships are written to the graph during ingestion (Story 2.4)
+**When** they are merged
+**Then** the contributing document's id is recorded on the node/relationship (`source_document_ids`), so a later deletion knows whether anything else still depends on it
+
+**Given** the graph today has no document attribution on any existing entity or relationship
+**When** this story ships
+**Then** all of it is rebuilt once: existing Neo4j data is cleared and every current `Ready` document is re-extracted, so nothing already-orphaned (e.g. from a document deleted before this story existed) survives untracked — a one-time operational step, not something the app repeats automatically
+
+**Given** the inline confirm box (Story 2.7)
+**When** it renders
+**Then** its wording reflects the new behavior — no longer unconditionally claims entities "remain," states plainly that entities/relationships unique to this document are removed and shared ones are kept
+
+**Given** any Neo4j read or write this story adds
+**When** it executes
+**Then** it goes through the shared data-access layer (AD-2), same as every other path in this app
 
 ## Epic 3: Grounded Chat Q&A
 

@@ -1,14 +1,17 @@
-"""`shared/data_access/neo4j_client.py` tests (Story 2.4): the missing-
-config error, the driver singleton behavior, the empty-write no-op, that
-an exact `(name, type, user_id)` match issues the identical `MERGE` (so it
-would land on one node in a real database) while a near-match name issues
-a distinct one, that a relationship whose entity can't be resolved (not
-present in the same call's `entities`) is skipped rather than guessed at,
-and that an unsafe/unrecognized relationship type never reaches Cypher
-interpolation. All isolated from a real Neo4j connection via a fake
-driver/session/transaction, mirroring `test_weaviate_client.py`'s approach.
+"""`shared/data_access/neo4j_client.py` tests (Story 2.4 + Story 2.8): the
+missing-config error, the driver singleton behavior, the empty-write no-op,
+that an exact `(name, type, user_id)` match issues the identical `MERGE`
+(so it would land on one node in a real database) while a near-match name
+issues a distinct one, that a relationship whose entity can't be resolved
+(not present in the same call's `entities`) is skipped rather than guessed
+at, that an unsafe/unrecognized relationship type never reaches Cypher
+interpolation, that every `MERGE` stamps `source_document_ids` (Story 2.8),
+and `prune_document_from_graph`'s reference-counted delete. All isolated
+from a real Neo4j connection via a fake driver/session/transaction,
+mirroring `test_weaviate_client.py`'s approach.
 """
 
+import re
 from unittest.mock import MagicMock
 
 import pytest
@@ -18,6 +21,7 @@ from app.shared.data_access.neo4j_client import (
     close_neo4j_driver,
     get_graph_for_user,
     get_neo4j_driver,
+    prune_document_from_graph,
     write_entities_and_relationships,
 )
 from app.shared.data_access.shapes import Neo4jEntity, Neo4jRelationship
@@ -185,7 +189,7 @@ def test_write_entities_and_relationships_empty_lists_never_touches_the_driver(m
     fake_getter = MagicMock()
     monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", fake_getter)
 
-    write_entities_and_relationships([], [], "user-1")
+    write_entities_and_relationships([], [], "user-1", "doc-1")
 
     fake_getter.assert_not_called()
 
@@ -197,7 +201,7 @@ def test_write_entities_and_relationships_rejects_an_entity_with_a_mismatched_us
     entities = [Neo4jEntity(name="Maria Ivanova", type="Person", user_id="someone-else")]
 
     with pytest.raises(ValueError):
-        write_entities_and_relationships(entities, [], "user-1")
+        write_entities_and_relationships(entities, [], "user-1", "doc-1")
 
     fake_getter.assert_not_called()
 
@@ -213,7 +217,7 @@ def test_write_entities_and_relationships_rejects_a_relationship_with_a_mismatch
     ]
 
     with pytest.raises(ValueError):
-        write_entities_and_relationships([], relationships, "user-1")
+        write_entities_and_relationships([], relationships, "user-1", "doc-1")
 
     fake_getter.assert_not_called()
 
@@ -227,7 +231,7 @@ def test_write_entities_and_relationships_merges_each_entity(monkeypatch):
         Neo4jEntity(name="TechCorp", type="Organization", user_id="user-1"),
     ]
 
-    write_entities_and_relationships(entities, [], "user-1")
+    write_entities_and_relationships(entities, [], "user-1", "doc-1")
 
     # One batched UNWIND for every entity, not one round-trip each.
     assert len(fake_driver.tx.calls) == 1
@@ -235,6 +239,10 @@ def test_write_entities_and_relationships_merges_each_entity(monkeypatch):
     assert "UNWIND $rows AS row" in query
     assert "MERGE (e:Entity" in query
     assert params["user_id"] == "user-1"
+    # Story 2.8: every MERGE stamps source_document_ids with the
+    # contributing document's id.
+    assert params["document_id"] == "doc-1"
+    assert "source_document_ids" in query
     assert {row["name"] for row in params["rows"]} == {"Maria Ivanova", "TechCorp"}
     # The result is consumed, so a per-statement failure surfaces here
     # rather than later at commit.
@@ -254,7 +262,7 @@ def test_write_entities_and_relationships_exact_match_issues_the_identical_merge
         Neo4jEntity(name="Maria Ivanova", type="Person", user_id="user-1"),
     ]
 
-    write_entities_and_relationships(entities, [], "user-1")
+    write_entities_and_relationships(entities, [], "user-1", "doc-1")
 
     assert len(fake_driver.tx.calls) == 1
     _, params = fake_driver.tx.calls[0]
@@ -274,7 +282,7 @@ def test_write_entities_and_relationships_near_match_name_stays_distinct(monkeyp
         Neo4jEntity(name="TechCorp Supplies", type="Organization", user_id="user-1"),
     ]
 
-    write_entities_and_relationships(entities, [], "user-1")
+    write_entities_and_relationships(entities, [], "user-1", "doc-1")
 
     _, params = fake_driver.tx.calls[0]
     names = [row["name"] for row in params["rows"]]
@@ -298,7 +306,7 @@ def test_write_entities_and_relationships_merges_a_relationship_between_two_enti
         )
     ]
 
-    write_entities_and_relationships(entities, relationships, "user-1")
+    write_entities_and_relationships(entities, relationships, "user-1", "doc-1")
 
     # 1 batched entity MERGE + 1 batched relationship MERGE for the single
     # relationship type present.
@@ -306,6 +314,9 @@ def test_write_entities_and_relationships_merges_a_relationship_between_two_enti
     relationship_query, relationship_params = fake_driver.tx.calls[-1]
     assert "WORKS_AT" in relationship_query
     assert relationship_params["user_id"] == "user-1"
+    # Story 2.8: relationships carry their own source_document_ids too.
+    assert relationship_params["document_id"] == "doc-1"
+    assert "source_document_ids" in relationship_query
     (row,) = relationship_params["rows"]
     assert row["source_name"] == "Maria Ivanova"
     assert row["source_type"] == "Person"
@@ -344,7 +355,7 @@ def test_write_entities_and_relationships_batches_relationships_by_type(monkeypa
         ),
     ]
 
-    write_entities_and_relationships(entities, relationships, "user-1")
+    write_entities_and_relationships(entities, relationships, "user-1", "doc-1")
 
     # 1 entity statement + 1 per distinct relationship type (2), not 4 + 3.
     assert len(fake_driver.tx.calls) == 3
@@ -375,7 +386,7 @@ def test_write_entities_and_relationships_skips_a_relationship_whose_entity_is_u
     ]
 
     with caplog.at_level("WARNING"):
-        write_entities_and_relationships(entities, relationships, "user-1")
+        write_entities_and_relationships(entities, relationships, "user-1", "doc-1")
 
     # Only the batched entity MERGE -- no relationship statement was
     # issued at all, since the one relationship was dropped.
@@ -410,7 +421,7 @@ def test_write_entities_and_relationships_skips_a_relationship_whose_source_name
     ]
 
     with caplog.at_level("WARNING"):
-        write_entities_and_relationships(entities, relationships, "user-1")
+        write_entities_and_relationships(entities, relationships, "user-1", "doc-1")
 
     # The batched entity MERGE still carries all 3 entities, but no
     # relationship statement was issued -- "Washington" is ambiguous, not
@@ -444,7 +455,7 @@ def test_write_entities_and_relationships_skips_an_unsafe_relationship_type(monk
     ]
 
     with caplog.at_level("WARNING"):
-        write_entities_and_relationships(entities, relationships, "user-1")
+        write_entities_and_relationships(entities, relationships, "user-1", "doc-1")
 
     # Only the batched entity MERGE -- the unsafe relationship never
     # reached Cypher interpolation, so no relationship statement exists.
@@ -626,3 +637,208 @@ def test_get_graph_for_user_total_reflects_the_true_uncapped_count(monkeypatch):
 
     assert len(entities) == 2
     assert total == 3241
+
+
+# ---------------------------------------------------------------------------
+# Story 2.8: `source_document_ids` provenance + `prune_document_from_graph`.
+#
+# `_FakeTx` above only records calls for query-shape assertions -- it has
+# no notion of graph state, so it can't tell "entity survives" from "entity
+# deleted". `_GraphFakeTx` below is a second fake, independent of
+# `neo4j_client.py`'s own implementation, that actually interprets the four
+# fixed Cypher shapes that module issues (entity MERGE, relationship MERGE,
+# relationship prune, entity prune) against an in-memory dict -- so these
+# tests exercise real reference-counting outcomes, not just query text.
+# ---------------------------------------------------------------------------
+
+
+class _GraphFakeTx:
+    def __init__(self):
+        # (name, type, user_id) -> source_document_ids
+        self.entities: dict[tuple[str, str, str], list[str]] = {}
+        # (source_name, source_type, target_name, target_type, rel_type, user_id) -> source_document_ids
+        self.relationships: dict[tuple[str, str, str, str, str, str], list[str]] = {}
+
+    def run(self, query, **params):
+        if "MERGE (e:Entity" in query:
+            self._merge_entities(params)
+        elif "MERGE (a)-[r:" in query:
+            self._merge_relationship(query, params)
+        elif "DELETE r" in query:
+            self._prune_relationships(params)
+        elif "DETACH DELETE e" in query:
+            self._prune_entities(params)
+        else:
+            raise AssertionError(f"Unrecognized query shape in test fake: {query}")
+        return MagicMock()
+
+    def _merge_entities(self, params):
+        user_id = params["user_id"]
+        document_id = params["document_id"]
+        for row in params["rows"]:
+            ids = self.entities.setdefault((row["name"], row["type"], user_id), [])
+            if document_id not in ids:
+                ids.append(document_id)
+
+    def _merge_relationship(self, query, params):
+        rel_type = re.search(r"\[r:([A-Z_][A-Z0-9_]*)\]", query).group(1)
+        user_id = params["user_id"]
+        document_id = params["document_id"]
+        for row in params["rows"]:
+            key = (
+                row["source_name"], row["source_type"],
+                row["target_name"], row["target_type"],
+                rel_type, user_id,
+            )
+            ids = self.relationships.setdefault(key, [])
+            if document_id not in ids:
+                ids.append(document_id)
+
+    def _prune_relationships(self, params):
+        user_id = params["user_id"]
+        document_id = params["document_id"]
+        for key in list(self.relationships.keys()):
+            if key[-1] != user_id:
+                continue
+            ids = self.relationships[key]
+            if document_id in ids:
+                ids.remove(document_id)
+                if not ids:
+                    del self.relationships[key]
+
+    def _prune_entities(self, params):
+        user_id = params["user_id"]
+        document_id = params["document_id"]
+        for key in list(self.entities.keys()):
+            if key[-1] != user_id:
+                continue
+            ids = self.entities[key]
+            if document_id in ids:
+                ids.remove(document_id)
+                if not ids:
+                    del self.entities[key]
+
+
+class _GraphFakeSession:
+    def __init__(self, tx):
+        self._tx = tx
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+    def execute_write(self, fn, *args):
+        return fn(self._tx, *args)
+
+
+class _GraphFakeDriver:
+    """Unlike `_FakeDriver`, persists one `_GraphFakeTx` across every
+    `session()`/`execute_write()` call -- so a test can call
+    `write_entities_and_relationships` and `prune_document_from_graph`
+    multiple times in sequence and see their combined effect on the same
+    underlying state, the way multiple calls against a real database would.
+    """
+
+    def __init__(self):
+        self.tx = _GraphFakeTx()
+
+    def session(self):
+        return _GraphFakeSession(self.tx)
+
+
+def test_write_entities_and_relationships_reingest_does_not_duplicate_source_document_ids(
+    monkeypatch,
+):
+    """Story 2.6's reingest-on-Failed path writes the same document's
+    entities twice -- `source_document_ids` must gain one entry, not two."""
+    fake_driver = _GraphFakeDriver()
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: fake_driver)
+
+    entities = [Neo4jEntity(name="Repeat Corp", type="Organization", user_id="user-1")]
+
+    write_entities_and_relationships(entities, [], "user-1", "doc-1")
+    write_entities_and_relationships(entities, [], "user-1", "doc-1")
+
+    assert fake_driver.tx.entities[("Repeat Corp", "Organization", "user-1")] == ["doc-1"]
+
+
+def test_prune_document_from_graph_removes_an_entity_unique_to_the_deleted_document(monkeypatch):
+    fake_driver = _GraphFakeDriver()
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: fake_driver)
+
+    entities = [Neo4jEntity(name="Solo Corp", type="Organization", user_id="user-1")]
+    write_entities_and_relationships(entities, [], "user-1", "doc-1")
+
+    prune_document_from_graph("doc-1", "user-1")
+
+    assert fake_driver.tx.entities == {}
+
+
+def test_prune_document_from_graph_keeps_an_entity_shared_by_a_surviving_document(monkeypatch):
+    fake_driver = _GraphFakeDriver()
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: fake_driver)
+
+    entities = [Neo4jEntity(name="Shared Corp", type="Organization", user_id="user-1")]
+    write_entities_and_relationships(entities, [], "user-1", "doc-1")
+    write_entities_and_relationships(entities, [], "user-1", "doc-2")
+
+    prune_document_from_graph("doc-1", "user-1")
+
+    assert fake_driver.tx.entities[("Shared Corp", "Organization", "user-1")] == ["doc-2"]
+
+
+def test_prune_document_from_graph_keeps_a_relationship_shared_by_a_surviving_document(
+    monkeypatch,
+):
+    fake_driver = _GraphFakeDriver()
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: fake_driver)
+
+    entities = [
+        Neo4jEntity(name="Maria Ivanova", type="Person", user_id="user-1"),
+        Neo4jEntity(name="TechCorp", type="Organization", user_id="user-1"),
+    ]
+    relationships = [
+        Neo4jRelationship(
+            source_entity_name="Maria Ivanova",
+            target_entity_name="TechCorp",
+            relationship_type="WORKS_AT",
+            user_id="user-1",
+        )
+    ]
+    write_entities_and_relationships(entities, relationships, "user-1", "doc-1")
+    write_entities_and_relationships(entities, relationships, "user-1", "doc-2")
+
+    prune_document_from_graph("doc-1", "user-1")
+
+    rel_key = ("Maria Ivanova", "Person", "TechCorp", "Organization", "WORKS_AT", "user-1")
+    assert fake_driver.tx.relationships[rel_key] == ["doc-2"]
+    # Both endpoint entities also survive via doc-2.
+    assert fake_driver.tx.entities[("Maria Ivanova", "Person", "user-1")] == ["doc-2"]
+    assert fake_driver.tx.entities[("TechCorp", "Organization", "user-1")] == ["doc-2"]
+
+
+def test_prune_document_from_graph_is_idempotent_on_a_repeated_call(monkeypatch):
+    fake_driver = _GraphFakeDriver()
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: fake_driver)
+
+    entities = [Neo4jEntity(name="Solo Corp", type="Organization", user_id="user-1")]
+    write_entities_and_relationships(entities, [], "user-1", "doc-1")
+
+    prune_document_from_graph("doc-1", "user-1")
+    prune_document_from_graph("doc-1", "user-1")  # must not raise; nothing left to remove
+
+    assert fake_driver.tx.entities == {}
+
+
+def test_prune_document_from_graph_on_a_document_that_contributed_nothing_is_a_no_op(monkeypatch):
+    fake_driver = _GraphFakeDriver()
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: fake_driver)
+
+    entities = [Neo4jEntity(name="Untouched Corp", type="Organization", user_id="user-1")]
+    write_entities_and_relationships(entities, [], "user-1", "doc-1")
+
+    prune_document_from_graph("doc-2", "user-1")  # doc-2 never contributed anything
+
+    assert fake_driver.tx.entities[("Untouched Corp", "Organization", "user-1")] == ["doc-1"]

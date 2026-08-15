@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-12-2026 00:00
-last_updated: 08-15-2026 11:08
+last_updated: 08-15-2026 12:30
 project: GraphMind-Intelligent-Document-Assistant
 project_key: NOKEY
 tracking_system: file-system
@@ -43,14 +43,15 @@ development_status:
   1-5-authenticated-shell-and-tenancy-enforced-data-access: done
   epic-1-retrospective: optional
 
-  epic-2: done
+  epic-2: in-progress
   2-1-upload-documents-with-drag-and-drop-and-per-file-progress: done
   2-2-document-library-and-detail-view: done
   2-3-parse-and-index-documents-into-the-vector-store: done
   2-4-extract-entities-into-the-unified-graph-with-compensating-ro: done
   2-5-failed-ingestion-surfaced-with-a-readable-reason: done
   2-6-content-hash-dedupe-on-upload: done
-  2-7-delete-a-document-with-an-honest-deletion-boundary: done
+  2-7-delete-a-document-with-an-honest-deletion-boundary: review
+  2-8-prune-orphaned-graph-entities-when-a-document-is-deleted: review
   epic-2-retrospective: optional
 
   epic-3: done
