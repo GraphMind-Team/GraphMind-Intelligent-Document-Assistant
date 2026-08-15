@@ -52,7 +52,11 @@ describe('GraphSummary', () => {
 
     const relationshipsGroup = screen.getByText('Relationships').closest('div')
     expect(relationshipsGroup).toHaveTextContent('Maria Ivanova')
-    expect(relationshipsGroup).toHaveTextContent('WORKS_AT')
+    // Plain-language, not the raw enum value -- matches the canvas's own
+    // relationship labels (graphTheme.js's `relationshipLabelFor`), so
+    // switching between the canvas and this list reads as one system.
+    expect(relationshipsGroup).toHaveTextContent('Works at')
+    expect(relationshipsGroup).not.toHaveTextContent('WORKS_AT')
     expect(relationshipsGroup).toHaveTextContent('TechCorp')
   })
 

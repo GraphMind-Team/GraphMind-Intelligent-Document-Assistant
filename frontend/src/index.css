@@ -124,21 +124,52 @@
      it now rather than left as a gap to re-discover then. */
   --link: #456BB5;
 
-  /* Graph entity-type fills (Story 4.1). One step of a single blue ramp
-     per type, rather than five unrelated hues: the types are peers, not
-     statuses, so the canvas should read as one family. Colour is
-     *redundant* here -- the two-letter badge, the legend beneath the
-     canvas and GraphSummary's grouped list each carry type on their own,
-     so UX-DR28's "not by colour alone" holds without it (and colour-blind
-     users lose nothing but a shortcut).
-     Light mode takes the dark half of the ramp; the two darkest carry
-     white badge text (>=4.5:1), the three lighter ones carry --text.
-     Every fill clears 3:1 against --card-bg as a graphical object. */
-  --graph-person: #023E8A;
-  --graph-organization: #0077B6;
-  --graph-project: #0096C7;
-  --graph-product: #48CAE4;
-  --graph-location: #90E0EF;
+  /* Graph entity-type fills (Story 4.1; re-tuned for the Graph Preview
+     redesign). One step of a single blue ramp per type, rather than five
+     unrelated hues: the types are peers, not statuses, so the canvas
+     should read as one family. Colour is *redundant* here -- the
+     two-letter badge, the legend beneath the canvas and GraphSummary's
+     grouped list each carry type on their own, so UX-DR28's "not by
+     colour alone" holds without it (and colour-blind users lose nothing
+     but a shortcut). These are the documentation mirror of
+     `graphTheme.js`'s `TYPE_COLORS.light.*.fill` -- that file is the
+     actual runtime source (a canvas fillStyle needs a literal color, not
+     a custom property), re-derive both together. See that file's own
+     comment for the exact contrast numbers each step was picked against. */
+  --graph-person: #0D366B;
+  --graph-organization: #184F95;
+  --graph-project: #256ABF;
+  --graph-product: #6DA7EC;
+  --graph-location: #B7D3F6;
+
+  /* Graph Preview chrome -- the card/canvas/toolbar/legend surrounding
+     the node-link canvas itself (GraphPage.jsx, GraphCanvas.jsx,
+     GraphSummary.jsx). A distinct, additive namespace rather than reusing
+     --bg/--surface/--card-bg: this feature deliberately reads as its own
+     tinted "room" within the app (a signature visual identity for the one
+     page that visualizes extracted data), not a reskin of every other
+     page's neutral chrome -- so these tokens are scoped to this feature
+     only and never referenced by @theme inline below. Mirrors
+     `graphTheme.js`'s `PALETTE.light`; re-derive both together. */
+  --graph-canvas-bg: #F3F7FE;
+  --graph-card-bg: #F8FAFE;
+  --graph-card-border: rgba(56, 97, 168, 0.22);
+  --graph-chip-bg: rgba(56, 97, 168, 0.06);
+  --graph-chip-border: rgba(56, 97, 168, 0.22);
+  --graph-ink: #132340;
+  --graph-ink2: rgba(19, 35, 64, 0.72);
+  --graph-accent: #0EA5E9;
+  --graph-accent-text: #0A6E99;
+  /* Background motif -- a faint dot-grid + radial vignette behind the
+     canvas (GraphCanvas.jsx's outer frame), reinforcing "this space holds
+     extracted data" without competing with the nodes/edges drawn over it.
+     Kept to a low, decorative alpha deliberately: nothing that needs to
+     be read (node fills, edge labels) ever relies on contrast against
+     this motif specifically -- every one of those is an opaque fill
+     painted on top of it, so this motif's own contrast against
+     --graph-canvas-bg is never load-bearing. */
+  --graph-motif-dot: rgba(56, 97, 168, 0.08);
+  --graph-vignette: rgba(13, 54, 107, 0.07);
 
   /* Typography */
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -195,15 +226,27 @@
      already covers Epic 5's Settings cards too -- no separate check needed. */
   --link: #6690FF;
 
-  /* Graph entity-type fills -- the ramp shifted two steps lighter. Light
-     mode's darkest steps (#023E8A at 1.3:1) would all but vanish against
-     the #262B35 canvas; every value here clears 3:1 against it as a
-     graphical object, and all five carry --on-primary badge text. */
-  --graph-person: #0096C7;
-  --graph-organization: #00B4D8;
-  --graph-project: #48CAE4;
-  --graph-product: #90E0EF;
-  --graph-location: #ADE8F4;
+  /* Graph entity-type fills -- see the light-mode block's comment; mirrors
+     `graphTheme.js`'s `TYPE_COLORS.dark.*.fill`. */
+  --graph-person: #1E5FB0;
+  --graph-organization: #256CC4;
+  --graph-project: #3987E5;
+  --graph-product: #5FA6EE;
+  --graph-location: #9AC9F5;
+
+  /* Graph Preview chrome -- dark mode. Mirrors `graphTheme.js`'s
+     `PALETTE.dark`; re-derive both together. */
+  --graph-canvas-bg: #101B33;
+  --graph-card-bg: #141B2E;
+  --graph-card-border: rgba(111, 168, 238, 0.25);
+  --graph-chip-bg: rgba(111, 168, 238, 0.1);
+  --graph-chip-border: rgba(111, 168, 238, 0.25);
+  --graph-ink: #DCE6FA;
+  --graph-ink2: rgba(220, 230, 250, 0.68);
+  --graph-accent: #38BDF8;
+  --graph-accent-text: #38BDF8;
+  --graph-motif-dot: rgba(111, 168, 238, 0.1);
+  --graph-vignette: rgba(0, 0, 0, 0.35);
 
   --success: #3FBD82;
   --warning: #E3A94A;
@@ -357,6 +400,32 @@
 
 body {
   font-family: var(--font-sans);
+}
+
+/* Graph Preview's background motif (GraphCanvas.jsx's outer canvas
+   frame) -- a faint dot-grid plus a radial vignette, reinforcing "this is
+   extracted data, in its own space" behind the node-link canvas without
+   competing with it. Plain CSS background layers on the frame div, not
+   drawn onto the force-graph canvas itself (which sits on top with a
+   transparent `backgroundColor`): force-graph clears and redraws its
+   whole canvas every simulation tick, and re-deriving this motif inside
+   that per-tick paint loop (accounting for its own pan/zoom transform)
+   would spend real complexity for a purely decorative layer that has no
+   reason to move with the graph at all. Two background-image layers,
+   first-listed painted on top: the dot-grid uses a repeating radial
+   gradient (the standard CSS dot-grid technique -- a small circle faded
+   to transparent, tiled by `background-size`); the vignette is transparent
+   at the center and deepens toward the edges, both using this feature's
+   own `--graph-motif-dot`/`--graph-vignette` tokens (see index.css's
+   `--graph-*` block for why these are a dedicated namespace, not reused
+   generic tokens). */
+.graph-motif {
+  background-color: var(--graph-canvas-bg);
+  background-image:
+    radial-gradient(circle at 1px 1px, var(--graph-motif-dot) 1px, transparent 0),
+    radial-gradient(ellipse at center, transparent 55%, var(--graph-vignette) 100%);
+  background-size: 22px 22px, 100% 100%;
+  background-position: 0 0, 0 0;
 }
 
 /* Native form controls and scrollbars (e.g. autofill styling, the
