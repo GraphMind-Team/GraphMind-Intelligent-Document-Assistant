@@ -492,3 +492,17 @@
     caused harm once already: the blank-canvas symptom was misdiagnosed twice, because the pane's
     own inability to tick the engine looked identical to the real bug. The automated tests assert
     props, callbacks and that `nodeCanvasObject` draws without throwing -- nothing about the result.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-1-manage-my-profile-and-password.md`
+  summary: >
+    Changing a password (`POST /auth/me/password`) does not invalidate the user's other active JWTs
+    -- a token issued before the change, including one that leaked or was stolen, keeps working
+    against every route (including this same password-change endpoint) until it naturally expires.
+  evidence: >
+    Story 5.1 review (blind-hunter and verification-gap, independently) raised this. Real security
+    gap, but closing it needs token-versioning infrastructure (e.g. a `token_version` column on
+    `User`, checked in `service.decode_access_token`, bumped on password change) that touches the
+    whole JWT issuance/validation path (`create_access_token`/`decode_access_token`,
+    `get_current_user`), not a change local to this story's two new routes. Worth a deliberate design
+    pass, likely alongside Story 5.3's account-deletion session handling, rather than folding into
+    this story.

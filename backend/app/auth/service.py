@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException
 
 from app.auth import repository
-from app.auth.schemas import RegisterRequest
+from app.auth.schemas import ChangePasswordRequest, RegisterRequest, UpdateProfileRequest
 from app.shared.models import User
 
 # The one place the JWT algorithm is named -- every encode/decode call in
@@ -125,6 +125,28 @@ def decode_access_token(token: str) -> uuid.UUID:
 
 def update_theme(db: Session, user: User, theme: str) -> None:
     repository.update_user_theme(db, user, theme)
+    db.commit()
+
+
+def update_profile(db: Session, user: User, data: UpdateProfileRequest) -> User:
+    user = repository.update_user_profile(db, user, data.full_name)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def change_password(db: Session, user: User, data: ChangePasswordRequest) -> None:
+    # Re-verifies the current password server-side (an in-session change,
+    # not a reset flow) -- mirrors authenticate_user's bcrypt_sha256.verify
+    # call, but against the already-known user rather than a
+    # lookup-by-email, and with no dummy-hash timing shim since there's no
+    # account-enumeration concern for an authenticated caller checking
+    # their own password.
+    if not bcrypt_sha256.verify(data.current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect.")
+
+    new_hash = hash_password(data.new_password)
+    repository.update_user_password(db, user, new_hash)
     db.commit()
 
 

@@ -36,3 +36,15 @@ def update_user_theme(db: Session, user: User, theme: str) -> User:
     user.theme = theme
     db.flush()
     return user
+
+
+def update_user_profile(db: Session, user: User, full_name: str) -> User:
+    user.full_name = full_name
+    db.flush()
+    return user
+
+
+def update_user_password(db: Session, user: User, password_hash: str) -> User:
+    user.password_hash = password_hash
+    db.flush()
+    return user
