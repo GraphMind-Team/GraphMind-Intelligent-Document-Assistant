@@ -45,7 +45,9 @@ export const PALETTE = {
     // reason: the vivid decorative value and the text-safe value are not
     // the same color). 5.28:1 against `canvasBg`, 5.43:1 against `cardBg`.
     accentText: '#0A6E99',
-    glowShadow: 'rgba(19, 35, 64, 0.28)',
+    // Node drop-shadow (DESIGN.md's elevation rule) -- a small, tight
+    // shadow for depth, not a glow/halo effect around the node.
+    nodeShadow: 'rgba(19, 35, 64, 0.28)',
   },
   dark: {
     canvasBg: '#101B33',
@@ -60,7 +62,7 @@ export const PALETTE = {
     // Already >=4.5:1 against both surfaces in dark mode (8.0:1) --
     // unlike light mode, no separate darkened text variant is needed.
     accentText: '#38BDF8',
-    glowShadow: 'rgba(0, 0, 0, 0.45)',
+    nodeShadow: 'rgba(0, 0, 0, 0.45)',
   },
 }
 

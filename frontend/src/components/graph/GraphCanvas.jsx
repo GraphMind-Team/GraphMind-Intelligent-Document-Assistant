@@ -106,9 +106,9 @@ function chargeStrengthFor(nodeCount) {
   return Math.max(-MAX_CHARGE_STRENGTH_MAGNITUDE, CHARGE_STRENGTH_BASE + nodeCount * CHARGE_STRENGTH_PER_NODE)
 }
 // Clearance added to each node's collision radius, for the name drawn
-// beneath it -- generous enough that a neighbouring node's glow halo
-// (GLOW_RADIUS_MULTIPLIER below) and a curved edge's label chip both clear
-// this node's own name rather than crossing through it.
+// beneath it -- generous enough that a neighbouring node's circle and a
+// curved edge's label chip both clear this node's own name rather than
+// crossing through it.
 const LABEL_GUTTER = 30
 
 // Below this on-screen size, drawing text costs legibility rather than
@@ -146,15 +146,6 @@ const ZOOM_TRANSITION_MS = 180
 // World units, like the radius -- so the outline thins out with the fit
 // instead of thickening into a blob as a large graph zooms away.
 const NODE_STROKE_WIDTH = 1.5
-
-// The soft colored bloom drawn behind every node (drawNode's glow pass) --
-// a second, larger, low-alpha fill of the same circle, colored with the
-// node's own type fill so each type's glow reads as that type's hue, not
-// one uniform highlight. World units and unitless alpha, like the crisp
-// circle drawn on top of it, so both shrink together as the fit zooms out.
-const GLOW_RADIUS_MULTIPLIER = 1.7
-const GLOW_ALPHA = 0.22
-const GLOW_BLUR = 16
 
 function diameterFor(degree, minDegree, maxDegree) {
   if (minDegree === maxDegree) return MID_NODE_DIAMETER
@@ -438,10 +429,12 @@ export default function GraphCanvas({ graph }) {
     // `width` is a real dependency, not noise: ForceGraph2D is not
     // rendered at all until the container has been measured, so on the
     // first pass there is no engine to configure and this has to run again
-    // once there is. `graphData` already changes whenever `nodes`/`edges`
-    // do (it's derived from them), so node count changing re-runs this
-    // without needing `nodes.length` listed separately.
-  }, [radiusFor, graphData, width])
+    // once there is. `nodes.length` is listed explicitly even though
+    // `graphData` (derived from `nodes`/`edges`) already changes whenever
+    // it does -- relying on that correlation implicitly is exactly what
+    // `exhaustive-deps` exists to catch, and being explicit here costs
+    // nothing since both change together in every real case anyway.
+  }, [radiusFor, graphData, width, nodes.length])
 
   // `onEngineStop` covers the layout settling, which is when the fit
   // matters most. This covers the two cases that change what has to fit
@@ -514,24 +507,6 @@ export default function GraphCanvas({ graph }) {
     const radius = diameter / 2
     const typeColor = typeColorFor(theme, node.type)
 
-    // Glow pass -- a larger, low-alpha fill of the same circle, colored
-    // with this node's own type fill (not one uniform accent), so a
-    // Person node glows navy and a Location node glows pale sky: the
-    // "depth and hierarchy" this graph's blue identity is built around,
-    // not a decorative afterthought. Drawn and fully finished (its own
-    // save/restore) before the crisp circle below, which then paints
-    // directly over this pass's center -- what's left visible is only the
-    // soft halo extending past the crisp circle's true edge.
-    ctx.save()
-    ctx.beginPath()
-    ctx.arc(node.x, node.y, radius * GLOW_RADIUS_MULTIPLIER, 0, 2 * Math.PI)
-    ctx.fillStyle = typeColor.fill
-    ctx.globalAlpha = GLOW_ALPHA
-    ctx.shadowColor = typeColor.fill
-    ctx.shadowBlur = GLOW_BLUR
-    ctx.fill()
-    ctx.restore()
-
     ctx.save()
     ctx.beginPath()
     ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI)
@@ -539,7 +514,7 @@ export default function GraphCanvas({ graph }) {
     // affected by the canvas transform, so these stay the literal
     // `0 2px 6px` from DESIGN.md's elevation rule rather than being
     // scaled.
-    ctx.shadowColor = palette.glowShadow
+    ctx.shadowColor = palette.nodeShadow
     ctx.shadowBlur = 6
     ctx.shadowOffsetY = 2
     ctx.fillStyle = typeColor.fill
@@ -577,11 +552,11 @@ export default function GraphCanvas({ graph }) {
     //
     // Given a text *halo* -- `canvasBg`-coloured stroke drawn first, `ink`
     // fill on top -- rather than a flat fill alone: a name sits over
-    // whatever the motif's dot-grid, a neighbour's glow, or a curved
-    // edge happens to pass beneath it (LABEL_GUTTER keeps a neighbour's
-    // *circle* clear, never guaranteed for every line/texture drawn
-    // underneath), and the flat `ink` fill alone was reported genuinely
-    // hard to read against that. The stroke is the exact `canvasBg`
+    // whatever the motif's dot-grid or a curved edge happens to pass
+    // beneath it (LABEL_GUTTER keeps a neighbour's *circle* clear, never
+    // guaranteed for every line/texture drawn underneath), and the flat
+    // `ink` fill alone was reported genuinely hard to read against that.
+    // The stroke is the exact `canvasBg`
     // colour, not a generic dark/light halo, so it reads as "this text
     // interrupts the background" the same way `drawLinkLabel`'s pill chip
     // already does for edge labels, rather than a mismatched outline.

@@ -506,6 +506,77 @@ describe('GraphCanvas', () => {
     expect(props.linkColor()).toBe('rgba(34, 80, 143, 0.7)')
   })
 
+  it('draws the relationship label after the line, in plain language rather than the raw enum value', async () => {
+    render(<GraphCanvas graph={GRAPH} />)
+    await screen.findByTestId('force-graph-stub')
+
+    const props = MockForceGraph2D.mock.calls.at(-1)[0]
+    expect(props.linkCanvasObjectMode()).toBe('after')
+
+    const ctx = makeCtx()
+    const link = { source: { x: 0, y: 0 }, target: { x: 100, y: 0 }, type: 'WORKS_AT' }
+    props.linkCanvasObject(link, ctx, 1)
+
+    expect(ctx.fillText).toHaveBeenCalledWith('Works at', 50, 0)
+  })
+
+  it('title-cases an unrecognized relationship type rather than drawing the raw enum value', async () => {
+    render(<GraphCanvas graph={GRAPH} />)
+    await screen.findByTestId('force-graph-stub')
+
+    const props = MockForceGraph2D.mock.calls.at(-1)[0]
+    const ctx = makeCtx()
+    const link = { source: { x: 0, y: 0 }, target: { x: 100, y: 0 }, type: 'SOME_NEW_TYPE' }
+    props.linkCanvasObject(link, ctx, 1)
+
+    expect(ctx.fillText).toHaveBeenCalledWith('Some new type', 50, 0)
+  })
+
+  it('omits the relationship label when the fitted zoom would render it illegibly small', async () => {
+    render(<GraphCanvas graph={GRAPH} />)
+    await screen.findByTestId('force-graph-stub')
+
+    const props = MockForceGraph2D.mock.calls.at(-1)[0]
+    const ctx = makeCtx()
+    const link = { source: { x: 0, y: 0 }, target: { x: 100, y: 0 }, type: 'WORKS_AT' }
+    props.linkCanvasObject(link, ctx, 0.3)
+
+    expect(ctx.fillText).not.toHaveBeenCalled()
+  })
+
+  it('positions a curved relationship label on the curve itself, not the straight chord between the two nodes', async () => {
+    render(<GraphCanvas graph={GRAPH} />)
+    await screen.findByTestId('force-graph-stub')
+
+    const props = MockForceGraph2D.mock.calls.at(-1)[0]
+    const ctx = makeCtx()
+    const link = { source: { x: 0, y: 0 }, target: { x: 100, y: 0 }, type: 'WORKS_AT', curvature: 0.2 }
+    props.linkCanvasObject(link, ctx, 1)
+
+    const call = ctx.fillText.mock.calls.find(([text]) => text === 'Works at')
+    // The straight-chord midpoint would land at y=0 -- a nonzero curvature
+    // must move the label off of it.
+    expect(call[2]).not.toBe(0)
+  })
+
+  it('curves two relationships between the same pair of entities apart, so their labels do not land on top of each other', async () => {
+    render(<GraphCanvas graph={PARALLEL_EDGES_GRAPH} />)
+    await screen.findByTestId('force-graph-stub')
+
+    const props = MockForceGraph2D.mock.calls.at(-1)[0]
+    const [first, second] = props.graphData.links
+    expect(first.curvature).not.toBe(0)
+    expect(first.curvature).toBeCloseTo(-second.curvature)
+  })
+
+  it('leaves a single relationship between a pair as a straight line', async () => {
+    render(<GraphCanvas graph={GRAPH} />)
+    await screen.findByTestId('force-graph-stub')
+
+    const props = MockForceGraph2D.mock.calls.at(-1)[0]
+    expect(props.linkCurvature(props.graphData.links[0])).toBe(0)
+  })
+
   it('spells out each two-letter type badge in a legend, for the types on the canvas', async () => {
     render(<GraphCanvas graph={GRAPH} />)
     await screen.findByTestId('force-graph-stub')
