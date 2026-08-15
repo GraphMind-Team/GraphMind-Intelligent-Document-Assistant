@@ -123,6 +123,11 @@ def decode_access_token(token: str) -> uuid.UUID:
         raise HTTPException(status_code=401, detail="Not authenticated.") from None
 
 
+def update_theme(db: Session, user: User, theme: str) -> None:
+    repository.update_user_theme(db, user, theme)
+    db.commit()
+
+
 def authenticate_user(db: Session, email: str, password: str) -> User:
     """Raises one generic 401 for both "no such email" and "wrong
     password" -- this is the message that actually matters for account

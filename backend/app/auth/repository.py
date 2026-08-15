@@ -30,3 +30,9 @@ def create_user(db: Session, user: User) -> User:
     db.add(user)
     db.flush()
     return user
+
+
+def update_user_theme(db: Session, user: User, theme: str) -> User:
+    user.theme = theme
+    db.flush()
+    return user

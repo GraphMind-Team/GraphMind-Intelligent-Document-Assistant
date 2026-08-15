@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { useTheme } from '../context/ThemeContext'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -8,16 +7,13 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000
 // the backend is unreachable, this shows a visible error instead of a
 // silent blank screen.
 //
-// Story 1.2: retrofitted to token-based classes (no hardcoded slate/red)
-// and given a temporary theme-toggle button so the runtime theme switch
-// (AC5) is manually verifiable before Epic 5 ships the real Settings
-// toggle. This toggle is a throwaway dev affordance, not a designed
-// component.
+// Story 1.2: retrofitted to token-based classes (no hardcoded slate/red).
+// Its temporary dev-only theme toggle was removed in Story 5.2, which
+// shipped the real Settings appearance toggle it stood in for.
 export default function HealthPage() {
   const [status, setStatus] = useState('loading')
   const [health, setHealth] = useState(null)
   const [error, setError] = useState(null)
-  const { theme, toggleTheme } = useTheme()
 
   useEffect(() => {
     let cancelled = false
@@ -47,22 +43,6 @@ export default function HealthPage() {
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-bg p-8 text-center">
-      {/* /health has no auth guard (it's a liveness probe), so this dev-only
-          toggle would otherwise be a live, publicly reachable control.
-          import.meta.env.DEV is Vite's own dev/build flag -- false (so
-          this renders nothing) in any `vite build` output, including
-          production. TODO(Epic 5): remove once the real Settings
-          appearance toggle ships. */}
-      {import.meta.env.DEV && (
-        <button
-          type="button"
-          onClick={toggleTheme}
-          className="rounded-md border border-border bg-surface px-4 py-2 text-body font-semibold text-text"
-        >
-          Switch to {theme === 'dark' ? 'light' : 'dark'} mode (dev only)
-        </button>
-      )}
-
       <h1 className="text-page-title font-bold text-primary">GraphMind</h1>
       <p className="text-body text-text2">Backend health check</p>
 

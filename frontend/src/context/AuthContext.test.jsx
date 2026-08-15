@@ -5,11 +5,12 @@ import { AuthProvider, useAuth } from './AuthContext'
 import * as authClient from '../api/authClient'
 
 function Consumer() {
-  const { isAuthenticated, isInitializing } = useAuth()
+  const { isAuthenticated, isInitializing, accountTheme } = useAuth()
   return (
     <div>
       <span data-testid="authenticated">{String(isAuthenticated)}</span>
       <span data-testid="initializing">{String(isInitializing)}</span>
+      <span data-testid="account-theme">{String(accountTheme)}</span>
     </div>
   )
 }
@@ -21,6 +22,11 @@ function LoginButton() {
       login
     </button>
   )
+}
+
+function LogoutButton() {
+  const { logout } = useAuth()
+  return <button onClick={logout}>logout</button>
 }
 
 beforeEach(() => {
@@ -167,5 +173,113 @@ describe('AuthContext isAuthenticated coercion', () => {
     await user.click(screen.getByRole('button', { name: 'login' }))
 
     await waitFor(() => expect(screen.getByTestId('authenticated')).toHaveTextContent('true'))
+  })
+})
+
+describe('AuthContext accountTheme (Story 5.2)', () => {
+  it('sets accountTheme from a successful boot /auth/me response', async () => {
+    window.localStorage.setItem('access_token', 'a-valid-token')
+    vi.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ theme: 'dark' }), { status: 200 }),
+    )
+
+    render(
+      <AuthProvider>
+        <Consumer />
+      </AuthProvider>,
+    )
+
+    await waitFor(() => expect(screen.getByTestId('account-theme')).toHaveTextContent('dark'))
+  })
+
+  it('leaves accountTheme null when the boot /auth/me check comes back non-ok, instead of parsing an error body as theme data', async () => {
+    window.localStorage.setItem('access_token', 'a-stale-token')
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response(null, { status: 401 }))
+
+    render(
+      <AuthProvider>
+        <Consumer />
+      </AuthProvider>,
+    )
+
+    await waitFor(() => expect(screen.getByTestId('initializing')).toHaveTextContent('false'))
+
+    expect(screen.getByTestId('account-theme')).toHaveTextContent('null')
+  })
+
+  it('does not let a boot /auth/me response that resolves after logout repopulate accountTheme', async () => {
+    window.localStorage.setItem('access_token', 'a-valid-token')
+    let resolveFetch
+    vi.spyOn(global, 'fetch').mockReturnValue(
+      new Promise((resolve) => {
+        resolveFetch = resolve
+      }),
+    )
+    const user = userEvent.setup()
+
+    render(
+      <AuthProvider>
+        <LogoutButton />
+        <Consumer />
+      </AuthProvider>,
+    )
+
+    // Log out while the boot check is still in flight -- AuthProvider
+    // itself never unmounts here, so the effect's own `cancelled` flag
+    // stays false; only tokenRef going null (via logout) should stop the
+    // stale response from landing.
+    await user.click(screen.getByRole('button', { name: 'logout' }))
+    expect(screen.getByTestId('account-theme')).toHaveTextContent('null')
+
+    resolveFetch(new Response(JSON.stringify({ theme: 'dark' }), { status: 200 }))
+
+    await waitFor(() => expect(screen.getByTestId('initializing')).toHaveTextContent('false'))
+    expect(screen.getByTestId('account-theme')).toHaveTextContent('null')
+  })
+
+  it('sets accountTheme directly from the login response, without a second request', async () => {
+    vi.spyOn(authClient, 'loginAccount').mockResolvedValue({
+      access_token: 'real-token',
+      token_type: 'bearer',
+      theme: 'dark',
+    })
+    vi.spyOn(global, 'fetch')
+    const user = userEvent.setup()
+
+    render(
+      <AuthProvider>
+        <LoginButton />
+        <Consumer />
+      </AuthProvider>,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'login' }))
+
+    await waitFor(() => expect(screen.getByTestId('account-theme')).toHaveTextContent('dark'))
+    expect(global.fetch).not.toHaveBeenCalled()
+  })
+
+  it('resets accountTheme to null on logout, so it does not leak into the next session', async () => {
+    vi.spyOn(authClient, 'loginAccount').mockResolvedValue({
+      access_token: 'real-token',
+      token_type: 'bearer',
+      theme: 'dark',
+    })
+    const user = userEvent.setup()
+
+    render(
+      <AuthProvider>
+        <LoginButton />
+        <LogoutButton />
+        <Consumer />
+      </AuthProvider>,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'login' }))
+    await waitFor(() => expect(screen.getByTestId('account-theme')).toHaveTextContent('dark'))
+
+    await user.click(screen.getByRole('button', { name: 'logout' }))
+
+    expect(screen.getByTestId('account-theme')).toHaveTextContent('null')
   })
 })
