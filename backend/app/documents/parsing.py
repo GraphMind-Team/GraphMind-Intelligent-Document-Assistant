@@ -61,6 +61,17 @@ class ParsedChunk:
     chapter: str
     chunk_index: int
     text: str
+    # True only for the first chunk produced within one chapter -- i.e. the
+    # one chunk in this chapter that carries no `CHUNK_OVERLAP_WORDS`
+    # carried over from a previous chunk. `service.py`'s
+    # `_build_extraction_text` uses this (not a `chapter == previous_chapter`
+    # title comparison) to decide whether to strip overlap back off before
+    # sending text to the LLM: two distinct chapters can share the exact
+    # same title (e.g. two "Overview" sections under different parts), which
+    # a title comparison can't tell apart from one chapter continuing --
+    # this flag is set here, by the only code that actually knows whether
+    # overlap was applied, so it can't be fooled by that.
+    is_chapter_start: bool = True
 
 
 class UnparseableDocument(Exception):
@@ -101,11 +112,20 @@ def _chunk_chapters(chapters: list[tuple[str, str]]) -> list[ParsedChunk]:
         if not words:
             continue
         start = 0
+        is_first_chunk_in_chapter = True
         while start < len(words):
             end = start + _CHUNK_WORD_COUNT
             chunk_text = " ".join(words[start:end])
-            chunks.append(ParsedChunk(chapter=chapter, chunk_index=chunk_index, text=chunk_text))
+            chunks.append(
+                ParsedChunk(
+                    chapter=chapter,
+                    chunk_index=chunk_index,
+                    text=chunk_text,
+                    is_chapter_start=is_first_chunk_in_chapter,
+                )
+            )
             chunk_index += 1
+            is_first_chunk_in_chapter = False
             if end >= len(words):
                 break
             start = end - CHUNK_OVERLAP_WORDS
