@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-12-2026 00:00
-last_updated: 08-14-2026 20:30
+last_updated: 08-15-2026 11:08
 project: GraphMind-Intelligent-Document-Assistant
 project_key: NOKEY
 tracking_system: file-system
@@ -43,7 +43,7 @@ development_status:
   1-5-authenticated-shell-and-tenancy-enforced-data-access: done
   epic-1-retrospective: optional
 
-  epic-2: in-progress
+  epic-2: done
   2-1-upload-documents-with-drag-and-drop-and-per-file-progress: done
   2-2-document-library-and-detail-view: done
   2-3-parse-and-index-documents-into-the-vector-store: done
@@ -53,13 +53,13 @@ development_status:
   2-7-delete-a-document-with-an-honest-deletion-boundary: done
   epic-2-retrospective: optional
 
-  epic-3: in-progress
+  epic-3: done
   3-1-ask-a-question-and-receive-a-grounded-cited-answer: done
   3-2-explicit-refusal-when-the-documents-don-t-support-an-answer: done
   3-3-scope-a-question-to-a-chosen-set-of-documents: done
   epic-3-retrospective: optional
 
-  epic-4: in-progress
+  epic-4: done
   4-1-explore-the-knowledge-graph-built-from-my-documents: done
   epic-4-retrospective: optional
 
