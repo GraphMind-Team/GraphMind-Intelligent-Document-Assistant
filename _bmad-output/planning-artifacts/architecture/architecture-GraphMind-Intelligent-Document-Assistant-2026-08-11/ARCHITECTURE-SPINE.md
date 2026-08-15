@@ -147,7 +147,7 @@ graph LR
 | Tailwind CSS | latest (utility-class styling, no visual polish per addendum) |
 | weaviate-client (Python) | 4.22.0 (verified current on PyPI, Aug 2026) |
 | neo4j (Python driver) | 6.2 |
-| react-force-graph | 1.48.2 (verified current on npm, Aug 2026) [ASSUMPTION: resolves an either/or (`react-force-graph` / `vis-network`) left open in the course brief/addendum; confirm in review] |
+| force-graph + react-kapsule | 1.51.4 / 2.6.0 — **superseded `react-force-graph` 1.48.2 in Story 4.1 (2026-08-14)**, which was the original pin here (verified current on npm, Aug 2026; it resolved an either/or against `vis-network` left open in the course brief/addendum). `react-force-graph` ships its 2D/3D/VR/AR variants in one dist file sharing a top-level scope, and the unused 3D/VR/AR code reads the `THREE`/`AFRAME` globals at module-evaluation time — importing it crashed the entire app on load, not just Graph Preview. `force-graph` is the vanilla 2D engine `react-force-graph`'s own `ForceGraph2D` delegates to, and `react-kapsule` the wrapper it uses to expose it to React, so this is the same library family reached directly rather than a different one. Full root cause in spec-4-1's Design Notes. |
 | Weaviate | Cloud Free tier (free indefinitely as of a June 2026 announcement — no credit card, no time expiration) |
 | Neo4j | AuraDB Free tier |
 | PostgreSQL | Neon (managed, free tier) |

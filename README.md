@@ -51,7 +51,7 @@ Full technical detail — invariants, stack, deployment topology, and source lay
 | Relational database | PostgreSQL (Neon) |
 | LLM provider | OpenRouter |
 | Frontend | React, Vite, Tailwind CSS |
-| Graph visualization | react-force-graph |
+| Graph visualization | force-graph + react-kapsule |
 | Authentication | JWT, bcrypt |
 | Frontend deployment | Vercel |
 | Backend deployment | Render |

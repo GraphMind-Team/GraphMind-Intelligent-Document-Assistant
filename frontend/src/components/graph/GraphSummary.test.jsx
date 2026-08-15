@@ -1,0 +1,64 @@
+import { render, screen } from '@testing-library/react'
+import { describe, expect, it } from 'vitest'
+import GraphSummary from './GraphSummary'
+
+const NODES = [
+  { id: 'Person:Maria', name: 'Maria Ivanova', type: 'Person', degree: 2 },
+  { id: 'Organization:TechCorp', name: 'TechCorp', type: 'Organization', degree: 1 },
+  { id: 'Person:Ivan', name: 'Ivan Petrov', type: 'Person', degree: 0 },
+]
+const EDGES = [{ source: 'Person:Maria', target: 'Organization:TechCorp', type: 'WORKS_AT' }]
+
+describe('GraphSummary', () => {
+  it('states plainly that the graph is read-only, while the viewport itself can be zoomed/panned (AC7)', () => {
+    render(<GraphSummary nodes={NODES} edges={EDGES} />)
+
+    expect(screen.getByText(/read-only/i)).toBeInTheDocument()
+    expect(screen.getByText(/hover, click and drag are disabled/i)).toBeInTheDocument()
+    expect(screen.getByText(/zoomed and panned/i)).toBeInTheDocument()
+  })
+
+  it('reports the entity and relationship counts', () => {
+    render(<GraphSummary nodes={NODES} edges={EDGES} />)
+
+    expect(screen.getByText(/3 entities/)).toBeInTheDocument()
+    expect(screen.getByText(/1 relationship\b/)).toBeInTheDocument()
+  })
+
+  it('groups entities by type, present in the DOM regardless of the details toggle (AC7)', () => {
+    render(<GraphSummary nodes={NODES} edges={EDGES} />)
+
+    // Not hover-gated: a keyboard/screen-reader user reaches every entity
+    // here without any interaction at all -- <details> only affects
+    // sighted visual collapse, never removes the content from the DOM.
+    const personGroup = screen.getByText('Person').closest('li')
+    expect(personGroup).toHaveTextContent('Maria Ivanova')
+    expect(personGroup).toHaveTextContent('Ivan Petrov')
+    const orgGroup = screen.getByText('Organization').closest('li')
+    expect(orgGroup).toHaveTextContent('TechCorp')
+  })
+
+  it('the "View as list" toggle is keyboard-focusable, and starts open (AC1)', () => {
+    render(<GraphSummary nodes={NODES} edges={EDGES} />)
+
+    const toggle = screen.getByText('View as list')
+    toggle.focus()
+    expect(toggle).toHaveFocus()
+    expect(toggle.closest('details')).toHaveAttribute('open')
+  })
+
+  it('lists each relationship with its type, using entity names rather than raw ids', () => {
+    render(<GraphSummary nodes={NODES} edges={EDGES} />)
+
+    const relationshipsGroup = screen.getByText('Relationships').closest('div')
+    expect(relationshipsGroup).toHaveTextContent('Maria Ivanova')
+    expect(relationshipsGroup).toHaveTextContent('WORKS_AT')
+    expect(relationshipsGroup).toHaveTextContent('TechCorp')
+  })
+
+  it('handles an empty graph without crashing', () => {
+    render(<GraphSummary nodes={[]} edges={[]} />)
+
+    expect(screen.getByText(/0 entities, 0 relationships/)).toBeInTheDocument()
+  })
+})

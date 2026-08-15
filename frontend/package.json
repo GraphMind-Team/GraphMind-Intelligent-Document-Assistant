@@ -11,9 +11,11 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "d3-force-3d": "^3.0.6",
+    "force-graph": "1.51.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "react-force-graph": "1.48.2",
+    "react-kapsule": "2.6.0",
     "react-router-dom": "^7.18.2"
   },
   "devDependencies": {

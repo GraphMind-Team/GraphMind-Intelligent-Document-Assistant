@@ -414,6 +414,12 @@
     reconsidering only if abuse (rapid delete spam) is ever observed in practice.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-7-delete-a-document-with-an-honest-deletion-boundary.md`
+  resolved: >
+    2026-08-15 -- Story 2.8 (`prune_document_from_graph`, OD-4) reverses this boundary, and its
+    one-time `rebuild_graph_with_provenance.py` rebuild has been run against the real Aura
+    database: a live query (`MATCH (e:Entity) WHERE e.source_document_ids IS NOT NULL`) confirmed
+    all 6 entities on the standing QA account carry `source_document_ids`, zero legacy entities
+    without it.
   summary: >
     Epic 4's knowledge graph view will show entities/relationships with no way to tell they came
     from a document that no longer exists -- confirmed live against the real Neo4j/Postgres data:
@@ -431,3 +437,58 @@
     exists as a branch at the time of this entry: whoever builds that view will need to decide how
     to present (or knowingly not distinguish) entities whose source document is gone, and should
     not discover this gap by surprise mid-implementation.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-1-explore-the-knowledge-graph-built-from-my-documents.md`
+  summary: >
+    `GRAPH_EDGE_LIMIT = 1000` truncates the relationship list with no user-facing note, unlike
+    `GRAPH_NODE_LIMIT`'s "showing top N of M" line. A graph that trips the edge cap silently drops
+    relationships between entities that ARE both on screen -- visually indistinguishable from those
+    entities genuinely not being connected. Closing it needs the backend to return a true edge total
+    (a fourth Cypher count, symmetrical to `total_node_count`) and `GraphPage` to render a second
+    note; `GraphSummary`'s relationship list would need the same treatment.
+  evidence: >
+    Story 4.1 review (second follow-up pass) added the cap itself and recorded the UI half as
+    knowingly skipped: "no 'showing top N of M' UI note exists for this yet -- today's real graphs
+    are nowhere near it, so the gap is accepted rather than built out." The QA account's real graph
+    is 8 entities / 6 relationships, three orders of magnitude under the cap, so nothing will
+    surface this in testing.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-1-explore-the-knowledge-graph-built-from-my-documents.md`
+  summary: >
+    Edges cross on the graph canvas, and the same account's graph can settle into a different
+    arrangement on each reload. Not a bug and not fixable by tuning: force-directed layout minimises
+    energy and has no notion of edge crossings, so a crossing that costs no energy persists.
+    Reducing them needs a different class of algorithm (`force-graph`'s `dagMode` layered layout),
+    which changes the view's whole visual language and only works on acyclic graphs.
+  evidence: >
+    Recorded in Story 4.1's Design Notes as "not fixed, and not fixable at this altitude" after the
+    first follow-up pass rebuilt the layout (collision forces, `nodeVal`, `fitToView`). Listed here
+    so a later reader reports it as a known layout property rather than debugging it as a rendering
+    defect -- the non-determinism across reloads is the part most likely to be mistaken for one.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-1-explore-the-knowledge-graph-built-from-my-documents.md`
+  summary: >
+    Two of Story 4.1's acceptance criteria were never exercised against a real browser: AC8's
+    empty-state copy (zero graph entities) and the "showing top N of M" capped note (>150 entities).
+    Both are covered by `GraphPage.test.jsx` cases against mocked responses only. Worth a live check
+    whenever an account legitimately hits either state -- a fresh pre-upload account for AC8, which
+    costs nothing to look at the next time one exists.
+  evidence: >
+    Story 4.1's own Verification section states this plainly: the one standing QA account's real
+    graph (8 entities) is "neither empty nor over the 150-entity cap", and this project's convention
+    is one QA account with no throwaways (see the QA-account convention followed since Epic 1), so
+    neither state was reachable without violating it.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-1-explore-the-knowledge-graph-built-from-my-documents.md`
+  summary: >
+    No automated or assistant-driven check can see the graph canvas render. `requestAnimationFrame`
+    does not fire in the tooling's non-composited browser pane, so `force-graph` never ticks and the
+    canvas reads as blank there; under jsdom `ForceGraph2D` needs a real canvas 2D context and is
+    mocked out entirely. Every visual claim about the canvas (fit, node spacing, label legibility,
+    type colours) rests on a human looking at a real browser. A visual regression -- nodes
+    re-overlapping, the fit poisoning itself, labels vanishing -- would ship silently.
+  evidence: >
+    Story 4.1's Design Notes flag this as a "verification gap, stated plainly" and note it directly
+    caused harm once already: the blank-canvas symptom was misdiagnosed twice, because the pane's
+    own inability to tick the engine looked identical to the real bug. The automated tests assert
+    props, callbacks and that `nodeCanvasObject` draws without throwing -- nothing about the result.
