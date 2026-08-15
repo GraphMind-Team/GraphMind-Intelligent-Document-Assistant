@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -49,6 +49,7 @@ function makeCtx(overrides = {}) {
     beginPath: vi.fn(),
     arc: vi.fn(),
     fill: vi.fn(),
+    stroke: vi.fn(),
     fillText: vi.fn(),
     measureText: vi.fn((text) => ({ width: text.length * 6 })),
     ...overrides,
@@ -163,6 +164,77 @@ describe('GraphCanvas', () => {
 
     await user.click(screen.getByRole('button', { name: /fit/i }))
     expect(mockEngine.zoomToFit).toHaveBeenCalled()
+  })
+
+  it('stops auto-fitting once the user has panned, the same as zooming', async () => {
+    const user = userEvent.setup()
+    render(<GraphCanvas graph={GRAPH} />)
+    await screen.findByTestId('force-graph-stub')
+
+    // A drag: pointer moving with a button held. Panning is force-graph's
+    // own (`enablePanInteraction`); this only has to notice it happened.
+    fireEvent.pointerMove(screen.getByRole('img'), { buttons: 1 })
+
+    mockEngine.zoomToFit.mockClear()
+    MockForceGraph2D.mock.calls.at(-1)[0].onEngineStop()
+    expect(mockEngine.zoomToFit).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: /fit/i }))
+    expect(mockEngine.zoomToFit).toHaveBeenCalled()
+  })
+
+  it('keeps auto-fitting after a pointer merely crosses the canvas', async () => {
+    render(<GraphCanvas graph={GRAPH} />)
+    await screen.findByTestId('force-graph-stub')
+
+    // No button held -- not a pan, so it must not count as the user
+    // taking over the viewport.
+    fireEvent.pointerMove(screen.getByRole('img'), { buttons: 0 })
+
+    mockEngine.zoomToFit.mockClear()
+    MockForceGraph2D.mock.calls.at(-1)[0].onEngineStop()
+    expect(mockEngine.zoomToFit).toHaveBeenCalled()
+  })
+
+  it('does not treat force-graph’s own zoom events as a user gesture', async () => {
+    render(<GraphCanvas graph={GRAPH} />)
+    await screen.findByTestId('force-graph-stub')
+
+    // force-graph calls `zoom.scaleTo` itself on every data change (its
+    // ZOOM2NODES_FACTOR / cbrt(N) heuristic) and d3-zoom fires the same
+    // event for that as for a real gesture. Wiring `onZoom` would
+    // therefore latch "the user moved the view" on mount and auto-fit
+    // would never run again -- the input events are listened to instead.
+    const props = MockForceGraph2D.mock.calls.at(-1)[0]
+    expect(props.onZoom).toBeUndefined()
+
+    props.onEngineStop()
+    expect(mockEngine.zoomToFit).toHaveBeenCalled()
+  })
+
+  it('outlines every node so a pale fill is still a distinguishable shape (WCAG 1.4.11)', async () => {
+    render(<GraphCanvas graph={GRAPH} />)
+    await screen.findByTestId('force-graph-stub')
+
+    const props = MockForceGraph2D.mock.calls.at(-1)[0]
+    let strokeAtOutlineTime
+    let shadowAtOutlineTime
+    const ctx = makeCtx({
+      stroke: vi.fn(() => {
+        strokeAtOutlineTime = ctx.strokeStyle
+        shadowAtOutlineTime = ctx.shadowBlur
+      }),
+    })
+
+    // The palest light-mode fill (#90E0EF, 1.49:1 on white) -- the one the
+    // outline exists for.
+    props.nodeCanvasObject({ x: 0, y: 0, degree: 3, type: 'Location', name: 'Sofia' }, ctx, 1)
+
+    expect(ctx.stroke).toHaveBeenCalled()
+    // `--text2`, 8.36:1 against the light canvas.
+    expect(strokeAtOutlineTime).toBe('#454E60')
+    // Cleared first, so the outline doesn't repaint the fill's shadow.
+    expect(shadowAtOutlineTime).toBe(0)
   })
 
   it('draws a node without throwing, with the type badge and the entity name as labels (AC1/AC6)', async () => {
@@ -338,7 +410,10 @@ describe('GraphCanvas', () => {
 
     const props = MockForceGraph2D.mock.calls.at(-1)[0]
     expect(props.linkDirectionalArrowLength).toBeGreaterThan(0)
-    expect(props.linkColor()).toBe('rgba(69, 78, 96, 0.45)')
+    // 3.38:1 against the light canvas -- an edge is the relationship this
+    // view exists to show, so WCAG 1.4.11's 3:1 applies to it. The
+    // original 0.45 alpha composited to 2.19:1.
+    expect(props.linkColor()).toBe('rgba(69, 78, 96, 0.65)')
   })
 
   it('spells out each two-letter type badge in a legend, for the types on the canvas', async () => {

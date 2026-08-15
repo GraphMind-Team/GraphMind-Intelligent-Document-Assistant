@@ -45,16 +45,14 @@ const MAX_NODE_DIAMETER = 78
 const MID_NODE_DIAMETER = 65 // used when every node has the same degree -- no ranking signal to normalize against
 
 // Screen-pixel breathing room reserved around the fitted graph.
-// `zoomToFit` computes its bounding box from `nodeVal`/`nodeRelSize` (a
-// 4px default radius), not from what `drawNode` actually paints -- so the
-// padding has to cover the real overhang the engine can't see: half of
-// MAX_NODE_DIAMETER (39) plus the name drawn beneath it (~14). 56 is that,
-// rounded up. It's a safe over-estimate at every zoom this component
-// reaches, because the overhang is world-space and therefore shrinks with
-// the zoom factor, while this padding stays fixed in screen pixels.
-// Only the entity name has to be accounted for here: `nodeVal`/
-// `nodeRelSize` are set below so the engine's own bounding box already
-// knows each circle's true painted radius.
+// `zoomToFit`'s bounding box covers each circle already -- `nodeVal`/
+// `nodeRelSize` below teach the engine the radius `drawNode` really
+// paints -- but not the entity name drawn *beneath* the circle, which the
+// engine has no way to know about. So this only has to cover that name
+// (~14px at the 10px font, plus its 4px offset), rounded up. It stays
+// fixed in screen pixels while the overhang it covers is world-space and
+// shrinks with the zoom, which makes it a safe over-estimate at every
+// zoom this component reaches rather than only at k=1.
 const FIT_PADDING = 20
 
 // d3-force's defaults are tuned for the ~4px dots force-graph draws by
@@ -103,23 +101,44 @@ const ZOOM_TRANSITION_MS = 180
 // `link` is `--text2` at reduced alpha -- edges should read as subordinate
 // to the nodes they connect, and force-graph's own default
 // (`rgba(0,0,0,0.15)`) is all but invisible against dark mode's #1E222B
-// canvas.
+// canvas. The alpha is bounded from below by WCAG 1.4.11: an edge *is*
+// the relationship this whole view exists to show, so it's a graphical
+// object required to understand the content and owes 3:1 against the
+// canvas fill. At the original 0.45/0.5 it composited to 2.19:1 (light)
+// and 2.63:1 (dark) and failed; 0.65 in both themes gives 3.38:1 and
+// 3.51:1 -- enough margin to survive a token nudge, still visibly
+// lighter than both the node fills and the labels.
+// `nodeStroke` exists for the same rule, applied to the circles: the
+// light palette's two palest type fills (#48CAE4, #90E0EF) sit at 1.94:1
+// and 1.49:1 on white, so the *shape* of a Product or Location node was
+// carried by the drop shadow alone. No five steps of this blue ramp can
+// all clear 3:1 against white, so the boundary carries it instead --
+// `--text2` in both themes (8.36:1 light, 6.33:1 dark), neutral so it
+// doesn't disturb the per-type ramp it outlines. Dark mode's fills
+// already passed (4.69:1 and up); it gets the same outline anyway rather
+// than a theme-conditional visual language.
 const PALETTE = {
   light: {
     primary: '#3861A8',
     onPrimary: '#FFFFFF',
     canvasBg: '#FFFFFF',
     text: '#10131A',
-    link: 'rgba(69, 78, 96, 0.45)',
+    link: 'rgba(69, 78, 96, 0.65)',
+    nodeStroke: '#454E60',
   },
   dark: {
     primary: '#5B8CFF',
     onPrimary: '#1E222B',
     canvasBg: '#1E222B',
     text: '#E4E7EC',
-    link: 'rgba(154, 164, 181, 0.5)',
+    link: 'rgba(154, 164, 181, 0.65)',
+    nodeStroke: '#9AA4B5',
   },
 }
+
+// World units, like the radius -- so the outline thins out with the fit
+// instead of thickening into a blob as a large graph zooms away.
+const NODE_STROKE_WIDTH = 1.5
 
 // Two-letter badges drawn inside each node -- the non-color signal
 // AC6/UX-DR28 requires ("entity type... not carried by node colour
@@ -368,12 +387,34 @@ export default function GraphCanvas({ graph }) {
     fitToView()
   }, [fitToView])
 
-  // Wheel zoom is force-graph's own (`enableZoomInteraction`); this only
-  // records that it happened, so a later resize does not refit over the
-  // user's chosen zoom.
-  const markUserZoom = useCallback(() => {
+  // Wheel zoom and drag-pan are both force-graph's own
+  // (`enableZoomInteraction`/`enablePanInteraction`); these only record
+  // that one happened, so a later resize does not refit over the view the
+  // user deliberately moved to.
+  //
+  // Deliberately *not* force-graph's `onZoom` callback, which would be the
+  // obvious hook: force-graph calls `zoom.scaleTo` itself on every data
+  // change (its `ZOOM2NODES_FACTOR / cbrt(N)` heuristic), and d3-zoom
+  // fires the same `zoom` event for that as for a user gesture -- so
+  // `onZoom` would latch this ref on mount and auto-fit would never run
+  // again. Listening for the input events instead keeps "the user moved
+  // the view" and "the engine moved the view" distinguishable.
+  const markUserViewChange = useCallback(() => {
     userAdjustedZoomRef.current = true
   }, [])
+
+  // `buttons > 0` is what separates a pan from a plain mouse-over: it's a
+  // bitmask of the buttons currently held, so this fires on drag only, and
+  // (unlike a pointerdown/pointerup pair) can't get stuck believing a
+  // button is still down after a release that happened off-element.
+  // Touch pointers report `buttons` 1 while in contact, so a finger drag
+  // counts too.
+  const handlePointerMove = useCallback(
+    (event) => {
+      if (event.buttons > 0) markUserViewChange()
+    },
+    [markUserViewChange],
+  )
 
   function drawNode(node, ctx, globalScale) {
     // Drawn in world units, deliberately *not* divided by `globalScale`.
@@ -399,6 +440,16 @@ export default function GraphCanvas({ graph }) {
     ctx.shadowOffsetY = 2
     ctx.fillStyle = typeColor.fill
     ctx.fill()
+
+    // The boundary that makes a pale fill a distinguishable object at all
+    // (WCAG 1.4.11 -- see PALETTE.nodeStroke). Shadow cleared first so the
+    // outline doesn't paint a second copy of it on top of the fill's.
+    ctx.shadowColor = 'transparent'
+    ctx.shadowBlur = 0
+    ctx.shadowOffsetY = 0
+    ctx.lineWidth = NODE_STROKE_WIDTH
+    ctx.strokeStyle = palette.nodeStroke
+    ctx.stroke()
     ctx.restore()
 
     const fontSize = 10.5
@@ -465,7 +516,8 @@ export default function GraphCanvas({ graph }) {
         aria-label="Knowledge graph visualization"
         className="overflow-hidden rounded-xl border border-border bg-bg"
         style={{ height: CANVAS_HEIGHT }}
-        onWheel={markUserZoom}
+        onWheel={markUserViewChange}
+        onPointerMove={handlePointerMove}
       >
         {width > 0 && (
           <ForceGraph2D
