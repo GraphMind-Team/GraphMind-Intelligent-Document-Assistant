@@ -53,6 +53,15 @@ _SAFE_RELATIONSHIP_TYPE_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 # 150 is a defensive ceiling, not a measured value.
 GRAPH_NODE_LIMIT = 150
 
+# The node cap bounds *entities* quadratically, not edges: up to
+# GRAPH_NODE_LIMIT^2 directed pairs among 150 survivors, times up to five
+# relationship types per pair (OD-1's closed vocabulary) if the same two
+# entities are related more than one way -- tens of thousands of rows in
+# the worst case, with nothing else bounding the query or the response
+# payload. A defensive ceiling, not a measured value, mirroring
+# GRAPH_NODE_LIMIT's own reasoning.
+GRAPH_EDGE_LIMIT = 1000
+
 
 def get_neo4j_driver() -> Driver:
     """The process-wide Neo4j driver singleton.
@@ -304,6 +313,8 @@ def get_graph_for_user(
       the cap is applied), so a capped view can show a large node with
       fewer drawn lines than its size implies -- `kg/service.py`'s caller
       is expected to surface that as a stated UI limitation, not hide it.
+      Also capped independently, at `GRAPH_EDGE_LIMIT` -- see that
+      constant's comment for why edges need their own bound.
     - `total_entity_count`: the true count before capping, so the caller
       can render "showing top N of M."
 
@@ -369,6 +380,17 @@ def _get_relationships_tx(tx, user_id, keep_ids: list[str]) -> list[dict]:
     Skips the query entirely when `keep_ids` is empty (an empty-graph or
     all-isolated user) -- Cypher's `IN []` would just match nothing, but
     there's no reason to spend a round-trip proving that.
+
+    Capped at `GRAPH_EDGE_LIMIT`, ordered deterministically (by endpoint
+    names and relationship type, so the same edges come back on every
+    call rather than an arbitrary subset) -- see `GRAPH_EDGE_LIMIT`'s own
+    comment for why edges need a bound independent of the entity cap.
+    Unlike `_get_entities_tx`, this doesn't rank by any notion of
+    importance -- there's no equivalent signal for a relationship -- so a
+    graph past the edge cap silently drops some of its lowest-sorting
+    edges rather than surfacing a "showing top N of M" note the way the
+    node cap does. Acceptable for a defensive ceiling this far past
+    today's real graph sizes; revisit if it's ever actually hit.
     """
     if not keep_ids:
         return []
@@ -377,9 +399,12 @@ def _get_relationships_tx(tx, user_id, keep_ids: list[str]) -> list[dict]:
         "WHERE (a.type + ':' + a.name) IN $keep_ids AND (b.type + ':' + b.name) IN $keep_ids "
         "RETURN a.name AS source_name, a.type AS source_type, "
         "b.name AS target_name, b.type AS target_type, "
-        "type(r) AS relationship_type",
+        "type(r) AS relationship_type "
+        "ORDER BY source_name, target_name, relationship_type "
+        "LIMIT $edge_limit",
         user_id=user_id,
         keep_ids=keep_ids,
+        edge_limit=GRAPH_EDGE_LIMIT,
     )
     return [
         {

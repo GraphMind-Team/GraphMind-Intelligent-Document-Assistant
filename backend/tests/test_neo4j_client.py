@@ -572,6 +572,30 @@ def test_get_graph_for_user_relationships_query_requires_both_endpoints_scoped(m
     assert relationship_params["user_id"] == "user-1"
 
 
+def test_get_graph_for_user_relationships_query_is_capped_and_ordered_deterministically(monkeypatch):
+    """The entity cap (`GRAPH_NODE_LIMIT`) bounds entities, not edges --
+    up to that many entities can still carry far more relationships
+    between them than any UI or query budget should accept unbounded.
+    `GRAPH_EDGE_LIMIT` is that bound; `ORDER BY` makes which edges survive
+    it deterministic, the same reasoning as the entity cap's own
+    tie-break."""
+    fake_tx = _FakeReadTx(
+        [
+            [{"total": 1}],
+            [{"name": "A", "type": "Person", "degree": 0}],
+            [],
+        ]
+    )
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: _FakeReadDriver(fake_tx))
+
+    get_graph_for_user("user-1")
+
+    relationship_query, relationship_params = fake_tx.calls[-1]
+    assert "ORDER BY source_name, target_name, relationship_type" in relationship_query
+    assert "LIMIT $edge_limit" in relationship_query
+    assert relationship_params["edge_limit"] == neo4j_client_module.GRAPH_EDGE_LIMIT
+
+
 def test_get_graph_for_user_caps_and_tiebreaks_by_name(monkeypatch):
     """`ORDER BY degree DESC, e.name ASC` -- without the name tie-break,
     which of several equal-degree entities survives a `LIMIT` is

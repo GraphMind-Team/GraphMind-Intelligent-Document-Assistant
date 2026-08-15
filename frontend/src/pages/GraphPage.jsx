@@ -39,9 +39,18 @@ export default function GraphPage() {
       <h1 className="text-xl font-bold text-text">Graph Preview</h1>
 
       {error && (
-        <p role="alert" className="mt-2 text-sm text-danger">
-          {error}
-        </p>
+        <div className="mt-2 flex items-center gap-3">
+          <p role="alert" className="text-sm text-danger">
+            {error}
+          </p>
+          <button
+            type="button"
+            onClick={fetchGraph}
+            className="shrink-0 rounded-md border border-border bg-surface2 px-3 py-1.5 text-xs font-semibold text-text"
+          >
+            Retry
+          </button>
+        </div>
       )}
 
       {!error && isLoading && <p className="mt-2 text-sm text-text2">Loading graph...</p>}

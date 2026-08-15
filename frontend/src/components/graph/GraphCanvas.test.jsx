@@ -38,6 +38,23 @@ vi.mock('../../context/ThemeContext', () => ({ useTheme: () => ({ theme: 'light'
 
 import GraphCanvas from './GraphCanvas'
 
+// A stand-in 2D context for directly invoking `nodeCanvasObject`.
+// `measureText` returns a width proportional to string length -- rough,
+// but enough for `truncateToWidth`'s binary-search-by-width logic to
+// exercise real shortening instead of throwing on a missing method.
+function makeCtx(overrides = {}) {
+  return {
+    save: vi.fn(),
+    restore: vi.fn(),
+    beginPath: vi.fn(),
+    arc: vi.fn(),
+    fill: vi.fn(),
+    fillText: vi.fn(),
+    measureText: vi.fn((text) => ({ width: text.length * 6 })),
+    ...overrides,
+  }
+}
+
 const GRAPH = {
   nodes: [
     { id: 'Person:Maria', name: 'Maria', type: 'Person', degree: 3 },
@@ -72,13 +89,17 @@ describe('GraphCanvas', () => {
     delete HTMLElement.prototype.clientWidth
   })
 
-  it('renders the wrapper with a read-only aria-label naming the entity/relationship counts', async () => {
+  it('gives the canvas a short accessible name, leaving the full read-only/count statement to GraphSummary', async () => {
     render(<GraphCanvas graph={GRAPH} />)
     await screen.findByTestId('force-graph-stub')
 
+    // Kept brief on purpose: GraphSummary's visible text is the real
+    // accessible content and states the counts and read-only nature
+    // itself, right below this element -- duplicating that whole sentence
+    // into the aria-label would have a screen reader announce it twice.
     const wrapper = screen.getByRole('img')
-    expect(wrapper).toHaveAccessibleName(/2 entities, 1 relationship/i)
-    expect(wrapper).toHaveAccessibleName(/read-only/i)
+    expect(wrapper).toHaveAccessibleName(/knowledge graph/i)
+    expect(wrapper).not.toHaveAccessibleName(/2 entities, 1 relationship/i)
   })
 
   it('passes graphData built from the given nodes/edges to ForceGraph2D', async () => {
@@ -149,14 +170,7 @@ describe('GraphCanvas', () => {
     await screen.findByTestId('force-graph-stub')
 
     const props = MockForceGraph2D.mock.calls.at(-1)[0]
-    const ctx = {
-      save: vi.fn(),
-      restore: vi.fn(),
-      beginPath: vi.fn(),
-      arc: vi.fn(),
-      fill: vi.fn(),
-      fillText: vi.fn(),
-    }
+    const ctx = makeCtx()
 
     expect(() =>
       props.nodeCanvasObject({ x: 0, y: 0, degree: 3, type: 'Person', name: 'Maria' }, ctx, 1),
@@ -164,6 +178,34 @@ describe('GraphCanvas', () => {
     expect(ctx.arc).toHaveBeenCalled()
     expect(ctx.fillText).toHaveBeenCalledWith('PE', 0, 0)
     expect(ctx.fillText).toHaveBeenCalledWith('Maria', 0, expect.any(Number))
+  })
+
+  it('truncates a name that would run wider than roughly two node-widths, with an ellipsis', async () => {
+    render(<GraphCanvas graph={GRAPH} />)
+    await screen.findByTestId('force-graph-stub')
+
+    const props = MockForceGraph2D.mock.calls.at(-1)[0]
+    const ctx = makeCtx()
+    const longName = 'Northbridge Logistics International Holdings Group'
+
+    props.nodeCanvasObject({ x: 0, y: 0, degree: 3, type: 'Organization', name: longName }, ctx, 1)
+
+    const nameCall = ctx.fillText.mock.calls.find(([text]) => text !== 'OR')
+    expect(nameCall[0]).not.toBe(longName)
+    expect(nameCall[0]).toMatch(/…$/)
+    expect(nameCall[0].length).toBeLessThan(longName.length)
+  })
+
+  it('draws a short name in full, with no ellipsis', async () => {
+    render(<GraphCanvas graph={GRAPH} />)
+    await screen.findByTestId('force-graph-stub')
+
+    const props = MockForceGraph2D.mock.calls.at(-1)[0]
+    const ctx = makeCtx()
+
+    props.nodeCanvasObject({ x: 0, y: 0, degree: 3, type: 'Organization', name: 'Acme' }, ctx, 1)
+
+    expect(ctx.fillText).toHaveBeenCalledWith('Acme', 0, expect.any(Number))
   })
 
   it('fills each entity type with its own colour, redundantly with the badge', async () => {
@@ -175,16 +217,11 @@ describe('GraphCanvas', () => {
     // last and would otherwise overwrite fillStyle with the text colour.
     const fillFor = (node) => {
       let circleFill
-      const ctx = {
-        save: vi.fn(),
-        restore: vi.fn(),
-        beginPath: vi.fn(),
-        arc: vi.fn(),
+      const ctx = makeCtx({
         fill: vi.fn(() => {
           circleFill = ctx.fillStyle
         }),
-        fillText: vi.fn(),
-      }
+      })
       props.nodeCanvasObject({ x: 0, y: 0, degree: 3, ...node }, ctx, 1)
       return circleFill
     }
@@ -203,14 +240,7 @@ describe('GraphCanvas', () => {
     await screen.findByTestId('force-graph-stub')
 
     const props = MockForceGraph2D.mock.calls.at(-1)[0]
-    const ctx = {
-      save: vi.fn(),
-      restore: vi.fn(),
-      beginPath: vi.fn(),
-      arc: vi.fn(),
-      fill: vi.fn(),
-      fillText: vi.fn(),
-    }
+    const ctx = makeCtx()
 
     // 10 * 0.3 = 3px on screen -- the circle still carries shape and
     // connectivity, GraphSummary carries the names.
@@ -226,14 +256,7 @@ describe('GraphCanvas', () => {
 
     const props = MockForceGraph2D.mock.calls.at(-1)[0]
     const radiusAt = (globalScale) => {
-      const ctx = {
-        save: vi.fn(),
-        restore: vi.fn(),
-        beginPath: vi.fn(),
-        arc: vi.fn(),
-        fill: vi.fn(),
-        fillText: vi.fn(),
-      }
+      const ctx = makeCtx()
       props.nodeCanvasObject({ x: 0, y: 0, degree: 3, type: 'Person', name: 'Maria' }, ctx, globalScale)
       return ctx.arc.mock.calls[0][2]
     }

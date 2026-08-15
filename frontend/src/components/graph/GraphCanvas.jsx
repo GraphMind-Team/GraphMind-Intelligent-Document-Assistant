@@ -89,29 +89,33 @@ const MAX_ZOOM = 4
 const ZOOM_TRANSITION_MS = 180
 
 // Canvas fillStyle needs a literal color, not a CSS custom property --
-// these mirror index.css's `--primary`/`--on-primary`/`--card-bg` token
-// values by hand (documentsClient.js's ALLOWED_EXTENSIONS comment notes
-// the same kind of intentional hand-mirroring). Not read live via
+// these mirror index.css's `--primary`/`--on-primary`/`--bg` token values
+// by hand (documentsClient.js's ALLOWED_EXTENSIONS comment notes the same
+// kind of intentional hand-mirroring). Not read live via
 // `getComputedStyle` because that would race `ThemeProvider`'s own
 // `data-theme` attribute effect: React fires effects child-before-parent
 // within a commit, so this component's effect would read the *previous*
 // theme's attribute value on the very render a theme switch happens.
+// `canvasBg` is `--bg`, not `--card-bg` -- DESIGN.md's `.graph-canvas`
+// rule specifies `{colors.bg}` (#fff) as the fill (AC4), and the two only
+// coincide in light mode; dark mode's `--bg` (#1E222B) and `--card-bg`
+// (#262B35) are different colors.
 // `link` is `--text2` at reduced alpha -- edges should read as subordinate
 // to the nodes they connect, and force-graph's own default
-// (`rgba(0,0,0,0.15)`) is all but invisible against dark mode's #262B35
+// (`rgba(0,0,0,0.15)`) is all but invisible against dark mode's #1E222B
 // canvas.
 const PALETTE = {
   light: {
     primary: '#3861A8',
     onPrimary: '#FFFFFF',
-    cardBg: '#FFFFFF',
+    canvasBg: '#FFFFFF',
     text: '#10131A',
     link: 'rgba(69, 78, 96, 0.45)',
   },
   dark: {
     primary: '#5B8CFF',
     onPrimary: '#1E222B',
-    cardBg: '#262B35',
+    canvasBg: '#1E222B',
     text: '#E4E7EC',
     link: 'rgba(154, 164, 181, 0.5)',
   },
@@ -175,6 +179,24 @@ function diameterFor(degree, minDegree, maxDegree) {
   if (minDegree === maxDegree) return MID_NODE_DIAMETER
   const ratio = (degree - minDegree) / (maxDegree - minDegree)
   return MIN_NODE_DIAMETER + ratio * (MAX_NODE_DIAMETER - MIN_NODE_DIAMETER)
+}
+
+// A name drawn at full length has no upper bound -- "Northbridge
+// Logistics" already nearly spans two node-widths at MIN_NODE_DIAMETER,
+// and nothing stops it running into a neighbour placed close by (`collide`
+// keeps *circles* apart, not the text drawn outside them). Truncated with
+// an ellipsis to `maxWidth` (world units, matching drawNode's other
+// undivided-by-globalScale measurements) rather than hidden -- the start
+// of a name is usually enough to tell entities apart, and the full name is
+// always available in GraphSummary regardless of canvas width.
+function truncateToWidth(ctx, text, maxWidth) {
+  if (ctx.measureText(text).width <= maxWidth) return text
+  const ellipsis = '…'
+  let end = text.length
+  while (end > 0 && ctx.measureText(text.slice(0, end) + ellipsis).width > maxWidth) {
+    end -= 1
+  }
+  return end > 0 ? text.slice(0, end) + ellipsis : ellipsis
 }
 
 // No ResizeObserver here (unavailable in this project's jsdom test
@@ -394,12 +416,13 @@ export default function GraphCanvas({ graph }) {
 
     // Entity name, drawn beneath the node rather than inside it -- the
     // circle is too small at MIN_NODE_DIAMETER to fit both the type badge
-    // and a full name legibly.
+    // and a full name legibly. Truncated to roughly two node-widths so a
+    // long name doesn't run into whatever's drawn next to it.
     ctx.font = `500 ${nameFontSize}px sans-serif`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'top'
     ctx.fillStyle = palette.text
-    ctx.fillText(node.name, node.x, node.y + radius + 4)
+    ctx.fillText(truncateToWidth(ctx, node.name, MAX_NODE_DIAMETER * 2), node.x, node.y + radius + 4)
   }
 
   return (
@@ -432,8 +455,15 @@ export default function GraphCanvas({ graph }) {
       <div
         ref={containerRef}
         role="img"
-        aria-label={`Knowledge graph: ${nodes.length} ${nodes.length === 1 ? 'entity' : 'entities'}, ${edges.length} ${edges.length === 1 ? 'relationship' : 'relationships'}. Read-only — hover and click are disabled; the canvas can be zoomed and panned.`}
-        className="overflow-hidden rounded-xl border border-border bg-card-bg"
+        // Short and generic on purpose -- GraphSummary immediately below
+        // is the real accessible content (AC7) and already states the
+        // entity/relationship counts and the read-only, zoomable nature of
+        // the view in visible text. Restating all of that here would have
+        // a screen reader announce the same sentence twice back to back;
+        // this just identifies what kind of region a screen-reader user
+        // has landed on.
+        aria-label="Knowledge graph visualization"
+        className="overflow-hidden rounded-xl border border-border bg-bg"
         style={{ height: CANVAS_HEIGHT }}
         onWheel={markUserZoom}
       >
@@ -443,7 +473,7 @@ export default function GraphCanvas({ graph }) {
             graphData={graphData}
             width={width}
             height={CANVAS_HEIGHT}
-            backgroundColor={palette.cardBg}
+            backgroundColor={palette.canvasBg}
             nodeCanvasObject={drawNode}
             nodeVal={nodeVal}
             nodeRelSize={1}

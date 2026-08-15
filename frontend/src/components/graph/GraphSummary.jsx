@@ -25,8 +25,8 @@ export default function GraphSummary({ nodes, edges }) {
   return (
     <div className="mt-3 text-sm text-text2">
       <p>
-        Read-only — hover and click are disabled. {nodes.length}{' '}
-        {nodes.length === 1 ? 'entity' : 'entities'}, {edges.length}{' '}
+        Read-only — hover, click and drag are disabled; the canvas can be zoomed and panned.{' '}
+        {nodes.length} {nodes.length === 1 ? 'entity' : 'entities'}, {edges.length}{' '}
         {edges.length === 1 ? 'relationship' : 'relationships'} shown.
       </p>
       <details className="mt-2" open>
