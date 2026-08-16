@@ -8,9 +8,23 @@ def _valid_register_payload(**overrides):
     return payload
 
 
+_LOGIN_FIELDS = ("email", "password")
+
+
 def _login_payload(**overrides):
+    """Builds a POST /auth/login body, keeping only the fields that route
+    actually accepts.
+
+    `_register_and_login` splats one set of overrides into both the
+    register and the login payload, so a register-shaped override (e.g.
+    `full_name=...`) would otherwise ride along into the login body. That
+    is accepted today only because Pydantic defaults to ignoring unknown
+    fields; tightening `LoginRequest` to forbid extras -- a normal
+    hardening step for an auth route -- would turn it into a confusing 422
+    pointing at login rather than at this helper.
+    """
     payload = {"email": "maria@example.com", "password": "correct horse battery staple"}
-    payload.update(overrides)
+    payload.update({key: value for key, value in overrides.items() if key in _LOGIN_FIELDS})
     return payload
 
 
