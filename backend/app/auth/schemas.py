@@ -78,3 +78,38 @@ class UpdateThemeRequest(BaseModel):
 
 class ThemeResponse(BaseModel):
     theme: str
+
+
+class UpdateProfileRequest(BaseModel):
+    full_name: str = Field(min_length=1, max_length=255)
+
+    # Mirrors RegisterRequest's `_strip_full_name` validator -- same rule
+    # (must not be blank after trimming), same field, so it should reject
+    # the same way here as it does at registration.
+    @field_validator("full_name")
+    @classmethod
+    def _strip_full_name(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("full_name must not be blank")
+        return stripped
+
+
+class ProfileResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    full_name: str
+    email: str
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    # Reuses RegisterRequest's min_length=8, max_length=128 bound (per the
+    # I/O matrix) so registration and password-change enforce the exact
+    # same strength rule.
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class ChangePasswordResponse(BaseModel):
+    detail: str = "Password updated."

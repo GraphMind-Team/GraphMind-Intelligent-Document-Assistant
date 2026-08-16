@@ -3,14 +3,23 @@ from sqlalchemy.orm import Session
 
 from app.auth import service
 from app.auth.dependencies import get_current_user
-from app.auth.rate_limiter import RateLimiter, get_login_rate_limiter, get_register_rate_limiter
+from app.auth.rate_limiter import (
+    RateLimiter,
+    get_change_password_rate_limiter,
+    get_login_rate_limiter,
+    get_register_rate_limiter,
+)
 from app.auth.schemas import (
+    ChangePasswordRequest,
+    ChangePasswordResponse,
     LoginRequest,
     LoginResponse,
     MeResponse,
+    ProfileResponse,
     RegisterRequest,
     RegisterResponse,
     ThemeResponse,
+    UpdateProfileRequest,
     UpdateThemeRequest,
 )
 from app.shared.data_access import get_db_session
@@ -66,3 +75,31 @@ def update_theme(
 ) -> ThemeResponse:
     service.update_theme(db, current_user, data.theme)
     return ThemeResponse(theme=data.theme)
+
+
+@router.patch("/me", response_model=ProfileResponse)
+def update_me(
+    data: UpdateProfileRequest,
+    db: Session = Depends(get_db_session),
+    current_user: User = Depends(get_current_user),
+) -> ProfileResponse:
+    user = service.update_profile(db, current_user, data)
+    return ProfileResponse.model_validate(user)
+
+
+@router.post("/me/password", response_model=ChangePasswordResponse)
+def change_password(
+    data: ChangePasswordRequest,
+    db: Session = Depends(get_db_session),
+    current_user: User = Depends(get_current_user),
+    limiter: RateLimiter = Depends(get_change_password_rate_limiter),
+) -> ChangePasswordResponse:
+    # Keyed by user id, not IP: the caller already holds a valid access
+    # token here (get_current_user ran first), so the attack this guards
+    # against is that token being used to brute-force current_password
+    # against the one account it belongs to -- not an anonymous source
+    # grinding many accounts, which is what login/register's IP-based keys
+    # guard against instead.
+    limiter.check(str(current_user.id))
+    service.change_password(db, current_user, data)
+    return ChangePasswordResponse()
