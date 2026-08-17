@@ -43,9 +43,9 @@ from scripts.isolation_proof import (
     _covered_routes,
     _dependency_tree_contains,
     _find_unscoped_routes,
-    _has_leaks,
     _primary_method,
     _print_report,
+    _should_exit_nonzero,
 )
 
 
@@ -595,24 +595,26 @@ def test_auth_me_route_dependency_tree_contains_get_current_user():
 # ---------------------------------------------------------------------------
 
 
-def test_has_leaks_is_false_when_every_check_passes():
+def test_should_exit_nonzero_is_false_when_every_check_passes():
     results = [CheckResult(name="a", status="pass"), CheckResult(name="b", status="pass")]
-    assert _has_leaks(results) is False
+    assert _should_exit_nonzero(results) is False
 
 
-def test_has_leaks_is_true_when_any_check_fails():
+def test_should_exit_nonzero_is_true_when_any_check_fails():
     results = [CheckResult(name="a", status="pass"), CheckResult(name="b", status="fail", detail="leak!")]
-    assert _has_leaks(results) is True
+    assert _should_exit_nonzero(results) is True
 
 
-def test_has_leaks_is_true_when_any_check_is_inconclusive():
+def test_should_exit_nonzero_is_true_when_any_check_is_inconclusive():
     # An inconclusive check is not proof of isolation -- the DoD gate must
-    # not clear on a run where a positive control never fired.
+    # not clear on a run where a positive control never fired, even though
+    # "inconclusive" isn't literally a leak (the function's old name,
+    # `_has_leaks`, claimed it was).
     results = [
         CheckResult(name="a", status="pass"),
         CheckResult(name="b", status="inconclusive", detail="unclear"),
     ]
-    assert _has_leaks(results) is True
+    assert _should_exit_nonzero(results) is True
 
 
 def test_print_report_states_zero_leaks_on_a_clean_run(capsys):

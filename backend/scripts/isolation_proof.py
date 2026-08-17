@@ -499,7 +499,13 @@ def _inconclusive(name: str, detail: str) -> CheckResult:
     return CheckResult(name=name, status="inconclusive", detail=detail)
 
 
-def _has_leaks(results: list[CheckResult]) -> bool:
+def _should_exit_nonzero(results: list[CheckResult]) -> bool:
+    """True on any non-`pass` result -- a genuine leak (`fail`) or an
+    `inconclusive` check are both reasons the DoD gate must not clear,
+    even though neither is a "leak" in the literal sense the old name
+    (`_has_leaks`) claimed. The report itself already distinguishes the
+    two for the human reader (`_print_report`); this is only the
+    single exit-code gate covering both."""
     return any(r.status != "pass" for r in results)
 
 
@@ -1017,7 +1023,7 @@ def _run() -> int:
     finally:
         _print_report(results, na_results, started_at=started_at)
 
-    return 1 if _has_leaks(results) else 0
+    return 1 if _should_exit_nonzero(results) else 0
 
 
 def main() -> None:
