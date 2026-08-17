@@ -4,8 +4,8 @@ refusal correctness.
 Ingests a small git-tracked fixture corpus (`scripts/eval_fixtures/*.md`)
 into the QA account, runs a 15-20 question set
 (`scripts/eval_questions.json`, spanning factual / synthesis /
-unanswerable) through `chat.service.ask_question` scoped to those
-fixtures' document ids -- never HTTP, never the frontend -- and prints
+unanswerable) through `chat.service.ask_question` scoped to the whole
+fixture corpus's document ids -- never HTTP, never the frontend -- and prints
 accuracy, unanswerable-refusal-rate, and answerable-refusal-rate (SM-C1)
 as plain numbers. Never pass/fail: quality is reported, not gated (see
 this module's own report -- and the spec's Ask First note about not
@@ -56,7 +56,8 @@ from app.chat.schemas import AskResponse
 from app.chat.service import ask_question
 from app.documents import service as documents_service
 from app.shared.data_access.session import get_session_factory
-from app.shared.llm_client import DEFAULT_MODEL
+from app.shared.data_access.weaviate_client import TOP_K_PASSAGES
+from app.shared.llm_client import DEFAULT_MODEL, RELEVANCE_THRESHOLD
 from app.shared.models import Document, User
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -407,6 +408,22 @@ def _load_questions(
                 f"(must be one of {sorted(_VALID_MATCH_MODES)})."
             )
 
+        if entry["category"] != "unanswerable" and not entry["must_contain"]:
+            # An empty `must_contain` is correct (and ignored) for an
+            # unanswerable question -- `classify_unanswerable` never calls
+            # `_text_matches` at all. On an answerable one it would score
+            # every answer as correct for free: `_text_matches`' `all([])`
+            # is `True`, silently inflating SM-1, which is the one number
+            # this whole harness exists to produce. Since the unanswerable
+            # entries legitimately ship with `[]`, that shape is right
+            # there to be copied into a new factual question -- so it's
+            # rejected here rather than left to be noticed in a metric.
+            raise EvalHarnessError(
+                f"{questions_path}: question {qid!r} is {entry['category']!r} but has an empty "
+                "must_contain -- that would score every answer as correct (all([]) is True). "
+                "Give it at least one substring to match."
+            )
+
         for filename in entry["document_filenames"]:
             if filename not in fixture_filenames:
                 raise EvalHarnessError(
@@ -526,6 +543,17 @@ def _run_question(
     result (review finding). Never scored as a refusal (spec Never
     clause), regardless of which exception type it was.
 
+    Scope: every question runs against *all* ingested fixture ids, not
+    just the ones its own `document_filenames` names. Scoping each
+    question to the documents that happen to hold its answer would hand
+    retrieval the answer and measure only generation; scoping to the
+    whole corpus makes retrieval discriminate between fixtures, which is
+    what a real user's library forces it to do. `document_filenames`
+    stays in the question set as documentation of where the supporting
+    facts live (and is still resolved below, so a name that doesn't match
+    an ingested fixture is caught) -- it just no longer narrows
+    retrieval. Still never `[]`, per the spec's Boundaries.
+
     A `KeyError` while resolving `document_filenames` against the
     ingested fixtures is a different kind of failure -- a data-integrity
     bug in `eval_questions.json` vs. the actual fixture corpus, not a
@@ -534,12 +562,14 @@ def _run_question(
     setup-time problem.
     """
     try:
-        document_ids = [document_ids_by_filename[fn] for fn in question["document_filenames"]]
+        for filename in question["document_filenames"]:
+            document_ids_by_filename[filename]
     except KeyError as exc:
         raise EvalHarnessError(
             f"Question {question['id']!r} references fixture {exc.args[0]!r}, which isn't among "
             f"the ingested fixtures ({sorted(document_ids_by_filename)})."
         ) from exc
+    document_ids = list(document_ids_by_filename.values())
 
     try:
         response = ask_fn(db, user, question["question"], document_ids)
@@ -611,6 +641,13 @@ def _print_report(results: list[QuestionRunResult], *, model_id: str, started_at
     print(f"Run started:  {started_at.isoformat()}")
     print(f"Question count: {len(results)} ({len(answerable)} answerable, "
           f"{len(unanswerable)} unanswerable)")
+    # Retrieval config belongs in the provenance header alongside the model:
+    # both refusal metrics are a direct function of these two knobs
+    # (RELEVANCE_THRESHOLD decides the refusal short-circuit, TOP_K_PASSAGES
+    # decides what it judges), so without them printed, a run taken before a
+    # threshold tweak and one taken after look comparable when they aren't.
+    print(f"Relevance threshold: {RELEVANCE_THRESHOLD} (distance <= threshold counts as relevant)")
+    print(f"Top-K passages: {TOP_K_PASSAGES}")
     print("=" * 78)
 
     accuracy_pct = _percent(len(answerable_correct), len(answerable_scored))
@@ -622,6 +659,12 @@ def _print_report(results: list[QuestionRunResult], *, model_id: str, started_at
     print(
         "  -> This is the measured baseline for OD-3's placeholder >=80% SM-1 target. "
         "Report this number to a human to resolve OD-3 -- do not edit epics.md here."
+    )
+    print(
+        f"  -> Caveat for OD-3: the fixture corpus is small enough that Top-K={TOP_K_PASSAGES} "
+        "retrieves most of it for any question, so this number reflects grounded generation "
+        "far more than retrieval quality. It is an upper bound on what a user with a large "
+        "library would see."
     )
 
     refusal_pct = _percent(len(unanswerable_refusals), len(unanswerable_scored))
@@ -672,6 +715,13 @@ def _run() -> None:
 
     session_factory = get_session_factory()
 
+    # Before ingestion, not after: `_load_questions`' whole point is to
+    # reject a malformed/hand-edited question set before any live
+    # Weaviate/Neo4j/OpenRouter work happens. Loaded after ingestion, a
+    # typo'd category would cost a full parse/embed/extract cycle over
+    # every fixture before surfacing (review finding).
+    questions = _load_questions()
+
     # Fixture ingestion (upload + parse + embed + extract + graph-write for
     # up to 3 documents) needs one session for its own short duration.
     setup_db = session_factory()
@@ -680,8 +730,6 @@ def _run() -> None:
         document_ids_by_filename = _ingest_all_fixtures(setup_db, session_factory, user)
     finally:
         setup_db.close()
-
-    questions = _load_questions()
 
     # A fresh, short-lived session per question rather than one session
     # held open for the whole ~15-20 question, LLM-backed run (each

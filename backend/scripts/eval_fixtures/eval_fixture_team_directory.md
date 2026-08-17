@@ -2,9 +2,8 @@
 
 ## Elena Rusev
 
-Elena Rusev is the Senior Product Manager leading Project Aurora, the
-live-collaboration graph canvas prototype work. She joined GraphMind in
-2023 and previously worked at a logistics analytics startup.
+Elena Rusev is a Senior Product Manager. She joined GraphMind in 2023 and
+previously worked at a logistics analytics startup.
 
 ## Tomas Fernandes
 

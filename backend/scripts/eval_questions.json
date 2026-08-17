@@ -97,15 +97,15 @@
     "must_contain": ["Project Aurora", "Elena Rusev"],
     "match": "all",
     "document_filenames": [
-      "eval_fixture_northwind_vendor.md",
+      "eval_fixture_project_aurora.md",
       "eval_fixture_team_directory.md"
     ]
   },
   {
     "id": "q12",
     "category": "synthesis",
-    "question": "How many business days does Priya Anand's company guarantee for standard hardware replacement shipping?",
-    "expected_answer": "5 business days (Priya Anand is Northwind Robotics' contact, whose SLA is 5 business days for standard orders).",
+    "question": "How many business days does the vendor whose contract Tomas Fernandes approves guarantee for standard hardware replacement shipping?",
+    "expected_answer": "5 business days (the team directory names Tomas Fernandes as the approver of the Northwind Robotics agreement; the vendor agreement gives the 5-business-day standard SLA).",
     "must_contain": ["5 business days"],
     "match": "all",
     "document_filenames": ["eval_fixture_northwind_vendor.md", "eval_fixture_team_directory.md"]
@@ -113,11 +113,15 @@
   {
     "id": "q13",
     "category": "synthesis",
-    "question": "What critical-failure shipping guarantee applies to the hardware Priya Anand coordinates for Project Aurora?",
-    "expected_answer": "24 hours (Priya coordinates Northwind Robotics' hardware shipments, whose critical-failure SLA is 24 hours).",
+    "question": "What critical-failure shipping guarantee applies to the motion-capture hardware used by the project Elena Rusev leads?",
+    "expected_answer": "24 hours (the launch brief names Elena Rusev as Project Aurora's lead; the team directory ties Aurora's motion-capture hardware to Northwind Robotics; the vendor agreement gives the 24-hour critical-failure SLA).",
     "must_contain": ["24 hours"],
     "match": "all",
-    "document_filenames": ["eval_fixture_northwind_vendor.md", "eval_fixture_team_directory.md"]
+    "document_filenames": [
+      "eval_fixture_project_aurora.md",
+      "eval_fixture_northwind_vendor.md",
+      "eval_fixture_team_directory.md"
+    ]
   },
   {
     "id": "q14",

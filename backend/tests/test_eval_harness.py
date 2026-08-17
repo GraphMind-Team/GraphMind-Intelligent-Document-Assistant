@@ -23,6 +23,8 @@ import pytest
 from fastapi import HTTPException
 
 from app.chat.schemas import AnswerSegmentResponse, AskResponse
+from app.shared.data_access.weaviate_client import TOP_K_PASSAGES
+from app.shared.llm_client import RELEVANCE_THRESHOLD
 from app.shared.models import Document
 from scripts.eval_harness import (
     FIXTURES_DIR,
@@ -313,6 +315,35 @@ def test_run_question_scores_a_correct_answerable_response_end_to_end():
     assert result.is_refusal is False
 
 
+def test_run_question_scopes_to_the_whole_fixture_corpus_not_just_the_supporting_docs():
+    # Scoping a question to the documents holding its own answer hands
+    # retrieval the answer and measures only generation; the whole corpus
+    # makes retrieval discriminate, as a real library would (review
+    # finding). `document_filenames` stays documentation-only.
+    supporting_id, other_id = uuid.uuid4(), uuid.uuid4()
+    question = {
+        "id": "q1",
+        "category": "factual",
+        "question": "What is the budget?",
+        "document_filenames": ["supporting.md"],
+        "must_contain": ["$184,000"],
+        "match": "all",
+    }
+    document_ids_by_filename = {"supporting.md": supporting_id, "other.md": other_id}
+    seen: list = []
+
+    def _fake_ask(db, user, question_text, document_ids):
+        seen.append(document_ids)
+        return AskResponse(segments=[AnswerSegmentResponse(text="$184,000.", citations=[])])
+
+    _run_question(
+        db=None, user=None, question=question, document_ids_by_filename=document_ids_by_filename,
+        ask_fn=_fake_ask,
+    )
+
+    assert sorted(seen[0], key=str) == sorted([supporting_id, other_id], key=str)
+
+
 def test_run_question_aborts_with_a_clear_error_when_a_fixture_reference_is_unknown():
     # A KeyError here means eval_questions.json references a fixture that
     # was never ingested -- a data-integrity bug, not a live-service
@@ -509,6 +540,27 @@ def test_load_questions_rejects_an_invalid_match_mode(tmp_path):
         _load_questions(questions_path=path, fixtures_dir=fixtures_dir)
 
 
+@pytest.mark.parametrize("category", ["factual", "synthesis"])
+def test_load_questions_rejects_an_empty_must_contain_on_an_answerable_question(tmp_path, category):
+    # `all([])` is True, so an empty must_contain would score every answer
+    # as correct and silently inflate SM-1 (review finding).
+    fixtures_dir = _make_fixtures_dir(tmp_path, ["f1.md"])
+    bad = dict(_VALID_QUESTION, category=category, must_contain=[])
+    path = _write_questions(tmp_path, [bad])
+
+    with pytest.raises(EvalHarnessError, match="empty must_contain"):
+        _load_questions(questions_path=path, fixtures_dir=fixtures_dir)
+
+
+def test_load_questions_allows_an_empty_must_contain_on_an_unanswerable_question(tmp_path):
+    # Legitimate there: `classify_unanswerable` never calls `_text_matches`.
+    fixtures_dir = _make_fixtures_dir(tmp_path, ["f1.md"])
+    entry = dict(_VALID_QUESTION, category="unanswerable", must_contain=[], match="any")
+    path = _write_questions(tmp_path, [entry])
+
+    assert _load_questions(questions_path=path, fixtures_dir=fixtures_dir) == [entry]
+
+
 def test_load_questions_rejects_an_unknown_fixture_reference(tmp_path):
     fixtures_dir = _make_fixtures_dir(tmp_path, ["f1.md"])
     bad = dict(_VALID_QUESTION, document_filenames=["does-not-exist.md"])
@@ -529,6 +581,15 @@ def test_real_eval_questions_json_satisfies_the_spec_ac():
     assert categories == {"factual", "synthesis", "unanswerable"}
     ids = [q["id"] for q in questions]
     assert len(ids) == len(set(ids))
+
+    # A "synthesis" question whose supporting facts all sit in one document
+    # is really a factual one, and silently empties the cross-document
+    # category Epic 6 asks the set to span (review finding). This can't
+    # prove the join is genuinely required, but it catches the regression
+    # where an edit collapses a synthesis question onto a single fixture.
+    for question in questions:
+        if question["category"] == "synthesis":
+            assert len(question["document_filenames"]) >= 2, question["id"]
 
 
 # ---------------------------------------------------------------------------
@@ -609,6 +670,11 @@ def test_print_report_computes_distinct_correct_numerators_and_denominators_per_
     assert "Run errors (generate_answer 503, excluded from every metric above): 2" in out
     assert "test-model" in out
     assert "2026-08-17T00:00:00+00:00" in out
+    # Provenance: both refusal metrics are a direct function of these two
+    # knobs, so two runs taken across a threshold change must not look
+    # comparable in the output (review finding).
+    assert f"Relevance threshold: {RELEVANCE_THRESHOLD}" in out
+    assert f"Top-K passages: {TOP_K_PASSAGES}" in out
 
 
 def test_print_report_reports_zero_sm2_violations_when_none_occurred(capsys):
