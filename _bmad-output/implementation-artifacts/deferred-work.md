@@ -506,3 +506,7 @@
     `get_current_user`), not a change local to this story's two new routes. Worth a deliberate design
     pass, likely alongside Story 5.3's account-deletion session handling, rather than folding into
     this story.
+
+- source_spec: `_bmad-output/implementation-artifacts/sprint-status.yaml`
+  summary: Fix the `sprint-status.yaml` / spec-filename key typo `6-1-measure-answer-accuracy-and-refusal-correctness-in-one-comma` (missing the trailing "nd" of "command") once a future story touches that key again.
+  evidence: Story 6.1 review (blind-hunter) noted the truncated key, generated before this story started and left in `sprint-status.yaml`'s `development_status` map. Harmless today -- story-key resolution in the build workflow matches on the `6-1` numeric prefix, not the full string -- but worth a clean rename whenever the key is next touched, rather than perpetuating the typo.

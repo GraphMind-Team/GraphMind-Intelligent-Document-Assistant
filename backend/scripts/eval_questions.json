@@ -1,0 +1,217 @@
+[
+  {
+    "id": "q01",
+    "category": "factual",
+    "question": "What is the approved budget for Project Aurora?",
+    "expected_answer": "$184,000 total, with $52,000 earmarked for contractor design work.",
+    "must_contain": ["$184,000"],
+    "match": "all",
+    "document_filenames": ["eval_fixture_project_aurora.md"]
+  },
+  {
+    "id": "q02",
+    "category": "factual",
+    "question": "When is Project Aurora scheduled to ship?",
+    "expected_answer": "2026-09-15.",
+    "must_contain": ["2026-09-15", "September 15, 2026"],
+    "match": "any",
+    "document_filenames": ["eval_fixture_project_aurora.md"]
+  },
+  {
+    "id": "q03",
+    "category": "factual",
+    "question": "When is Project Aurora's interactive prototype milestone due?",
+    "expected_answer": "2026-06-30.",
+    "must_contain": ["2026-06-30", "June 30, 2026"],
+    "match": "any",
+    "document_filenames": ["eval_fixture_project_aurora.md"]
+  },
+  {
+    "id": "q04",
+    "category": "factual",
+    "question": "What is the monthly rate of the Northwind Robotics vendor agreement?",
+    "expected_answer": "$9,500 per month.",
+    "must_contain": ["$9,500"],
+    "match": "all",
+    "document_filenames": ["eval_fixture_northwind_vendor.md"]
+  },
+  {
+    "id": "q05",
+    "category": "factual",
+    "question": "What shipping SLA does Northwind Robotics guarantee for critical-failure hardware units?",
+    "expected_answer": "24 hours.",
+    "must_contain": ["24 hours"],
+    "match": "all",
+    "document_filenames": ["eval_fixture_northwind_vendor.md"]
+  },
+  {
+    "id": "q06",
+    "category": "factual",
+    "question": "Who is the primary account contact at Northwind Robotics?",
+    "expected_answer": "Priya Anand, Senior Account Manager.",
+    "must_contain": ["Priya Anand"],
+    "match": "all",
+    "document_filenames": ["eval_fixture_northwind_vendor.md"]
+  },
+  {
+    "id": "q07",
+    "category": "factual",
+    "question": "In what year did Elena Rusev join GraphMind?",
+    "expected_answer": "2023.",
+    "must_contain": ["2023"],
+    "match": "all",
+    "document_filenames": ["eval_fixture_team_directory.md"]
+  },
+  {
+    "id": "q08",
+    "category": "factual",
+    "question": "What is Tomas Fernandes' job title?",
+    "expected_answer": "VP of Engineering.",
+    "must_contain": ["VP of Engineering"],
+    "match": "all",
+    "document_filenames": ["eval_fixture_team_directory.md"]
+  },
+  {
+    "id": "q09",
+    "category": "synthesis",
+    "question": "Who leads Project Aurora, and what is that person's job title?",
+    "expected_answer": "Elena Rusev, Senior Product Manager.",
+    "must_contain": ["Elena Rusev", "Senior Product Manager"],
+    "match": "all",
+    "document_filenames": ["eval_fixture_project_aurora.md", "eval_fixture_team_directory.md"]
+  },
+  {
+    "id": "q10",
+    "category": "synthesis",
+    "question": "What is the monthly rate of the Northwind Robotics vendor agreement, and who at GraphMind personally approves it?",
+    "expected_answer": "$9,500 per month, approved by Tomas Fernandes (contracts over $5,000/month require his approval).",
+    "must_contain": ["$9,500", "Tomas Fernandes"],
+    "match": "all",
+    "document_filenames": ["eval_fixture_northwind_vendor.md", "eval_fixture_team_directory.md"]
+  },
+  {
+    "id": "q11",
+    "category": "synthesis",
+    "question": "Which GraphMind project does Northwind Robotics' motion-capture hardware support, and who leads that project?",
+    "expected_answer": "Project Aurora, led by Elena Rusev.",
+    "must_contain": ["Project Aurora", "Elena Rusev"],
+    "match": "all",
+    "document_filenames": [
+      "eval_fixture_project_aurora.md",
+      "eval_fixture_team_directory.md"
+    ]
+  },
+  {
+    "id": "q12",
+    "category": "synthesis",
+    "question": "How many business days does the vendor whose contract Tomas Fernandes approves guarantee for standard hardware replacement shipping?",
+    "expected_answer": "5 business days (the team directory names Tomas Fernandes as the approver of the Northwind Robotics agreement; the vendor agreement gives the 5-business-day standard SLA).",
+    "must_contain": ["5 business days"],
+    "match": "all",
+    "document_filenames": ["eval_fixture_northwind_vendor.md", "eval_fixture_team_directory.md"]
+  },
+  {
+    "id": "q13",
+    "category": "synthesis",
+    "question": "What critical-failure shipping guarantee applies to the motion-capture hardware used by the project Elena Rusev leads?",
+    "expected_answer": "24 hours (the launch brief names Elena Rusev as Project Aurora's lead; the team directory ties Aurora's motion-capture hardware to Northwind Robotics; the vendor agreement gives the 24-hour critical-failure SLA).",
+    "must_contain": ["24 hours"],
+    "match": "all",
+    "document_filenames": [
+      "eval_fixture_project_aurora.md",
+      "eval_fixture_northwind_vendor.md",
+      "eval_fixture_team_directory.md"
+    ]
+  },
+  {
+    "id": "q14",
+    "category": "synthesis",
+    "question": "What company supplies the motion-capture hardware for the project scheduled to ship on 2026-09-15?",
+    "expected_answer": "Northwind Robotics (the 2026-09-15 ship date belongs to Project Aurora, whose canvas prototype uses Northwind's hardware).",
+    "must_contain": ["Northwind Robotics"],
+    "match": "all",
+    "document_filenames": [
+      "eval_fixture_project_aurora.md",
+      "eval_fixture_northwind_vendor.md",
+      "eval_fixture_team_directory.md"
+    ]
+  },
+  {
+    "id": "q15",
+    "category": "unanswerable",
+    "question": "What is the CEO of GraphMind's annual salary?",
+    "expected_answer": "Not supported by any fixture -- refusal expected.",
+    "must_contain": [],
+    "match": "any",
+    "document_filenames": [
+      "eval_fixture_project_aurora.md",
+      "eval_fixture_northwind_vendor.md",
+      "eval_fixture_team_directory.md"
+    ]
+  },
+  {
+    "id": "q16",
+    "category": "unanswerable",
+    "question": "Which cloud provider hosts Project Aurora's infrastructure?",
+    "expected_answer": "Not supported by any fixture -- refusal expected.",
+    "must_contain": [],
+    "match": "any",
+    "document_filenames": [
+      "eval_fixture_project_aurora.md",
+      "eval_fixture_northwind_vendor.md",
+      "eval_fixture_team_directory.md"
+    ]
+  },
+  {
+    "id": "q17",
+    "category": "unanswerable",
+    "question": "What is Northwind Robotics' headquarters address?",
+    "expected_answer": "Not supported by any fixture -- refusal expected.",
+    "must_contain": [],
+    "match": "any",
+    "document_filenames": [
+      "eval_fixture_project_aurora.md",
+      "eval_fixture_northwind_vendor.md",
+      "eval_fixture_team_directory.md"
+    ]
+  },
+  {
+    "id": "q18",
+    "category": "unanswerable",
+    "question": "How many employees does Northwind Robotics have?",
+    "expected_answer": "Not supported by any fixture -- refusal expected.",
+    "must_contain": [],
+    "match": "any",
+    "document_filenames": [
+      "eval_fixture_project_aurora.md",
+      "eval_fixture_northwind_vendor.md",
+      "eval_fixture_team_directory.md"
+    ]
+  },
+  {
+    "id": "q19",
+    "category": "unanswerable",
+    "question": "What was Project Aurora's budget in the previous fiscal year?",
+    "expected_answer": "Not supported by any fixture -- refusal expected.",
+    "must_contain": [],
+    "match": "any",
+    "document_filenames": [
+      "eval_fixture_project_aurora.md",
+      "eval_fixture_northwind_vendor.md",
+      "eval_fixture_team_directory.md"
+    ]
+  },
+  {
+    "id": "q20",
+    "category": "unanswerable",
+    "question": "Who is Priya Anand's manager at Northwind Robotics?",
+    "expected_answer": "Not supported by any fixture -- refusal expected.",
+    "must_contain": [],
+    "match": "any",
+    "document_filenames": [
+      "eval_fixture_project_aurora.md",
+      "eval_fixture_northwind_vendor.md",
+      "eval_fixture_team_directory.md"
+    ]
+  }
+]
