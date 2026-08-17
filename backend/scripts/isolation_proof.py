@@ -470,7 +470,7 @@ def _ingest_fixture(client: TestClient, token: str, fixture_path: pathlib.Path) 
 @dataclass(frozen=True)
 class CheckResult:
     name: str
-    status: Literal["pass", "fail"]
+    status: Literal["pass", "fail", "inconclusive"]
     detail: str = ""
 
 
@@ -488,8 +488,19 @@ def _fail(name: str, detail: str) -> CheckResult:
     return CheckResult(name=name, status="fail", detail=detail)
 
 
+def _inconclusive(name: str, detail: str) -> CheckResult:
+    """Neither a leak nor a genuine pass: the check ran but couldn't
+    observe what it was supposed to (e.g. a positive-control assertion
+    failed, or a rate limiter blocked the real request). Still fails the
+    run -- an inconclusive DoD-gate check is not proof of isolation --
+    but is reported and counted distinctly from an actual leak (review
+    finding: absence-only checks pass vacuously when retrieval/the graph
+    returns nothing, which is not the same as isolation working)."""
+    return CheckResult(name=name, status="inconclusive", detail=detail)
+
+
 def _has_leaks(results: list[CheckResult]) -> bool:
-    return any(r.status == "fail" for r in results)
+    return any(r.status != "pass" for r in results)
 
 
 # ---------------------------------------------------------------------------
@@ -617,26 +628,40 @@ def _check_auth_password_change_scoped_to_caller(
     a real login against the stored `password_hash` actually observes
     that.
 
-    Always reverts B's password back to `qa2_password` in a `finally`,
-    since B is a permanent fixture whose password must stay the
-    `ISOLATION_QA2_PASSWORD` value across runs -- a failed revert raises
-    (rather than being folded into the check result) because it leaves
-    real, persistent broken state that needs immediate human attention,
-    not just a line in a report.
+    Only reverts B's password back to `qa2_password` if the change call
+    itself actually succeeded (`change_succeeded`) -- reverting
+    unconditionally in a bare `finally` would, on a `429` from this
+    endpoint's per-user rate limiter (`routes.py`'s
+    `get_change_password_rate_limiter`, 5/min keyed by user id), send
+    `current_password=_TEMP_PASSWORD` against a password that was never
+    actually changed, itself fail, and raise `IsolationProofError`
+    falsely claiming B's real password might now be the temp value when
+    nothing was touched at all (review finding). A `429` on the initial
+    change is reported `inconclusive`, not a leak or a crash: nothing
+    was changed, there is nothing to revert, and re-running later
+    (outside the window) is what actually exercises this check.
     """
     name = "auth_password_change_scoped_to_caller"
     leaks: list[str] = []
+    change_succeeded = False
     try:
         change_resp = client.post(
             "/auth/me/password",
             json={"current_password": qa2_password, "new_password": _TEMP_PASSWORD},
             headers=headers_b,
         )
+        if change_resp.status_code == 429:
+            return _inconclusive(
+                name,
+                "POST /auth/me/password rate-limited (429) for account B -- nothing was changed, "
+                "re-run later (outside the 1-minute window) to actually exercise this check",
+            )
         if change_resp.status_code != 200:
             leaks.append(
                 f"POST /auth/me/password as B returned {change_resp.status_code}, expected 200"
             )
         else:
+            change_succeeded = True
             # A's real stored password must still be qa1_password -- the
             # only thing that actually observes whether B's change touched
             # A's password_hash, since A's already-issued token would keep
@@ -656,18 +681,19 @@ def _check_auth_password_change_scoped_to_caller(
                     f"(login status={login_a.status_code})"
                 )
     finally:
-        revert_resp = client.post(
-            "/auth/me/password",
-            json={"current_password": _TEMP_PASSWORD, "new_password": qa2_password},
-            headers=headers_b,
-        )
-        if revert_resp.status_code != 200:
-            raise IsolationProofError(
-                f"Failed to revert account B's password back to ISOLATION_QA2_PASSWORD after the "
-                f"isolation check ({revert_resp.status_code}) -- B's real password may now be "
-                f"{_TEMP_PASSWORD!r} instead of the documented value. Fix manually (log in with the "
-                "temp password and change it back) before re-running."
+        if change_succeeded:
+            revert_resp = client.post(
+                "/auth/me/password",
+                json={"current_password": _TEMP_PASSWORD, "new_password": qa2_password},
+                headers=headers_b,
             )
+            if revert_resp.status_code != 200:
+                raise IsolationProofError(
+                    f"Failed to revert account B's password back to ISOLATION_QA2_PASSWORD after the "
+                    f"isolation check ({revert_resp.status_code}) -- B's real password may now be "
+                    f"{_TEMP_PASSWORD!r} instead of the documented value. Fix manually (log in with the "
+                    "temp password and change it back) before re-running."
+                )
     return CheckResult(name=name, status="pass" if not leaks else "fail", detail="; ".join(leaks) or "OK")
 
 
@@ -745,7 +771,7 @@ def _check_documents_delete_cross_tenant_blocked(
 
 
 def _check_chat_ask_no_leak(
-    client: TestClient, name: str, headers: dict, *, other_token: str, other_filename: str
+    client: TestClient, name: str, headers: dict, *, own_token: str, other_token: str, other_filename: str
 ) -> CheckResult:
     response = client.post("/chat/ask", json={"question": _ASK_QUESTION}, headers=headers)
     if response.status_code != 200:
@@ -756,15 +782,27 @@ def _check_chat_ask_no_leak(
         leaks.append(f"response contains the other account's token {other_token!r}")
     if other_filename in blob:
         leaks.append(f"response cites the other account's fixture filename {other_filename!r}")
-    return CheckResult(
-        name=name,
-        status="pass" if not leaks else "fail",
-        detail="; ".join(leaks) or "OK (no cross-tenant token/filename found)",
-    )
+    if leaks:
+        return _fail(name, "; ".join(leaks))
+    if own_token not in blob:
+        # Positive control (review finding): absence of the OTHER account's
+        # token proves nothing if retrieval returned nothing at all --
+        # AskResponse's no_documents/empty_scope/refusal states (schemas.py),
+        # or a transient Weaviate/LLM error, would all pass this check
+        # vacuously otherwise. Only a genuine, grounded answer containing
+        # the CALLER's own token is proof the check actually exercised
+        # anything this run.
+        return _inconclusive(
+            name,
+            "no cross-tenant leak found, but the caller's own verification token never appeared "
+            "in the response either -- retrieval likely returned nothing this run (refusal/"
+            "no_documents/empty_scope/error), so this check did not actually verify isolation",
+        )
+    return _pass(name, "OK (no cross-tenant token/filename found, and the caller's own token was present)")
 
 
 def _check_kg_graph_no_leak(
-    client: TestClient, name: str, headers: dict, *, other_token: str, other_contact: str
+    client: TestClient, name: str, headers: dict, *, own_contact: str, other_token: str, other_contact: str
 ) -> CheckResult:
     response = client.get("/kg/graph", headers=headers)
     if response.status_code != 200:
@@ -772,16 +810,31 @@ def _check_kg_graph_no_leak(
     blob = response.text
     leaks = []
     if other_token in blob:
+        # `/kg/graph` returns entity names/types, not document body text, so
+        # this string is not actually expected to ever appear here -- kept
+        # as cheap defense-in-depth per the spec's literal I/O matrix
+        # wording, not this check's real signal (that's `other_contact`,
+        # below, plus the `own_contact` positive control).
         leaks.append(f"graph response contains the other account's token {other_token!r}")
     if other_contact in blob:
         leaks.append(
             f"graph response contains the other account's contact name {other_contact!r} -- "
             "possible Neo4j user_id-scoping leak on the shared-name entity"
         )
-    return CheckResult(
-        name=name,
-        status="pass" if not leaks else "fail",
-        detail="; ".join(leaks) or "OK (no cross-tenant token/entity blending found)",
+    if leaks:
+        return _fail(name, "; ".join(leaks))
+    if own_contact not in blob:
+        # Positive control (review finding): an empty graph, or one where
+        # the shared-name entity hasn't graphed yet, would otherwise pass
+        # this check vacuously -- same reasoning as the chat check above.
+        return _inconclusive(
+            name,
+            "no cross-tenant leak found, but the caller's own contact name never appeared in the "
+            "graph response either -- the shared-entity fixture may not have graphed yet, so this "
+            "check did not actually verify isolation this run",
+        )
+    return _pass(
+        name, "OK (no cross-tenant token/entity blending found, and the caller's own contact was present)"
     )
 
 
@@ -800,17 +853,24 @@ def _print_report(
     print(f"Account B:    {ACCOUNT_B_EMAIL}")
     print("=" * 78)
 
+    _STATUS_LABELS = {"pass": "PASS", "fail": "FAIL", "inconclusive": "INCONCLUSIVE"}
     for result in results:
-        status_label = "PASS" if result.status == "pass" else "FAIL"
-        print(f"[{status_label}] {result.name}: {result.detail}")
+        print(f"[{_STATUS_LABELS[result.status]}] {result.name}: {result.detail}")
 
     for na in na_results:
         print(f"[N/A ] {na.name}: {na.detail}")
 
     failing = [r for r in results if r.status == "fail"]
+    inconclusive = [r for r in results if r.status == "inconclusive"]
     print("=" * 78)
-    if failing:
-        print(f"{len(failing)} leak(s) found: {', '.join(r.name for r in failing)}")
+    if failing or inconclusive:
+        if failing:
+            print(f"{len(failing)} leak(s) found: {', '.join(r.name for r in failing)}")
+        if inconclusive:
+            print(
+                f"{len(inconclusive)} check(s) inconclusive (did not verify anything this run): "
+                f"{', '.join(r.name for r in inconclusive)}"
+            )
     else:
         print(
             f"0 leaks found across {len(results)} checks "
@@ -847,76 +907,8 @@ def _run() -> int:
     doc_b = _ingest_fixture(client, token_b, FIXTURE_B_PATH)
 
     results: list[CheckResult] = []
-
-    unscoped = _find_unscoped_routes(app)
-    if unscoped:
-        detail = "; ".join(f"{method} {path}" for method, path in unscoped)
-        results.append(_fail("route_enumeration_auth_coverage", f"unscoped route(s) found: {detail}"))
-    else:
-        results.append(_pass("route_enumeration_auth_coverage", "OK (every non-public route requires get_current_user)"))
-
-    results.append(_check_auth_me_identity_isolation(client, headers_a, headers_b))
-    results.append(_check_auth_me_patch_scoped_to_caller(client, headers_a, headers_b))
-    results.append(_check_auth_theme_patch_scoped_to_caller(client, headers_a, headers_b))
-    results.append(
-        _check_auth_password_change_scoped_to_caller(
-            client, headers_a, headers_b, qa1_password, qa2_password
-        )
-    )
-
-    results.append(_check_documents_list_no_leak(client, headers_a, headers_b, doc_a["id"], doc_b["id"]))
-    results.append(_check_documents_get_cross_tenant_blocked(client, headers_a, headers_b, doc_a, doc_b))
-    results.append(
-        _check_documents_delete_cross_tenant_blocked(client, headers_a, headers_b, doc_a, doc_b)
-    )
-
-    results.append(
-        _check_chat_ask_no_leak(
-            client, "chat_ask_no_leak_a_to_b", headers_a,
-            other_token=ACCOUNT_B_TOKEN, other_filename=doc_b["filename"],
-        )
-    )
-    results.append(
-        _check_chat_ask_no_leak(
-            client, "chat_ask_no_leak_b_to_a", headers_b,
-            other_token=ACCOUNT_A_TOKEN, other_filename=doc_a["filename"],
-        )
-    )
-
-    results.append(
-        _check_kg_graph_no_leak(
-            client, "kg_graph_no_leak_a_to_b", headers_a,
-            other_token=ACCOUNT_B_TOKEN, other_contact=ACCOUNT_B_CONTACT_NAME,
-        )
-    )
-    results.append(
-        _check_kg_graph_no_leak(
-            client, "kg_graph_no_leak_b_to_a", headers_b,
-            other_token=ACCOUNT_A_TOKEN, other_contact=ACCOUNT_A_CONTACT_NAME,
-        )
-    )
-
-    covered_routes = _covered_routes(app)
-    if len(covered_routes) < _MIN_EXPECTED_COVERED_ROUTES:
-        raise IsolationProofError(
-            f"Route enumeration found only {len(covered_routes)} covered route(s), fewer than the "
-            f"expected minimum of {_MIN_EXPECTED_COVERED_ROUTES} -- _iter_effective_routes' "
-            "_IncludedRouter ducktyping may have silently stopped matching this FastAPI version's "
-            "route tree, which would make the forged-token sweep (and the whole route-enumeration "
-            "check) evaluate a near-empty, meaningless set of routes rather than the real app. "
-            "Aborting rather than risk printing a misleadingly clean report."
-        )
-    results.append(
-        _check_forged_token_sweep(
-            client, "forged_token_wrong_signature_sweep", _build_wrong_signature_token(), covered_routes
-        )
-    )
-    results.append(
-        _check_forged_token_sweep(
-            client, "forged_token_unknown_user_sweep", _build_unknown_user_token(), covered_routes
-        )
-    )
-
+    # Static regardless of how far the run gets -- defined up front so it's
+    # available to `_print_report` even on an early abort below.
     na_results = [
         NAResult(
             name="delete_auth_me_cross_tenant",
@@ -929,7 +921,102 @@ def _run() -> int:
         )
     ]
 
-    _print_report(results, na_results, started_at=started_at)
+    # Everything from here on is wrapped so that any `IsolationProofError`
+    # raised mid-sequence (e.g. a mutating check's failed revert) still
+    # prints whatever results were collected before the abort, instead of
+    # silently discarding a complete-looking report (review finding) --
+    # the module docstring's "every check keeps running" promise otherwise
+    # only held for *leaks*, not for aborts.
+    try:
+        # Checked before anything is appended to `results` (review finding):
+        # if this fires after `route_enumeration_auth_coverage` were already
+        # recorded as a PASS, that PASS would already be wrong -- it would
+        # have evaluated a near-empty, collapsed route set as if it were
+        # complete.
+        covered_routes = _covered_routes(app)
+        if len(covered_routes) < _MIN_EXPECTED_COVERED_ROUTES:
+            raise IsolationProofError(
+                f"Route enumeration found only {len(covered_routes)} covered route(s), fewer than "
+                f"the expected minimum of {_MIN_EXPECTED_COVERED_ROUTES} -- _iter_effective_routes' "
+                "_IncludedRouter ducktyping may have silently stopped matching this FastAPI version's "
+                "route tree, which would make the forged-token sweep (and the whole "
+                "route-enumeration check) evaluate a near-empty, meaningless set of routes rather "
+                "than the real app. Aborting rather than risk printing a misleadingly clean report."
+            )
+
+        unscoped = _find_unscoped_routes(app)
+        if unscoped:
+            detail = "; ".join(f"{method} {path}" for method, path in unscoped)
+            results.append(_fail("route_enumeration_auth_coverage", f"unscoped route(s) found: {detail}"))
+        else:
+            results.append(
+                _pass("route_enumeration_auth_coverage", "OK (every non-public route requires get_current_user)")
+            )
+
+        results.append(_check_auth_me_identity_isolation(client, headers_a, headers_b))
+        results.append(_check_auth_me_patch_scoped_to_caller(client, headers_a, headers_b))
+        results.append(_check_auth_theme_patch_scoped_to_caller(client, headers_a, headers_b))
+        results.append(
+            _check_auth_password_change_scoped_to_caller(
+                client, headers_a, headers_b, qa1_password, qa2_password
+            )
+        )
+
+        results.append(_check_documents_list_no_leak(client, headers_a, headers_b, doc_a["id"], doc_b["id"]))
+        results.append(_check_documents_get_cross_tenant_blocked(client, headers_a, headers_b, doc_a, doc_b))
+        results.append(
+            _check_documents_delete_cross_tenant_blocked(client, headers_a, headers_b, doc_a, doc_b)
+        )
+
+        results.append(
+            _check_chat_ask_no_leak(
+                client, "chat_ask_no_leak_a_to_b", headers_a,
+                own_token=ACCOUNT_A_TOKEN, other_token=ACCOUNT_B_TOKEN, other_filename=doc_b["filename"],
+            )
+        )
+        results.append(
+            _check_chat_ask_no_leak(
+                client, "chat_ask_no_leak_b_to_a", headers_b,
+                own_token=ACCOUNT_B_TOKEN, other_token=ACCOUNT_A_TOKEN, other_filename=doc_a["filename"],
+            )
+        )
+
+        results.append(
+            _check_kg_graph_no_leak(
+                client, "kg_graph_no_leak_a_to_b", headers_a,
+                own_contact=ACCOUNT_A_CONTACT_NAME, other_token=ACCOUNT_B_TOKEN,
+                other_contact=ACCOUNT_B_CONTACT_NAME,
+            )
+        )
+        results.append(
+            _check_kg_graph_no_leak(
+                client, "kg_graph_no_leak_b_to_a", headers_b,
+                own_contact=ACCOUNT_B_CONTACT_NAME, other_token=ACCOUNT_A_TOKEN,
+                other_contact=ACCOUNT_A_CONTACT_NAME,
+            )
+        )
+
+        results.append(
+            _check_forged_token_sweep(
+                client, "forged_token_wrong_signature_sweep", _build_wrong_signature_token(), covered_routes
+            )
+        )
+        results.append(
+            _check_forged_token_sweep(
+                client, "forged_token_unknown_user_sweep", _build_unknown_user_token(), covered_routes
+            )
+        )
+    except IsolationProofError as exc:
+        results.append(
+            _fail(
+                "run_aborted_early",
+                f"proof run aborted before completing all checks -- results above are genuine, but "
+                f"everything after this point was never evaluated: {exc}",
+            )
+        )
+    finally:
+        _print_report(results, na_results, started_at=started_at)
+
     return 1 if _has_leaks(results) else 0
 
 

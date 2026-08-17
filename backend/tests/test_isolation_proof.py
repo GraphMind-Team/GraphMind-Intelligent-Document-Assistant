@@ -36,7 +36,9 @@ from scripts.isolation_proof import (
     _build_wrong_signature_token,
     _check_auth_password_change_scoped_to_caller,
     _check_auth_theme_patch_scoped_to_caller,
+    _check_chat_ask_no_leak,
     _check_forged_token_sweep,
+    _check_kg_graph_no_leak,
     _concrete_path,
     _covered_routes,
     _dependency_tree_contains,
@@ -228,9 +230,14 @@ def test_concrete_path_is_a_no_op_when_there_are_no_path_params():
 
 
 class _FakeResponse:
-    def __init__(self, status_code, body=None):
+    def __init__(self, status_code, body=None, text=None):
         self.status_code = status_code
         self._body = body if body is not None else {}
+        # The blending checks read `.text`, not `.json()` -- defaults to
+        # `str(body)` so the auth-check fakes (which only ever pass `body`)
+        # don't need to care, while the chat/graph fakes below pass `text`
+        # explicitly.
+        self.text = text if text is not None else str(self._body)
 
     def json(self):
         return self._body
@@ -382,6 +389,136 @@ def test_password_change_check_catches_a_leak_a_token_only_recheck_would_miss():
     assert "account A's real password no longer works" in result.detail
 
 
+def test_password_change_check_is_inconclusive_on_rate_limit_and_attempts_no_revert():
+    # Second review round, finding #2: reverting unconditionally in
+    # `finally` would send `current_password=_TEMP_PASSWORD` against a
+    # password that was never actually changed if the initial call itself
+    # hit the per-user rate limiter, itself fail, and raise
+    # `IsolationProofError` claiming B's password might now be the temp
+    # value -- a false alarm over completely unchanged state. Nothing
+    # should be reverted here because nothing was changed.
+    account_a = _FakeAccount(email=ACCOUNT_A_EMAIL, password="qa1-real-pw")
+    account_b = _FakeAccount(email=ACCOUNT_B_EMAIL, password="qa2-real-pw")
+    accounts = {"token-a": account_a, "token-b": account_b}
+
+    class _RateLimitedClient(_FakeAuthClient):
+        def post(self, path, json, headers=None):
+            if path == "/auth/me/password":
+                return _FakeResponse(429, {"detail": "Too many password change attempts."})
+            return super().post(path, json, headers)
+
+    client = _RateLimitedClient(accounts)
+
+    result = _check_auth_password_change_scoped_to_caller(
+        client, _HEADERS_A, _HEADERS_B, "qa1-real-pw", "qa2-real-pw"
+    )
+
+    assert result.status == "inconclusive"
+    assert "rate-limited" in result.detail
+    assert account_b.password == "qa2-real-pw"  # untouched -- no revert was ever attempted
+
+
+# ---------------------------------------------------------------------------
+# _check_chat_ask_no_leak / _check_kg_graph_no_leak positive control --
+# second review round, finding #1: an absence-only check passes vacuously
+# if retrieval/the graph returned nothing at all, which is not the same as
+# isolation actually working.
+# ---------------------------------------------------------------------------
+
+
+class _FakeChatOrGraphClient:
+    """Returns fixed response text per bearer token -- enough surface for
+    both `_check_chat_ask_no_leak` (`.post`) and `_check_kg_graph_no_leak`
+    (`.get`), since both only ever read `.status_code`/`.text`."""
+
+    def __init__(self, text_by_token: dict[str, str], status_code: int = 200):
+        self._text_by_token = text_by_token
+        self._status_code = status_code
+
+    def _response(self, headers):
+        token = headers["Authorization"].removeprefix("Bearer ")
+        return _FakeResponse(self._status_code, text=self._text_by_token[token])
+
+    def post(self, path, json, headers):
+        assert path == "/chat/ask"
+        return self._response(headers)
+
+    def get(self, path, headers):
+        assert path == "/kg/graph"
+        return self._response(headers)
+
+
+def test_chat_check_is_inconclusive_when_the_callers_own_token_never_appears():
+    # No leak either way, but "no leak found" here just means retrieval
+    # returned an empty/refusal answer (AskResponse's no_documents/
+    # empty_scope/refusal states) -- not that isolation was proven.
+    client = _FakeChatOrGraphClient({"token-a": "I don't know based on the provided documents."})
+
+    result = _check_chat_ask_no_leak(
+        client, "chat_ask_no_leak_a_to_b", _HEADERS_A,
+        own_token="OWN-TOKEN", other_token="OTHER-TOKEN", other_filename="other-fixture.md",
+    )
+
+    assert result.status == "inconclusive"
+
+
+def test_chat_check_passes_when_own_token_present_and_no_cross_tenant_leak():
+    client = _FakeChatOrGraphClient({"token-a": "The verification token is OWN-TOKEN."})
+
+    result = _check_chat_ask_no_leak(
+        client, "chat_ask_no_leak_a_to_b", _HEADERS_A,
+        own_token="OWN-TOKEN", other_token="OTHER-TOKEN", other_filename="other-fixture.md",
+    )
+
+    assert result.status == "pass"
+
+
+def test_chat_check_still_fails_on_a_leak_even_when_own_token_is_present():
+    client = _FakeChatOrGraphClient(
+        {"token-a": "The verification token is OWN-TOKEN, related to OTHER-TOKEN."}
+    )
+
+    result = _check_chat_ask_no_leak(
+        client, "chat_ask_no_leak_a_to_b", _HEADERS_A,
+        own_token="OWN-TOKEN", other_token="OTHER-TOKEN", other_filename="other-fixture.md",
+    )
+
+    assert result.status == "fail"
+
+
+def test_kg_graph_check_is_inconclusive_when_the_callers_own_contact_never_appears():
+    client = _FakeChatOrGraphClient({"token-a": "{}"})  # empty graph
+
+    result = _check_kg_graph_no_leak(
+        client, "kg_graph_no_leak_a_to_b", _HEADERS_A,
+        own_contact="Own Contact", other_token="OTHER-TOKEN", other_contact="Other Contact",
+    )
+
+    assert result.status == "inconclusive"
+
+
+def test_kg_graph_check_passes_when_own_contact_present_and_no_cross_tenant_leak():
+    client = _FakeChatOrGraphClient({"token-a": '{"entities": ["Own Contact"]}'})
+
+    result = _check_kg_graph_no_leak(
+        client, "kg_graph_no_leak_a_to_b", _HEADERS_A,
+        own_contact="Own Contact", other_token="OTHER-TOKEN", other_contact="Other Contact",
+    )
+
+    assert result.status == "pass"
+
+
+def test_kg_graph_check_still_fails_on_a_leaked_contact_even_when_own_contact_is_present():
+    client = _FakeChatOrGraphClient({"token-a": '{"entities": ["Own Contact", "Other Contact"]}'})
+
+    result = _check_kg_graph_no_leak(
+        client, "kg_graph_no_leak_a_to_b", _HEADERS_A,
+        own_contact="Own Contact", other_token="OTHER-TOKEN", other_contact="Other Contact",
+    )
+
+    assert result.status == "fail"
+
+
 # ---------------------------------------------------------------------------
 # _check_forged_token_sweep vs. legitimate rate-limiting -- review finding #3
 # ---------------------------------------------------------------------------
@@ -468,6 +605,16 @@ def test_has_leaks_is_true_when_any_check_fails():
     assert _has_leaks(results) is True
 
 
+def test_has_leaks_is_true_when_any_check_is_inconclusive():
+    # An inconclusive check is not proof of isolation -- the DoD gate must
+    # not clear on a run where a positive control never fired.
+    results = [
+        CheckResult(name="a", status="pass"),
+        CheckResult(name="b", status="inconclusive", detail="unclear"),
+    ]
+    assert _has_leaks(results) is True
+
+
 def test_print_report_states_zero_leaks_on_a_clean_run(capsys):
     from datetime import datetime, timezone
 
@@ -500,3 +647,25 @@ def test_print_report_names_the_failing_check_and_does_not_say_zero_leaks(capsys
     assert "1 leak(s) found: chat_ask_no_leak_a_to_b" in out
     assert "[FAIL] chat_ask_no_leak_a_to_b:" in out
     assert "0 leaks found" not in out
+
+
+def test_print_report_names_inconclusive_checks_distinctly_from_leaks(capsys):
+    from datetime import datetime, timezone
+
+    results = [
+        CheckResult(name="documents_get_cross_tenant_blocked", status="pass", detail="OK"),
+        CheckResult(
+            name="chat_ask_no_leak_a_to_b",
+            status="inconclusive",
+            detail="own token never appeared -- retrieval returned nothing this run",
+        ),
+    ]
+
+    _print_report(results, [], started_at=datetime(2026, 8, 17, tzinfo=timezone.utc))
+
+    out = capsys.readouterr().out
+    assert "[INCONCLUSIVE] chat_ask_no_leak_a_to_b:" in out
+    assert "1 check(s) inconclusive" in out
+    assert "chat_ask_no_leak_a_to_b" in out
+    assert "0 leaks found" not in out
+    assert "leak(s) found" not in out  # no genuine FAILs this run, only an inconclusive one
