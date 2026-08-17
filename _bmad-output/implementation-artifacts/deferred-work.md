@@ -510,3 +510,38 @@
 - source_spec: `_bmad-output/implementation-artifacts/sprint-status.yaml`
   summary: Fix the `sprint-status.yaml` / spec-filename key typo `6-1-measure-answer-accuracy-and-refusal-correctness-in-one-comma` (missing the trailing "nd" of "command") once a future story touches that key again.
   evidence: Story 6.1 review (blind-hunter) noted the truncated key, generated before this story started and left in `sprint-status.yaml`'s `development_status` map. Harmless today -- story-key resolution in the build workflow matches on the `6-1` numeric prefix, not the full string -- but worth a clean rename whenever the key is next touched, rather than perpetuating the typo.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-6-2-prove-that-no-account-can-reach-another-account-s-data.md`
+  summary: >
+    `isolation_proof.py`'s cross-tenant document checks only compare the leaked document's
+    `filename` field against the 404 response body -- `_check_documents_get_cross_tenant_blocked`
+    checks `filename` only, and `_check_documents_delete_cross_tenant_blocked` checks no field at
+    all on the blocked-delete 404. A leak of any other serialized field (id, content_type, a
+    content preview) would go undetected and unreported.
+  evidence: Story 6.2 review (edge-case-hunter and blind-hunter, independently) raised this.
+    Narrower than the spec's own I/O matrix row, which only required checking for a leaked
+    filename -- worth widening once the script has a live clean run under its belt, not a blocker
+    for the DoD gate itself.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-6-2-prove-that-no-account-can-reach-another-account-s-data.md`
+  summary: >
+    `isolation_proof.py`'s `_iter_effective_routes` ducktypes on FastAPI 0.141.1's private
+    `_IncludedRouter.original_router` attribute to expand `app.routes` into real endpoints, and
+    degrades to yielding routes unexpanded on a future FastAPI version that stops using this
+    wrapper. There is no sanity check (e.g. asserting `len(_covered_routes(app))` against a known
+    minimum) to catch that degradation loudly -- an upgrade could silently shrink route coverage to
+    almost nothing while the script still prints "0 leaks found" across a near-empty check set.
+  evidence: Story 6.2 review (blind-hunter) raised this, independently echoed by edge-case-hunter's
+    finding on the same function. A minimum-route-count assertion was folded into this story's
+    patch round; a dedicated regression test for the degraded-fallback branch itself (not just the
+    current happy path) was not, and is worth adding alongside the next FastAPI version bump.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-6-2-prove-that-no-account-can-reach-another-account-s-data.md`
+  summary: >
+    `isolation_proof.py`'s `main()` wires up `argparse.ArgumentParser` with zero defined flags
+    (the entire module docstring becomes `--help` text), so there is no way to target a single
+    check, skip fixture ingestion on a re-run, or raise verbosity -- all useful for a script meant
+    to be re-run repeatedly during development against real Weaviate/Neo4j/OpenRouter.
+  evidence: Story 6.2 review (blind-hunter) raised this. Quality-of-life, not a correctness gap --
+    worth adding once the script has seen a few real iteration cycles and it's clear which flags
+    would actually get used.
