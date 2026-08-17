@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { changePassword, updateProfile, updateTheme } from './settingsClient'
+import { changePassword, deleteAccount, updateProfile, updateTheme } from './settingsClient'
 
 describe('updateTheme', () => {
   it('sends a PATCH with the theme body and returns the parsed response', async () => {
@@ -98,5 +98,49 @@ describe('changePassword', () => {
     await expect(
       changePassword(authFetch, { currentPassword: 'old-password', newPassword: 'new-password' }),
     ).rejects.toThrow('Failed to change password (500)')
+  })
+})
+
+describe('deleteAccount', () => {
+  it('sends a DELETE to /auth/me', async () => {
+    const authFetch = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+
+    await deleteAccount(authFetch)
+
+    expect(authFetch).toHaveBeenCalledWith('/auth/me', { method: 'DELETE' })
+  })
+
+  it('resolves without needing or reading a body on a real 204 response', async () => {
+    // Mirrors documentsClient.test.js's deleteDocument coverage of the same
+    // shape -- a genuine empty-body Response, not a mock that happens to
+    // have a `.json()`. Catches a regression where deleteAccount started
+    // unconditionally calling `response.json()`, which a test that only
+    // mocks the whole module (as DeleteAccountCard.test.jsx does) never
+    // exercises.
+    const response = new Response(null, { status: 204 })
+    const jsonSpy = vi.spyOn(response, 'json')
+    const authFetch = vi.fn().mockResolvedValue(response)
+
+    await expect(deleteAccount(authFetch)).resolves.toBeUndefined()
+    expect(jsonSpy).not.toHaveBeenCalled()
+  })
+
+  it('throws the backend detail message on failure', async () => {
+    const authFetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ detail: "Document is still being processed and can't be deleted yet." }),
+        { status: 409 },
+      ),
+    )
+
+    await expect(deleteAccount(authFetch)).rejects.toThrow(
+      "Document is still being processed and can't be deleted yet.",
+    )
+  })
+
+  it('falls back to a generic message when a non-2xx response has no parseable body', async () => {
+    const authFetch = vi.fn().mockResolvedValue(new Response('not json', { status: 500 }))
+
+    await expect(deleteAccount(authFetch)).rejects.toThrow('Failed to delete account (500)')
   })
 })

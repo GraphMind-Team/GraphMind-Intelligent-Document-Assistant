@@ -225,6 +225,34 @@ def delete_passages_for_document(document_id: str, user_id: str) -> None:
         )
 
 
+def delete_passages_for_user(user_id: str) -> None:
+    """Deletes every existing passage owned by `user_id`, across every
+    document they own -- the user-scoped sibling to
+    `delete_passages_for_document`'s per-document delete, added for Story
+    5.3's account-deletion cascade (AD-2: the sole place a Weaviate filter
+    for this is written, not a one-off query under `auth/`).
+
+    Idempotent, like `delete_passages_for_document`: a user with zero
+    passages (or a retry after a partial earlier failure) matches zero
+    rows on `delete_many`, which is success, not an error.
+    """
+    client = get_weaviate_client()
+    _ensure_passage_collection(client)
+    collection = client.collections.get(PASSAGE_COLLECTION)
+    result = collection.data.delete_many(where=Filter.by_property("user_id").equal(user_id))
+    # Same failed/matches accounting as delete_passages_for_document --
+    # logged, not raised, since no caller retries a delete today beyond
+    # re-running the whole cascade, which is itself idempotent.
+    if getattr(result, "failed", 0):
+        logger.warning(
+            "delete_passages_for_user: %s of %s matched objects failed to delete "
+            "for user_id=%s",
+            result.failed,
+            result.matches,
+            user_id,
+        )
+
+
 def write_passages(passages: list[WeaviatePassage]) -> None:
     """The only function `documents/` calls to reach Weaviate (AD-2) -- no
     raw collection/query call may appear anywhere in `documents/`.

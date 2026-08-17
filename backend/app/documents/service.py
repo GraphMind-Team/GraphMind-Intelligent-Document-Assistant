@@ -554,7 +554,10 @@ def get_document(db: Session, current_user: User, document_id: uuid.UUID) -> Doc
 # mirrors `claim_failed_document_for_reingest`'s existing retry-lock
 # precedent (Story 2.6): only act on a document when no background task
 # could be concurrently touching it.
-_DELETABLE_STATUSES: Final = {"Ready", "Failed"}
+# Public (no leading underscore): `auth/service.py::delete_account` (Story
+# 5.3) also imports this, to apply the identical guard across every
+# document a whole account owns rather than redefining the same set.
+DELETABLE_STATUSES: Final = {"Ready", "Failed"}
 
 
 def delete_document(db: Session, current_user: User, document_id: uuid.UUID) -> None:
@@ -564,7 +567,7 @@ def delete_document(db: Session, current_user: User, document_id: uuid.UUID) -> 
     message the read path already uses -- so "not yours" and "doesn't
     exist" stay indistinguishable here too. Raises `HTTPException(409)` if
     the document is still mid-ingestion (`Uploaded`, `Extracting`, or
-    `Graphing`) -- see `_DELETABLE_STATUSES`.
+    `Graphing`) -- see `DELETABLE_STATUSES`.
 
     Delete order is fixed and load-bearing: `delete_passages_for_document`
     (Weaviate) runs first, then `prune_document_from_graph` (Neo4j), then
@@ -581,7 +584,7 @@ def delete_document(db: Session, current_user: User, document_id: uuid.UUID) -> 
     contributes to are kept, reference-counted via `source_document_ids`.
     """
     document = get_document(db, current_user, document_id)
-    if document.status not in _DELETABLE_STATUSES:
+    if document.status not in DELETABLE_STATUSES:
         raise HTTPException(
             status_code=409,
             detail="Document is still being processed and can't be deleted yet.",

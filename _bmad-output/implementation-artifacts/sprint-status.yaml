@@ -67,7 +67,7 @@ development_status:
   epic-5: in-progress
   5-1-manage-my-profile-and-password: review
   5-2-choose-light-or-dark-appearance-and-have-it-remembered: done
-  5-3-delete-my-account-and-everything-in-it: backlog
+  5-3-delete-my-account-and-everything-in-it: review
   epic-5-retrospective: optional
 
   epic-6: in-progress

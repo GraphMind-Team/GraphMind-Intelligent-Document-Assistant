@@ -19,6 +19,7 @@ import pytest
 from app.shared.data_access import neo4j_client as neo4j_client_module
 from app.shared.data_access.neo4j_client import (
     close_neo4j_driver,
+    delete_entities_for_user,
     get_graph_for_user,
     get_neo4j_driver,
     prune_document_from_graph,
@@ -842,3 +843,114 @@ def test_prune_document_from_graph_on_a_document_that_contributed_nothing_is_a_n
     prune_document_from_graph("doc-2", "user-1")  # doc-2 never contributed anything
 
     assert fake_driver.tx.entities[("Untouched Corp", "Organization", "user-1")] == ["doc-1"]
+
+
+# ---------------------------------------------------------------------------
+# Story 5.3: `delete_entities_for_user` (account-deletion cascade).
+# ---------------------------------------------------------------------------
+
+
+def test_delete_entities_for_user_issues_a_user_scoped_detach_delete(monkeypatch):
+    """Query-shape check, mirroring how `write_entities_and_relationships`'s
+    own tests assert on `fake_driver.tx.calls` -- a plain `MATCH (e:Entity
+    {user_id: $user_id}) DETACH DELETE e`, no `document_id` anywhere (unlike
+    `prune_document_from_graph`'s reference-counted, per-document query)."""
+    fake_driver = _FakeDriver()
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: fake_driver)
+
+    delete_entities_for_user("user-1")
+
+    assert len(fake_driver.tx.calls) == 1
+    query, params = fake_driver.tx.calls[0]
+    assert "MATCH (e:Entity {user_id: $user_id})" in query
+    assert "DETACH DELETE e" in query
+    assert params["user_id"] == "user-1"
+    assert fake_driver.tx.results[0].consumed is True
+
+
+class _UserScopedFakeTx:
+    """Minimal in-memory fake, independent of `_GraphFakeTx` (whose
+    `DETACH DELETE e` branch assumes a `document_id` param that this
+    story's whole-user delete never sends) -- interprets just the two
+    shapes this test needs: the entity `MERGE` and this file's new
+    `DETACH DELETE e` (user-scoped, no `document_id`)."""
+
+    def __init__(self):
+        self.entities: dict[tuple[str, str, str], list[str]] = {}
+
+    def run(self, query, **params):
+        if "MERGE (e:Entity" in query:
+            user_id = params["user_id"]
+            document_id = params["document_id"]
+            for row in params["rows"]:
+                ids = self.entities.setdefault((row["name"], row["type"], user_id), [])
+                if document_id not in ids:
+                    ids.append(document_id)
+        elif "DETACH DELETE e" in query:
+            user_id = params["user_id"]
+            for key in list(self.entities.keys()):
+                if key[-1] == user_id:
+                    del self.entities[key]
+        else:
+            raise AssertionError(f"Unrecognized query shape in test fake: {query}")
+        return MagicMock()
+
+
+class _UserScopedFakeSession:
+    def __init__(self, tx):
+        self._tx = tx
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+    def execute_write(self, fn, *args):
+        return fn(self._tx, *args)
+
+
+class _UserScopedFakeDriver:
+    def __init__(self):
+        self.tx = _UserScopedFakeTx()
+
+    def session(self):
+        return _UserScopedFakeSession(self.tx)
+
+
+def test_delete_entities_for_user_removes_only_that_users_entities(monkeypatch):
+    fake_driver = _UserScopedFakeDriver()
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: fake_driver)
+
+    write_entities_and_relationships(
+        [Neo4jEntity(name="User One Corp", type="Organization", user_id="user-1")],
+        [],
+        "user-1",
+        "doc-1",
+    )
+    write_entities_and_relationships(
+        [Neo4jEntity(name="User Two Corp", type="Organization", user_id="user-2")],
+        [],
+        "user-2",
+        "doc-2",
+    )
+
+    delete_entities_for_user("user-1")
+
+    assert ("User One Corp", "Organization", "user-1") not in fake_driver.tx.entities
+    # A different user's entities are untouched.
+    assert fake_driver.tx.entities[("User Two Corp", "Organization", "user-2")] == ["doc-2"]
+
+
+def test_delete_entities_for_user_is_idempotent_on_a_repeated_call(monkeypatch):
+    fake_driver = _UserScopedFakeDriver()
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: fake_driver)
+
+    write_entities_and_relationships(
+        [Neo4jEntity(name="Solo Corp", type="Organization", user_id="user-1")], [], "user-1", "doc-1"
+    )
+
+    delete_entities_for_user("user-1")
+    delete_entities_for_user("user-1")  # must not raise; nothing left to remove
+
+    assert fake_driver.tx.entities == {}

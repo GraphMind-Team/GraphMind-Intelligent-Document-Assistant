@@ -48,3 +48,31 @@ def update_user_password(db: Session, user: User, password_hash: str) -> User:
     user.password_hash = password_hash
     db.flush()
     return user
+
+
+def delete_user(db: Session, user_id: uuid.UUID) -> None:
+    """Hard-deletes the `users` row for `user_id` (Story 5.3's
+    account-deletion cascade) -- no soft-delete flag, no `deleted_at`
+    column, same convention as `documents/repository.py`'s
+    `delete_document_for_user`.
+
+    Takes an id (not the already-loaded `User` object every other function
+    in this module takes) to match this story's Code Map, and because the
+    caller (`service.delete_account`) already has `current_user.id` in
+    hand from `get_current_user`. Does not commit -- the caller owns the
+    transaction boundary, alongside the documents-table cascade and the
+    Weaviate/Neo4j deletes it also runs in the same commit, mirroring
+    `create_user`'s convention.
+
+    `current_user.id` always names a real row at the start of the request
+    (resolved from `get_current_user`'s own DB lookup moments earlier),
+    never client input -- but a concurrent second `DELETE /auth/me` for the
+    same account (two tabs, a retried request) could still race ahead and
+    commit first, so `db.get` returning `None` here is a real, not
+    hypothetical, case: a no-op rather than `db.delete(None)` raising, so
+    the loser of that race sees the same clean outcome the winner did.
+    """
+    user = db.get(User, user_id)
+    if user is None:
+        return
+    db.delete(user)
