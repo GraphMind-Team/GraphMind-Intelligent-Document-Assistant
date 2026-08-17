@@ -20,7 +20,7 @@ column that isn't `content` at all.
 
 import uuid
 
-from sqlalchemy import desc, update
+from sqlalchemy import delete, desc, update
 from sqlalchemy.orm import Session, defer
 
 from app.shared.data_access.tenancy import user_scoped_select
@@ -123,6 +123,27 @@ def delete_document_for_user(db: Session, user_id: uuid.UUID, document_id: uuid.
         return False
     db.delete(document)
     return True
+
+
+def delete_all_documents_for_user(db: Session, user_id: uuid.UUID) -> int:
+    """Bulk-deletes every `documents` row owned by `user_id` in one
+    statement (Story 5.3's account-deletion cascade) -- deliberately not a
+    loop calling `delete_document_for_user` once per row, which would be N
+    `DELETE` statements (and N ORM identity-map loads) for work a single
+    `DELETE ... WHERE user_id = :user_id` already does in one round-trip
+    (see this story's Boundaries/Never).
+
+    Does not commit -- the caller (`auth/service.py::delete_account`) owns
+    the transaction boundary, alongside the Weaviate/Neo4j deletes and the
+    `users` row delete it also runs in the same commit, mirroring
+    `create_document`'s convention.
+
+    Returns the number of rows deleted. No caller acts on that count
+    today, but it's what `result.rowcount` already gives back for free,
+    mirroring `claim_failed_document_for_reingest`'s own rowcount return.
+    """
+    result = db.execute(delete(Document).where(Document.user_id == user_id))
+    return result.rowcount
 
 
 def get_document_by_content_hash(db: Session, user_id: uuid.UUID, content_hash: str) -> Document | None:

@@ -52,3 +52,17 @@ export async function changePassword(authFetch, { currentPassword, newPassword }
 
   return data
 }
+
+// Story 5.3. Mirrors documentsClient.js's deleteDocument shape exactly:
+// the success response is 204 with no body, so this never calls
+// `response.json()` on the happy path, only on a non-2xx response where
+// the backend's `{"detail": ...}` envelope (AD-3) is expected.
+export async function deleteAccount(authFetch) {
+  const response = await authFetch('/auth/me', { method: 'DELETE' })
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => null)
+    const message = formatDetail(data?.detail)
+    throw new Error(message || `Failed to delete account (${response.status}).`)
+  }
+}

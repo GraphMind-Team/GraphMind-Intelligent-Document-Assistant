@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 
 from app.auth import service
@@ -103,3 +103,15 @@ def change_password(
     limiter.check(str(current_user.id))
     service.change_password(db, current_user, data)
     return ChangePasswordResponse()
+
+
+@router.delete("/me", status_code=204)
+def delete_me(
+    db: Session = Depends(get_db_session),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """Hard-deletes the caller's own account and everything they own
+    (Story 5.3) -- see `service.delete_account` for the fixed delete order
+    and the mid-ingestion 409 guard."""
+    service.delete_account(db, current_user)
+    return Response(status_code=204)

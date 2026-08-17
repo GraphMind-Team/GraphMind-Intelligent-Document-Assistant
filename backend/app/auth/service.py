@@ -20,6 +20,15 @@ from fastapi import HTTPException
 
 from app.auth import repository
 from app.auth.schemas import ChangePasswordRequest, RegisterRequest, UpdateProfileRequest
+from app.documents import repository as documents_repository
+# Safe import direction (Design Notes): `documents/` never imports `auth/`,
+# so `auth/service.py -> documents/service.py` introduces no cycle. Reuses
+# `DELETABLE_STATUSES` (public -- both modules read it) rather than
+# redefining it, keeping the deletable-status set single-sourced between
+# `delete_document` and `delete_account`.
+from app.documents.service import DELETABLE_STATUSES
+from app.shared.data_access.neo4j_client import delete_entities_for_user
+from app.shared.data_access.weaviate_client import delete_passages_for_user
 from app.shared.models import User
 
 # The one place the JWT algorithm is named -- every encode/decode call in
@@ -147,6 +156,44 @@ def change_password(db: Session, user: User, data: ChangePasswordRequest) -> Non
 
     new_hash = hash_password(data.new_password)
     repository.update_user_password(db, user, new_hash)
+    db.commit()
+
+
+def delete_account(db: Session, current_user: User) -> None:
+    """Hard-deletes `current_user`'s account and everything they own
+    (Story 5.3): every owned `documents` row, then the `users` row itself,
+    plus their Weaviate passages and Neo4j entities/relationships. Mirrors
+    `documents/service.py::delete_document`'s fixed delete order --
+    Weaviate first, then Neo4j, then Postgres, one commit -- widened from
+    one document's stores to every store this account owns.
+
+    Raises `HTTPException(409)` and deletes nothing if any owned document
+    is outside `DELETABLE_STATUSES` (the same guard `delete_document`
+    already applies, for the same reason): a mid-ingestion background task
+    could otherwise keep writing Weaviate passages or Neo4j entities for
+    this user after this cascade's own store-deletes already ran,
+    orphaning fresh state under a user id no longer in Postgres.
+
+    Postgres is never committed before both external-store deletes have
+    succeeded -- if either raises, the exception propagates, nothing here
+    has committed, and every row (documents and the user) is untouched and
+    safe to retry: `delete_passages_for_user`/`delete_entities_for_user`
+    are both idempotent, so a retry after a partial failure matches zero
+    additional rows for whichever store already succeeded.
+    """
+    documents = documents_repository.list_documents_for_user(db, current_user.id)
+    for document in documents:
+        if document.status not in DELETABLE_STATUSES:
+            raise HTTPException(
+                status_code=409,
+                detail="Document is still being processed and can't be deleted yet.",
+            )
+
+    user_id_str = str(current_user.id)
+    delete_passages_for_user(user_id_str)
+    delete_entities_for_user(user_id_str)
+    documents_repository.delete_all_documents_for_user(db, current_user.id)
+    repository.delete_user(db, current_user.id)
     db.commit()
 
 
