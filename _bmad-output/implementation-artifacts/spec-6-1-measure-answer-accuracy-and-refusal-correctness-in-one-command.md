@@ -2,8 +2,9 @@
 title: 'Measure answer accuracy and refusal correctness in one command'
 type: 'feature'
 created: '2026-08-17'
-status: 'ready-for-dev'
+status: 'done'
 review_loop_iteration: 0
+baseline_commit: '54c4736f487d14943b61fa8c98fbe338fc112a59'
 context: ['{project-root}/_bmad-output/implementation-artifacts/epic-6-context.md']
 ---
 
@@ -59,10 +60,10 @@ context: ['{project-root}/_bmad-output/implementation-artifacts/epic-6-context.m
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `backend/scripts/eval_fixtures/*.md` -- 2-3 short fixture docs, checkable facts + synthesis material -- reproducible corpus, independent of prior manual QA state
-- [ ] `backend/scripts/eval_questions.json` -- 15-20 `{id, category, question, expected_answer, must_contain, match, document_filenames}` entries -- the eval set (FR-13, NFR-6)
-- [ ] `backend/scripts/eval_harness.py` -- resolve QA user; per fixture: upload, ingest if needed, poll with timeout, abort on `Failed`/stuck; run questions via `ask_question` scoped to fixture ids; classify per I/O matrix; print header + metrics -- single-command entry point (FR-13)
-- [ ] `backend/tests/test_eval_harness.py` -- unit-test scoring/classification against fake `AskResponse`, one case per I/O-matrix row (5 rows) -- no live services
+- [x] `backend/scripts/eval_fixtures/*.md` -- 2-3 short fixture docs, checkable facts + synthesis material -- reproducible corpus, independent of prior manual QA state
+- [x] `backend/scripts/eval_questions.json` -- 15-20 `{id, category, question, expected_answer, must_contain, match, document_filenames}` entries -- the eval set (FR-13, NFR-6)
+- [x] `backend/scripts/eval_harness.py` -- resolve QA user; per fixture: upload, ingest if needed, poll with timeout, abort on `Failed`/stuck; run questions via `ask_question` scoped to fixture ids; classify per I/O matrix; print header + metrics -- single-command entry point (FR-13)
+- [x] `backend/tests/test_eval_harness.py` -- unit-test scoring/classification against fake `AskResponse`, one case per I/O-matrix row (5 rows) -- no live services
 
 **Acceptance Criteria:**
 - Given the evaluation set, when inspected, then it holds 15–20 pairs spanning factual, synthesis, and unanswerable
@@ -85,3 +86,63 @@ Scoring is deterministic: `must_contain` matches case-insensitively against segm
 
 **Manual checks:**
 - `backend/.env` has DB/Weaviate/Neo4j/OpenRouter credentials populated
+
+## Suggested Review Order
+
+**Entry point & orchestration**
+
+- Start here: the whole run in one place -- fixtures ingested, questions run, report printed.
+  [`eval_harness.py:669`](../../backend/scripts/eval_harness.py#L669)
+
+- CLI entry, env validation, and the only `except EvalHarnessError` boundary for clean aborts.
+  [`eval_harness.py:713`](../../backend/scripts/eval_harness.py#L713)
+
+**Refusal/scoring semantics (the spec's core correctness concern)**
+
+- `empty_reason` classification for answerable questions -- refusal counted against SM-1 *and* SM-C1.
+  [`eval_harness.py:445`](../../backend/scripts/eval_harness.py#L445)
+
+- Unanswerable-question classification -- `no_answer` logged as benign, not conflated with `refusal`.
+  [`eval_harness.py:475`](../../backend/scripts/eval_harness.py#L475)
+
+- `must_contain`/`match` substring scoring -- deterministic, not LLM-judged.
+  [`eval_harness.py:425`](../../backend/scripts/eval_harness.py#L425)
+
+- Per-question execution: `document_ids` always scoped to fixtures, 503 -> run error not refusal.
+  [`eval_harness.py:507`](../../backend/scripts/eval_harness.py#L507)
+
+- Aggregation into the three headline numbers -- the actual OD-3 baseline output.
+  [`eval_harness.py:591`](../../backend/scripts/eval_harness.py#L591)
+
+**Fixture ingestion & idempotency**
+
+- Duplicate/reingest/stuck-mid-pipeline decision table -- never silently re-drives a stuck row.
+  [`eval_harness.py:165`](../../backend/scripts/eval_harness.py#L165)
+
+- Shared timeout bound for both the fresh-ingest and poll-duplicate paths.
+  [`eval_harness.py:204`](../../backend/scripts/eval_harness.py#L204)
+
+- One fixture's upload-then-ingest-then-verify sequence.
+  [`eval_harness.py:277`](../../backend/scripts/eval_harness.py#L277)
+
+**Input validation & config**
+
+- `eval_questions.json` schema/shape validation -- catches typo'd category, dup ids, unknown fixture refs.
+  [`eval_harness.py:354`](../../backend/scripts/eval_harness.py#L354)
+
+- QA account overridable via env var rather than a bare hardcoded literal.
+  [`eval_harness.py:75`](../../backend/scripts/eval_harness.py#L75)
+
+- The 20-question fixture-backed eval set itself.
+  [`eval_questions.json:1`](../../backend/scripts/eval_questions.json#L1)
+
+**Peripherals**
+
+- Scoring/classification unit tests, one case per I/O-matrix row plus the review's added edge cases.
+  [`test_eval_harness.py:114`](../../backend/tests/test_eval_harness.py#L114)
+
+- Aggregation-math tests -- guards the exact numerator/denominator swap risk the review flagged.
+  [`test_eval_harness.py:575`](../../backend/tests/test_eval_harness.py#L575)
+
+- Fixture corpus backing the question set.
+  [`eval_fixture_northwind_vendor.md:1`](../../backend/scripts/eval_fixtures/eval_fixture_northwind_vendor.md#L1)

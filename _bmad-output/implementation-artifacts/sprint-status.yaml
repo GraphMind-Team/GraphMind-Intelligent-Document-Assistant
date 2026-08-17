@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-12-2026 00:00
-last_updated: 08-17-2026 00:00
+last_updated: 08-17-2026 16:20
 project: GraphMind-Intelligent-Document-Assistant
 project_key: NOKEY
 tracking_system: file-system
@@ -71,6 +71,6 @@ development_status:
   epic-5-retrospective: optional
 
   epic-6: in-progress
-  6-1-measure-answer-accuracy-and-refusal-correctness-in-one-comma: ready-for-dev
+  6-1-measure-answer-accuracy-and-refusal-correctness-in-one-comma: review
   6-2-prove-that-no-account-can-reach-another-account-s-data: backlog
   epic-6-retrospective: optional
