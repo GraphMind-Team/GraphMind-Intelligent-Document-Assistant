@@ -19,6 +19,7 @@ from app.shared.data_access.weaviate_client import (
     PASSAGE_BATCH_SIZE,
     close_weaviate_client,
     delete_passages_for_document,
+    delete_passages_for_user,
     ensure_ready,
     get_weaviate_client,
     search_passages,
@@ -168,6 +169,62 @@ def test_delete_passages_for_document_logs_a_warning_on_partial_delete_failure(
         delete_passages_for_document("doc-1", "user-1")  # must not raise
 
     assert "failed to delete" in caplog.text
+
+
+def test_delete_passages_for_user_filters_on_user_id_only(monkeypatch):
+    """Story 5.3's account-deletion cascade: scoped to `user_id` alone, no
+    `document_id` filter -- unlike `delete_passages_for_document`, this
+    must clear every document the user owns in one call."""
+    fake_client, fake_collection = _fake_client(exists=True)
+    monkeypatch.setattr(
+        "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: fake_client
+    )
+
+    delete_passages_for_user("user-1")
+
+    fake_collection.data.delete_many.assert_called_once()
+    where = fake_collection.data.delete_many.call_args.kwargs["where"]
+    assert where.target == "user_id"
+    assert where.value == "user-1"
+
+
+def test_delete_passages_for_user_creates_collection_when_missing(monkeypatch):
+    fake_client, _ = _fake_client(exists=False)
+    monkeypatch.setattr(
+        "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: fake_client
+    )
+
+    delete_passages_for_user("user-1")
+
+    fake_client.collections.create.assert_called_once()
+
+
+def test_delete_passages_for_user_logs_a_warning_on_partial_delete_failure(monkeypatch, caplog):
+    fake_client, fake_collection = _fake_client(exists=True)
+    fake_collection.data.delete_many.return_value = MagicMock(failed=2, matches=10)
+    monkeypatch.setattr(
+        "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: fake_client
+    )
+
+    with caplog.at_level("WARNING"):
+        delete_passages_for_user("user-1")  # must not raise
+
+    assert "failed to delete" in caplog.text
+
+
+def test_delete_passages_for_user_is_idempotent_on_zero_matches(monkeypatch):
+    """A user with no passages left (or a retry after a partial cascade
+    failure) matches zero rows -- must not raise."""
+    fake_client, fake_collection = _fake_client(exists=True)
+    fake_collection.data.delete_many.return_value = MagicMock(failed=0, matches=0)
+    monkeypatch.setattr(
+        "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: fake_client
+    )
+
+    delete_passages_for_user("user-1")  # must not raise
+    delete_passages_for_user("user-1")  # a second call, still must not raise
+
+    assert fake_collection.data.delete_many.call_count == 2
 
 
 def test_write_passages_does_not_delete_only_inserts(monkeypatch):

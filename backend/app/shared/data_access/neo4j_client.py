@@ -381,6 +381,34 @@ def _prune_document_from_graph_tx(tx, document_id, user_id) -> None:
     ).consume()
 
 
+def delete_entities_for_user(user_id: str) -> None:
+    """Deletes every `:Entity` node owned by `user_id` (and, via
+    `DETACH DELETE`, every relationship touching one) -- the user-scoped
+    sibling to `wipe_all_entities_and_relationships`'s global wipe, added
+    for Story 5.3's account-deletion cascade.
+
+    Unlike `wipe_all_entities_and_relationships`, this *is* safe to call
+    from request-serving code: scoped to one user's own data, the same
+    tenancy boundary every other function in this module
+    (`write_entities_and_relationships`, `prune_document_from_graph`,
+    `get_graph_for_user`) already enforces on every `Entity` match.
+
+    Idempotent: a user with zero entities (or a retry after a partial
+    earlier failure elsewhere in the same account-deletion cascade)
+    matches zero rows and deletes nothing further.
+    """
+    driver = get_neo4j_driver()
+    with driver.session() as session:
+        session.execute_write(_delete_entities_for_user_tx, user_id)
+
+
+def _delete_entities_for_user_tx(tx, user_id) -> None:
+    tx.run(
+        "MATCH (e:Entity {user_id: $user_id}) DETACH DELETE e",
+        user_id=user_id,
+    ).consume()
+
+
 def wipe_all_entities_and_relationships() -> None:
     """Deletes every `:Entity` node (and, via `DETACH DELETE`, every
     relationship between them) across all users -- destructive, and not
