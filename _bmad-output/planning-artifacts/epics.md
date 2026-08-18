@@ -62,7 +62,7 @@ This document provides the complete epic and story breakdown for GraphMind-Intel
 
 | ID | Target | Validates |
 |---|---|---|
-| SM-1 | ≥80% accuracy on answerable questions *(placeholder pending a baseline run)* | FR-9, FR-10, FR-13 |
+| SM-1 | ≥90% accuracy on answerable questions *(confirmed in Story 6.1; baseline run measured 92.9%, 13/14 correct)* | FR-9, FR-10, FR-13 |
 | SM-2 | 100% refusal on genuinely unanswerable questions, no fabrication | FR-10, FR-13 |
 | SM-3 | Zero cross-tenant leakage, verified with two test accounts | FR-2 |
 | SM-C1 | Counter-metric: refusal rate on *answerable* questions must not rise while chasing SM-2 | Guards SM-2 |
@@ -103,7 +103,7 @@ Chapter-level filtered search (chapters stay read-only metadata) · query histor
 |---|---|---|
 | OD-1 | ✅ RESOLVED | **Entity/relationship type list (FR-5).** Entity types: `Person`, `Organization`, `Project`, `Product`, `Location`. Relationship types: `WORKS_AT`, `SUPPLIES`, `PART_OF`, `LOCATED_IN`, `RELATED_TO` (fallback so extraction never needs a type outside the closed set) |
 | OD-2 | ✅ RESOLVED | **FR-10 threshold value.** `RELEVANCE_THRESHOLD = 0.75` (`shared/llm_client/__init__.py`), measured against real Weaviate retrieval (on-topic distances 0.162–0.459, off-topic 0.899–1.094, one Bulgarian cross-lingual probe at 0.182) — sits in the resulting gap, biased toward not refusing a genuinely answerable question. Small sample (one document); flagged for re-measurement once Epic 6's evaluation set exists (SM-2/SM-C1) |
-| OD-3 | 🔴 OPEN | **SM-1 numeric target.** 80% is a placeholder; confirmed in Story 6.1 after a baseline run |
+| OD-3 | ✅ RESOLVED | **SM-1 numeric target.** Set at 90% after Story 6.1's baseline run against real Weaviate/Neo4j/OpenRouter/Postgres (2026-08-18) measured 92.9% accuracy (13/14 correct answerable questions) |
 | OD-4 | ✅ RESOLVED | **FR-8's delete/graph mitigation is pruning, not just a warning.** Reversed after a live spot-check on the running app showed a deleted document's entities surviving in Neo4j with zero document attribution. Entities/relationships now carry `source_document_ids`; a document's own contribution is removed on delete, and the node/edge itself is deleted only once no surviving document still supports it (Story 2.8) |
 | OD-5 | ✅ RESOLVED | Chat document search is a **filter over the scope panel only**, not library search. Removes the §6.2 conflict; UX-DR10 amended |
 | OD-6 | ✅ RESOLVED | Scope panel **not pre-checked**. Empty selection still means all documents (FR-11 default) — and must visibly read that way, or it looks like "nothing selected" |
