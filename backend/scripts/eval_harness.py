@@ -612,6 +612,29 @@ def _run_question(
 # ---------------------------------------------------------------------------
 
 
+def _safe_close(db) -> None:
+    """Close a SQLAlchemy session without letting a close-time failure
+    propagate and abort the whole run.
+
+    Surfaced by a live run against Neon (serverless Postgres): a session
+    that sat open through a slow/failed `ask_question` call (up to ~120s
+    worst case) can have its underlying SSL connection dropped by Neon's
+    idle-connection handling before `.close()` is ever called. SQLAlchemy's
+    `close()` tries to roll back first, which re-touches the dead
+    connection and raises `OperationalError` -- and since this used to run
+    unguarded in the per-question loop's `finally`, that error propagated
+    out of `_run()` entirely, killing every remaining question and the
+    final report along with it, even though the question that triggered it
+    had *already* been recorded as a scored/errored result. The session is
+    being discarded either way, so a close-time failure here is merely
+    logged, never re-raised.
+    """
+    try:
+        db.close()
+    except Exception:
+        logger.warning("Session close failed (likely a dropped idle DB connection) -- ignoring", exc_info=True)
+
+
 def _percent(numerator: int, denominator: int) -> str:
     if denominator == 0:
         return "n/a (no scored questions)"
@@ -729,7 +752,7 @@ def _run() -> None:
         user = _resolve_qa_user(setup_db)
         document_ids_by_filename = _ingest_all_fixtures(setup_db, session_factory, user)
     finally:
-        setup_db.close()
+        _safe_close(setup_db)
 
     # A fresh, short-lived session per question rather than one session
     # held open for the whole ~15-20 question, LLM-backed run (each
@@ -750,7 +773,7 @@ def _run() -> None:
             question_user = _resolve_qa_user(db)
             result = _run_question(db, question_user, question, document_ids_by_filename)
         finally:
-            db.close()
+            _safe_close(db)
         results.append(result)
         logger.info("  -> %s", result.status)
 

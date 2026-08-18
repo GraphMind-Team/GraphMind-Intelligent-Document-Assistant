@@ -40,6 +40,7 @@ from scripts.eval_harness import (
     _print_report,
     _run_ingest_with_timeout,
     _run_question,
+    _safe_close,
     _text_matches,
     _validate_env,
     classify_answerable,
@@ -287,6 +288,34 @@ def test_run_question_treats_any_other_exception_as_a_run_error_and_does_not_rai
     assert result.status == "error"
     assert result.is_refusal is False
     assert "Weaviate unreachable" in result.detail
+
+
+# ---------------------------------------------------------------------------
+# _safe_close -- a dropped Neon idle connection at close-time must not kill
+# the whole run (bug found running eval_harness.py live: an unguarded
+# db.close() propagated an OperationalError out of the per-question loop's
+# finally block, aborting every remaining question and the final report)
+# ---------------------------------------------------------------------------
+
+
+def test_safe_close_swallows_a_close_time_failure():
+    class _DyingSession:
+        def close(self):
+            raise RuntimeError("SSL connection has been closed unexpectedly")
+
+    _safe_close(_DyingSession())  # must not raise
+
+
+def test_safe_close_still_closes_a_healthy_session():
+    closed = []
+
+    class _HealthySession:
+        def close(self):
+            closed.append(True)
+
+    _safe_close(_HealthySession())
+
+    assert closed == [True]
 
 
 def test_run_question_scores_a_correct_answerable_response_end_to_end():

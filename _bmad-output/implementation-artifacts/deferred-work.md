@@ -508,6 +508,7 @@
     this story.
 
 - source_spec: `_bmad-output/implementation-artifacts/sprint-status.yaml`
+  resolved: 2026-08-18 -- key renamed to `6-1-measure-answer-accuracy-and-refusal-correctness-in-one-command` in `sprint-status.yaml`.
   summary: Fix the `sprint-status.yaml` / spec-filename key typo `6-1-measure-answer-accuracy-and-refusal-correctness-in-one-comma` (missing the trailing "nd" of "command") once a future story touches that key again.
   evidence: Story 6.1 review (blind-hunter) noted the truncated key, generated before this story started and left in `sprint-status.yaml`'s `development_status` map. Harmless today -- story-key resolution in the build workflow matches on the `6-1` numeric prefix, not the full string -- but worth a clean rename whenever the key is next touched, rather than perpetuating the typo.
 
@@ -535,6 +536,41 @@
     finding on the same function. A minimum-route-count assertion was folded into this story's
     patch round; a dedicated regression test for the degraded-fallback branch itself (not just the
     current happy path) was not, and is worth adding alongside the next FastAPI version bump.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-6-1-measure-answer-accuracy-and-refusal-correctness-in-one-command.md`
+  resolved: >
+    2026-08-18 -- first live baseline run against real Weaviate/Neo4j/OpenRouter/Postgres:
+    SM-1 accuracy 92.9% (13/14 correct, 0 excluded as run errors), SM-2 unanswerable-refusal
+    0.0% (0/4 refused, all 4 scored as benign `no_answer`, 0 violations, 2 excluded as run
+    errors), SM-C1 over-refusal 0.0%. Reported to a human per the harness's own instruction,
+    not written into `epics.md` by this entry -- OD-3 (the >=80% SM-1 placeholder) is a human
+    decision to formally close, not an automated one; 92.9% clears it with margin.
+  summary: >
+    `eval_harness.py`'s per-question `finally: db.close()` was unguarded -- a live run hit a
+    dropped Neon (serverless Postgres) idle connection at close time, and the resulting
+    `OperationalError` propagated out of `_run()` entirely, aborting every remaining question
+    and the final report, even though the triggering question had already been recorded as a
+    scored/errored result. Fixed with a `_safe_close()` wrapper that logs and swallows a
+    close-time failure instead of re-raising (the session is being discarded either way).
+  evidence: >
+    Found running Story 6.1's own DoD-gate live run for the first time (2026-08-18) -- exactly
+    the kind of failure mode the spec's env-var/timeout preflight checks couldn't catch, since
+    it's a live network/connection-lifetime issue, not a config or code-shape problem. Covered
+    by two new unit tests in `test_eval_harness.py` (`test_safe_close_swallows_a_close_time_failure`,
+    `test_safe_close_still_closes_a_healthy_session`).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-6-1-measure-answer-accuracy-and-refusal-correctness-in-one-command.md`
+  summary: >
+    Two of the first live run's 20 questions (`q18`, `q19`, both unanswerable) were excluded as
+    run errors, not scored -- both were `openai/gpt-oss-20b:free`'s upstream OpenRouter 429
+    rate-limiting exhausting `_CHAT_MAX_ATTEMPTS` (2), not a bug in this harness or `ask_question`.
+  evidence: >
+    Same free-tier-model fragility already recorded for Story 2.4's ingestion path (the
+    `llm_client.DEFAULT_MODEL` entry above, and NFR-1's latency entry under Story 3.1) --
+    consistent with those, this is a known, accepted cost of the zero-budget free-tier default,
+    not a new gap. Worth knowing before treating a future run's error count as a regression: a
+    burst of `/chat/ask` calls in a ~5-minute window (this harness's own shape) is exactly what
+    trips a shared free-tier rate limit.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-6-2-prove-that-no-account-can-reach-another-account-s-data.md`
   summary: >
