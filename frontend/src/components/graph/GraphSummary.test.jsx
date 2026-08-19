@@ -106,6 +106,22 @@ describe('GraphSummary', () => {
     expect(screen.getByText(/3 entities/)).toBeInTheDocument()
   })
 
+  it('keeps relationships in their own disclosure, collapsed by default but still in the DOM', async () => {
+    const user = userEvent.setup()
+    render(<GraphSummary nodes={NODES} edges={EDGES} />)
+
+    const toggle = screen.getByText('Relationships')
+    const disclosure = toggle.closest('details')
+    expect(disclosure).not.toHaveAttribute('open')
+    // Collapsed is a visual state only -- <details> never removes its
+    // content, so this stays reachable for assistive tech (AC7).
+    expect(disclosure).toHaveTextContent('Works at')
+
+    await user.click(toggle)
+
+    expect(disclosure).toHaveAttribute('open')
+  })
+
   it('handles an empty graph without crashing', () => {
     render(<GraphSummary nodes={[]} edges={[]} />)
 

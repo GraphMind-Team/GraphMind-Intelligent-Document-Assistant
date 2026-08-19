@@ -17,7 +17,13 @@ import { badgeFor, paletteFor, relationshipLabelFor, typeColorFor } from './grap
 //     entity in a 150-node graph; this is that way, and it costs nothing
 //     but local state.
 //   - Relationships render as source -> chip -> target rows on their own
-//     surface, so a relationship reads as a sentence.
+//     surface, so a relationship reads as a sentence, inside their own
+//     collapsed-by-default disclosure. Entities are what people scan
+//     for; the relationship rows are longer and more numerous, and left
+//     expanded they pushed the entity grid off the top of the screen.
+//     The count rides on the closed summary, so a collapsed section
+//     still says how much is inside it -- and <details> keeps its
+//     content in the DOM either way, so nothing becomes unreachable.
 //
 // What deliberately did NOT change: this stays inside a `<details open>`
 // labelled "View as list" (collapsible for a large graph, open by default
@@ -252,10 +258,28 @@ export default function GraphSummary({ nodes, edges, theme }) {
 
         {/* ---- Relationships ---- */}
         {edges.length > 0 && (
-          <div className="mt-6">
-            <span className="font-semibold" style={{ color: palette.ink }}>
+          <details className="group/rel mt-6">
+            <summary
+              className="inline-flex cursor-pointer list-none items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-bold uppercase tracking-wide"
+              style={chipStyle}
+            >
+              {/* Same marker treatment as the "View as list" disclosure
+                  above -- a plain glyph rotated off the parent
+                  <details>'s [open] state, since the browsers' own
+                  <summary> markers style inconsistently. The rotation
+                  class is scoped to `group/rel` so this marker follows
+                  *this* disclosure, not the outer one it's nested in. */}
+              <span aria-hidden="true" className="transition-transform group-open/rel:rotate-90">
+                ▸
+              </span>
               Relationships
-            </span>
+              {/* The count stays on the closed summary on purpose: a
+                  collapsed section must still tell you there is
+                  something in it, and how much. */}
+              <span className="font-semibold" style={{ color: palette.ink }}>
+                {visibleEdges.length}
+              </span>
+            </summary>
             <ul className="mt-2.5 flex list-none flex-col gap-2 p-0">
               {visibleEdges.map((edge, index) => (
                 <li
@@ -285,8 +309,9 @@ export default function GraphSummary({ nodes, edges, theme }) {
                 </li>
               ))}
             </ul>
-          </div>
+          </details>
         )}
+
       </details>
     </div>
   )
