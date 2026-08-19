@@ -17,7 +17,7 @@ from unittest.mock import Mock
 import pytest
 
 from app.auth import repository as auth_repository
-from app.shared.models import Document, User
+from app.shared.models import ChatMessage, Document, User
 
 
 def _register_and_login(client, *, full_name, email, password):
@@ -342,6 +342,37 @@ def test_delete_account_retry_after_partial_failure_is_safe(
     assert db_session.get(Document, document_uuid) is None
     assert _stub_weaviate_delete.call_count == 2
     _stub_neo4j_delete.assert_called_once()
+
+
+def test_delete_account_with_persisted_chat_messages_removes_them_too(
+    client, db_session, _stub_weaviate_delete, _stub_neo4j_delete
+):
+    """Story 3.4 regression: `chat_messages.user_id` is a `NOT NULL`
+    foreign key into `users.id` with no `ON DELETE CASCADE` -- deleting
+    the `users` row while this account still owns `chat_messages` rows
+    must not surface as an unhandled `IntegrityError`/500 (real Postgres
+    enforces this FK; this project's SQLite test DB doesn't, by default,
+    which is exactly why this needs its own explicit assertion rather
+    than relying on the DB to catch a regression here)."""
+    token = _register_and_login(
+        client,
+        full_name="Maria Ivanova",
+        email="maria-delete-account-chat-messages@example.com",
+        password="password12345",
+    )
+    me = client.get("/auth/me", headers=_auth_headers(token))
+    user_id = uuid.UUID(me.json()["id"])
+    db_session.add(ChatMessage(user_id=user_id, role="user", question="A question?"))
+    db_session.add(
+        ChatMessage(user_id=user_id, role="assistant", segments=[{"text": "An answer.", "citations": []}])
+    )
+    db_session.commit()
+
+    response = client.delete("/auth/me", headers=_auth_headers(token))
+
+    assert response.status_code == 204
+    assert db_session.get(User, user_id) is None
+    assert db_session.query(ChatMessage).filter(ChatMessage.user_id == user_id).count() == 0
 
 
 def test_repository_delete_user_is_a_no_op_when_the_row_is_already_gone(db_session):

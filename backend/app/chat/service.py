@@ -8,18 +8,39 @@ rather than talking to Postgres/Weaviate/Neo4j directly (AD-2).
 
 import logging
 import uuid
+from datetime import datetime
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.chat import repository
-from app.chat.schemas import AnswerSegmentResponse, AskResponse, CitationResponse
+from app.chat.schemas import (
+    AnswerSegmentResponse,
+    AskResponse,
+    ChatHistoryMessageResponse,
+    ChatHistoryResponse,
+    CitationResponse,
+)
 from app.shared.data_access.weaviate_client import TOP_K_PASSAGES, search_passages
 from app.shared.embeddings import embed_texts
-from app.shared.llm_client import RELEVANCE_THRESHOLD, ChatCompletionError, generate_answer
-from app.shared.models import User
+from app.shared.llm_client import (
+    HISTORY_MAX_TURNS,
+    RELEVANCE_THRESHOLD,
+    ChatCompletionError,
+    ChatHistoryTurn,
+    bound_chat_history,
+    generate_answer,
+)
+from app.shared.models import ChatMessage, User
 
 logger = logging.getLogger(__name__)
+
+# Default page size for GET /chat/history when the client omits `limit`.
+# The frontend never actually omits it (it always sends an explicit 3 or
+# 10 per UX-DR29), so this only matters for a direct/undocumented API
+# call -- kept modest for the same "never one unbounded blob" reasoning
+# AD-10 states outright, not a measured value.
+_DEFAULT_HISTORY_PAGE_SIZE = 20
 
 
 def ask_question(
@@ -48,7 +69,35 @@ def ask_question(
     The refusal short-circuit (Story 3.2, FR-10/OD-2): if no retrieved
     passage's `.distance` clears `RELEVANCE_THRESHOLD`
     (`shared/llm_client`), this returns before `generate_answer` is ever
-    called -- no generation call is made at all, per AD-6.
+    called -- no generation call is made at all, per AD-6. History or not,
+    that check still runs first (Story 3.4's own Boundaries) -- it never
+    looks at the history window at all.
+
+    History threading (Story 3.4/FR-17): before retrieval, this fetches
+    the bounded recent-turn window (`HISTORY_MAX_TURNS`/`HISTORY_MAX_CHARS`,
+    `shared/llm_client`) from this account's own persisted `ChatMessage`
+    rows and folds it into two places -- the retrieval query text (prior
+    *questions* only, per the Boundaries' "keeps the embedding focused on
+    topical/entity words" reasoning) and `generate_answer`'s `history`
+    param (full Q+A, citations stripped). An empty window (a fresh
+    conversation) makes both of those identical to the pre-3.4 call
+    shape -- `embed_texts([question])` and `generate_answer(question,
+    passages)` unchanged -- rather than merely behaviorally equivalent.
+    Retrieval's `document_ids` scope is never touched by history: this
+    turn's own `document_ids` argument is the only thing that ever
+    widens/narrows what `search_passages` searches, exactly as before
+    Story 3.4, even if an earlier turn in the same conversation used a
+    different scope.
+
+    Persistence (Story 3.4/AD-10): every return point below except the
+    `ChatCompletionError` -> 503 path goes through `_finish`, which
+    persists this turn's question and the resulting assistant message
+    (whatever it is -- a real answer, a refusal, or an empty-reason
+    notice) as two `ChatMessage` rows. The 503 path is the one documented
+    exception (this function's own I/O matrix): a generation failure is
+    never persisted as a message and never rendered as an answer, so a
+    retried question doesn't leave a phantom failed turn in the
+    conversation history a reload would show.
 
     Capacity note: this is a sync `def` route, so FastAPI runs it in
     Starlette's anyio threadpool (a fixed-size worker pool, not the async
@@ -61,7 +110,21 @@ def ask_question(
     number -- worth knowing before this is mistaken for a scaling bug
     found the hard way rather than a known, documented limit.
     """
-    query_vector = embed_texts([question])[0]
+    history = bound_chat_history(
+        _pair_messages_into_turns(repository.get_recent_turn_messages(db, current_user.id, HISTORY_MAX_TURNS))
+    )
+
+    if history:
+        # Design Notes: prior questions only, newest last, then the
+        # current question -- keeps the embedding on-topic rather than
+        # diluted with prior answer prose. Deliberately NOT built when
+        # `history` is empty (see below) so a fresh conversation's
+        # `embed_texts` call is the exact pre-3.4 `[question]` list, not
+        # merely an empty join that happens to look the same.
+        query_text = "\n".join(turn.question for turn in history) + "\n" + question
+    else:
+        query_text = question
+    query_vector = embed_texts([query_text])[0]
     scoped_ids = [str(document_id) for document_id in document_ids]
     passages = search_passages(
         query_vector, str(current_user.id), limit=TOP_K_PASSAGES, document_ids=scoped_ids or None
@@ -78,7 +141,7 @@ def ask_question(
         # relevant enough are distinct outcomes, and the frontend renders
         # all three differently.
         reason = "empty_scope" if scoped_ids else "no_documents"
-        return AskResponse(segments=[], empty_reason=reason)
+        return _finish(db, current_user, question, AskResponse(segments=[], empty_reason=reason))
 
     if not any(p.distance is not None and p.distance <= RELEVANCE_THRESHOLD for p in passages):
         # FR-10/OD-2: not one retrieved passage is close enough to trust.
@@ -93,10 +156,10 @@ def ask_question(
             # system. Logged so that failure mode leaves a trace instead
             # of being indistinguishable from "genuinely no evidence."
             logger.warning("Refusing with no distance metadata on any retrieved passage")
-        return AskResponse(segments=[], empty_reason="refusal")
+        return _finish(db, current_user, question, AskResponse(segments=[], empty_reason="refusal"))
 
     try:
-        answer = generate_answer(question, passages)
+        answer = generate_answer(question, passages, history=history)
     except ChatCompletionError as exc:
         logger.warning("Chat generation failed: %s", exc)
         raise HTTPException(
@@ -177,6 +240,152 @@ def ask_question(
         # The model returned segments: [] outright, or every segment lost
         # its citations above -- either way, a passages-were-found-but-
         # nothing-answerable outcome, distinct from "no_documents".
-        return AskResponse(segments=[], empty_reason="no_answer")
+        return _finish(db, current_user, question, AskResponse(segments=[], empty_reason="no_answer"))
 
-    return AskResponse(segments=segments)
+    return _finish(db, current_user, question, AskResponse(segments=segments))
+
+
+def _pair_messages_into_turns(messages: list[ChatMessage]) -> list[ChatHistoryTurn]:
+    """Chronological (oldest-first) `ChatMessage` rows -> completed
+    `ChatHistoryTurn`s, pairing each `role="user"` row with the
+    `role="assistant"` row immediately after it.
+
+    Rows always arrive strictly alternating user/assistant in that order
+    -- `_finish` below only ever persists a turn's two rows together, in
+    the same request, so no partial/orphaned turn can exist between one
+    call and the next. The `else: i += 1` branch is defensive only (a
+    shape this codebase's own writer never produces), so a future writer
+    bug surfaces as "history threading silently skips one row" rather
+    than a crash that would take the whole question down with it.
+
+    `answer` is `assistant_message.segments`' `text` fields joined with a
+    space, citations stripped -- the Boundaries' "generation needs prior
+    answer content, never the citations that grounded it" requirement.
+    `assistant_message.segments` is `None`/`[]` for a refusal or an
+    empty-reason notice turn, which folds to `""` here rather than
+    fabricating placeholder answer text.
+    """
+    turns: list[ChatHistoryTurn] = []
+    i = 0
+    while i + 1 < len(messages):
+        user_message, assistant_message = messages[i], messages[i + 1]
+        if user_message.role == "user" and assistant_message.role == "assistant":
+            answer_text = " ".join(
+                segment.get("text", "") for segment in (assistant_message.segments or [])
+            )
+            turns.append(ChatHistoryTurn(question=user_message.question or "", answer=answer_text))
+            i += 2
+        else:
+            i += 1
+    return turns
+
+
+def _finish(db: Session, current_user: User, question: str, response: AskResponse) -> AskResponse:
+    """Persists this turn's two rows -- the user's question, then the
+    resulting assistant message -- and returns `response` unchanged.
+
+    Called at every `ask_question` return point that reaches this far,
+    which by construction is every path except the `ChatCompletionError`
+    -> 503 path above (that one raises before ever calling this -- see
+    this function's own module docstring and the story's I/O matrix:
+    "never persisted as a message, never rendered as an answer").
+
+    `response.segments` (a list of Pydantic `AnswerSegmentResponse`) is
+    stored via `model_dump()` -- a plain JSON-serializable list of dicts,
+    matching `ChatMessage.segments`' documented shape and exactly what
+    `ChatHistoryMessageResponse.model_validate` expects to read back.
+
+    `repository.save_message` flushes but never commits -- `get_db_session`
+    (shared/data_access) doesn't auto-commit, so this function commits once
+    after both rows are staged, mirroring `documents/service.py`'s own
+    "service layer owns the transaction boundary" convention (e.g. its
+    `upload_document` commits right after `repository.create_document`).
+    """
+    repository.save_message(
+        db, ChatMessage(user_id=current_user.id, role="user", question=question)
+    )
+    repository.save_message(
+        db,
+        ChatMessage(
+            user_id=current_user.id,
+            role="assistant",
+            segments=[segment.model_dump() for segment in response.segments],
+            empty_reason=response.empty_reason,
+        ),
+    )
+    db.commit()
+    return response
+
+
+def _encode_cursor(message: ChatMessage) -> str:
+    """`ChatMessage` row -> opaque pagination cursor (Story 3.4/AD-10):
+    its own `(created_at, turn_role_rank, id)` tuple (see
+    `repository.turn_role_rank`'s comment for why role, not just
+    `created_at`+`id`, is part of this), serialized as
+    `"<iso-timestamp>|<role-rank>|<uuid>"`. None of the three components
+    can themselves contain `|`, so a `split(..., 2)` in `_decode_cursor`
+    round-trips this exactly -- no need for a heavier encoding
+    (base64/JSON) for a token this codebase never needs to hide the
+    contents of, only to pass back verbatim.
+
+    `role_rank` comes from `repository.turn_role_rank`, never a second,
+    separately-hardcoded 0/1 rule here -- this module already imports
+    `repository`, so there's no reason for this encoding and the SQL
+    `_TURN_ROLE_RANK` ordering it anchors into to risk drifting apart.
+    """
+    role_rank = repository.turn_role_rank(message.role)
+    return f"{message.created_at.isoformat()}|{role_rank}|{message.id}"
+
+
+def _decode_cursor(cursor: str) -> tuple[datetime, int, uuid.UUID]:
+    """Inverse of `_encode_cursor`. `cursor` only ever arrives as a value
+    this same endpoint issued as a prior response's `next_cursor` (the
+    route's own contract) -- a malformed value is therefore a client bug,
+    not a data condition to degrade gracefully from, so it 422s rather
+    than silently falling back to "no cursor" (which would look like
+    "start from the newest message again", a confusing, silent behavior
+    change for a client that thought it was paging further back).
+
+    The role-rank component is range-checked against
+    `repository.VALID_TURN_ROLE_RANKS` (just `{0, 1}`) -- `int(...)`
+    alone would happily parse `"7"` into a cursor that "decodes"
+    successfully but anchors into `_TURN_ROLE_RANK`'s ordering nowhere
+    any real row could ever sort to, producing silently wrong pagination
+    instead of the same 422 every other malformed-cursor shape gets.
+    """
+    try:
+        created_at_raw, role_rank_raw, id_raw = cursor.split("|", 2)
+        created_at = datetime.fromisoformat(created_at_raw)
+        role_rank = int(role_rank_raw)
+        if role_rank not in repository.VALID_TURN_ROLE_RANKS:
+            raise ValueError(f"role_rank out of range: {role_rank}")
+        message_id = uuid.UUID(id_raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid cursor.") from exc
+    return created_at, role_rank, message_id
+
+
+def get_history(
+    db: Session, current_user: User, cursor: str | None, limit: int | None
+) -> ChatHistoryResponse:
+    """`GET /chat/history` (Story 3.4/AD-10): a newest-first, cursor-
+    paginated page of this account's single ongoing conversation.
+
+    `user_id` is `current_user.id`, resolved server-side from the JWT via
+    `get_current_user` (same as `ask_question`) -- never client-supplied,
+    matching this route's own contract in the spec's Boundaries.
+
+    `cursor` is checked with `is not None`, not truthiness -- an empty
+    string (`?cursor=`) is a malformed cursor, not "no cursor supplied",
+    and must 422 via `_decode_cursor` the same as any other malformed
+    value, rather than silently restarting from the newest page.
+    """
+    resolved_limit = limit if limit is not None else _DEFAULT_HISTORY_PAGE_SIZE
+    decoded_cursor = _decode_cursor(cursor) if cursor is not None else None
+    rows, has_more = repository.list_messages_for_user(db, current_user.id, decoded_cursor, resolved_limit)
+    next_cursor = _encode_cursor(rows[-1]) if has_more and rows else None
+    return ChatHistoryResponse(
+        messages=[ChatHistoryMessageResponse.model_validate(row) for row in rows],
+        next_cursor=next_cursor,
+        has_more=has_more,
+    )

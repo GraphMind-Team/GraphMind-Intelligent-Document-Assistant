@@ -6,6 +6,10 @@ prompt-size budget dropping whole trailing passages, and the
 OPENROUTER_CHAT_MODEL override. Mirrors `test_entity_extraction.py`'s
 approach: mocks `httpx.post`, builds real `httpx.Response` objects so
 `raise_for_status` behaves correctly, and monkeypatches `time.sleep`.
+
+Story 3.4/FR-17 adds `bound_chat_history` (the HISTORY_MAX_TURNS/
+HISTORY_MAX_CHARS budgeting) and `generate_answer`'s new `history` param,
+covered at the bottom of this file.
 """
 
 import json
@@ -18,6 +22,8 @@ from app.shared.data_access.shapes import WeaviateSearchResult
 from app.shared.llm_client import (
     AnswerResult,
     ChatCompletionError,
+    ChatHistoryTurn,
+    bound_chat_history,
     generate_answer,
 )
 
@@ -381,3 +387,104 @@ def test_generate_answer_prompt_budget_drops_whole_trailing_passages(monkeypatch
     # The trimmed list, not the original two-passage input -- this is what
     # chat/service.py would resolve citations against.
     assert result.included_passages == [small_passage]
+
+
+# ---------------------------------------------------------------------------
+# Story 3.4/FR-17: history threading and `bound_chat_history` budgeting.
+# ---------------------------------------------------------------------------
+
+
+def test_generate_answer_with_no_history_produces_the_exact_pre_3_4_prompt(monkeypatch):
+    """Boundaries: "a fresh conversation with zero prior turns behaves
+    identically to today's stateless flow" -- asserted here at the
+    strongest level, byte-identical prompt text, not just equivalent
+    behavior."""
+    captured = {}
+
+    def _fake_post(*args, **kwargs):
+        captured["system_prompt"] = kwargs["json"]["messages"][0]["content"]
+        return _openrouter_response(200, content=_valid_content())
+
+    monkeypatch.setattr(llm_client_module.httpx, "post", _fake_post)
+
+    generate_answer("q", [_passage()])
+    prompt_without_history = captured["system_prompt"]
+
+    generate_answer("q", [_passage()], history=[])
+    prompt_with_empty_history_list = captured["system_prompt"]
+
+    generate_answer("q", [_passage()], history=None)
+    prompt_with_explicit_none = captured["system_prompt"]
+
+    assert prompt_without_history == prompt_with_empty_history_list == prompt_with_explicit_none
+
+
+def test_generate_answer_folds_history_into_the_system_prompt_as_q_and_a(monkeypatch):
+    captured = {}
+
+    def _fake_post(*args, **kwargs):
+        captured["system_prompt"] = kwargs["json"]["messages"][0]["content"]
+        return _openrouter_response(200, content=_valid_content())
+
+    monkeypatch.setattr(llm_client_module.httpx, "post", _fake_post)
+
+    history = [ChatHistoryTurn(question="Who is the vendor?", answer="TechCorp is the vendor.")]
+    generate_answer("What about its refund window?", [_passage()], history=history)
+
+    assert "Q: Who is the vendor?" in captured["system_prompt"]
+    assert "A: TechCorp is the vendor." in captured["system_prompt"]
+    # History precedes the passage block (Design Notes: "appended before
+    # the passage block").
+    assert captured["system_prompt"].index("Who is the vendor?") < captured["system_prompt"].index(
+        "Passage 1"
+    )
+
+
+def test_bound_chat_history_caps_at_history_max_turns(monkeypatch):
+    monkeypatch.setattr(llm_client_module, "HISTORY_MAX_TURNS", 2)
+    monkeypatch.setattr(llm_client_module, "HISTORY_MAX_CHARS", 10_000)
+    turns = [ChatHistoryTurn(question=f"q{i}", answer=f"a{i}") for i in range(5)]
+
+    bounded = bound_chat_history(turns)
+
+    # The newest 2 turns survive, oldest-first order preserved.
+    assert [t.question for t in bounded] == ["q3", "q4"]
+
+
+def test_bound_chat_history_drops_oldest_turns_first_when_over_char_budget(monkeypatch):
+    monkeypatch.setattr(llm_client_module, "HISTORY_MAX_TURNS", 10)
+    monkeypatch.setattr(llm_client_module, "HISTORY_MAX_CHARS", 40)
+    turns = [
+        ChatHistoryTurn(question="oldest question", answer="oldest answer"),
+        ChatHistoryTurn(question="newest question", answer="newest answer"),
+    ]
+
+    bounded = bound_chat_history(turns)
+
+    # Only the newest turn fits inside the 40-char budget -- the oldest is
+    # dropped, not truncated.
+    assert [t.question for t in bounded] == ["newest question"]
+
+
+def test_bound_chat_history_never_exceeds_the_char_budget(monkeypatch):
+    monkeypatch.setattr(llm_client_module, "HISTORY_MAX_TURNS", 3)
+    monkeypatch.setattr(llm_client_module, "HISTORY_MAX_CHARS", 2000)
+    turns = [ChatHistoryTurn(question="q" * 100, answer="a" * 900) for _ in range(3)]
+
+    bounded = bound_chat_history(turns)
+
+    total_chars = sum(len(f"Q: {t.question}\nA: {t.answer}\n") for t in bounded)
+    assert total_chars <= 2000
+
+
+def test_bound_chat_history_empty_input_returns_empty_list():
+    assert bound_chat_history([]) == []
+
+
+def test_bound_chat_history_default_constants_are_three_turns_and_2000_chars():
+    """Regression guard on the actual shipped values -- the tests above
+    monkeypatch these to keep their own math simple, so nothing else
+    asserts the real defaults the Boundaries specify ("last 3 prior
+    turns, capped at 2000 total characters")."""
+    assert llm_client_module.HISTORY_MAX_TURNS == 3
+    assert llm_client_module.HISTORY_MAX_CHARS == 2000

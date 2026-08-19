@@ -581,3 +581,63 @@
   evidence: Story 6.2 review (blind-hunter) raised this. Quality-of-life, not a correctness gap --
     worth adding once the script has seen a few real iteration cycles and it's clear which flags
     would actually get used.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-4-remember-the-conversation.md`
+  summary: >
+    `HISTORY_MAX_TURNS`/`HISTORY_MAX_CHARS` (3 turns / 2000 chars) are budgeted entirely
+    separately from `_MAX_PROMPT_CHARS` (the passage budget), but nothing tests or asserts that
+    the *combined* passages+history prompt actually fits the free-tier model's real context
+    window -- only each budget is verified in isolation.
+  evidence: Story 3.4 review (blind-hunter) raised this. The spec's own "Ask First" already treats
+    this as an accepted, human-gated risk ("if the budget visibly degrades answer quality or
+    latency during manual verification, stop and ask before changing it"), and manual
+    verification exercised a real history-augmented call without issue -- not a new gap, an
+    already-documented tradeoff. Worth a combined-budget assertion if a future free-tier model
+    swap makes the margin tighter.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-4-remember-the-conversation.md`
+  summary: >
+    `ChatMessage.segments` is read back via `ChatHistoryMessageResponse.model_validate`, straight
+    through `AnswerSegmentResponse`/`CitationResponse`'s current field set -- any future required
+    field added to those schemas would make `GET /chat/history` raise a validation error for
+    every account with pre-existing rows written before that field existed. No versioning or
+    migration story exists for previously-stored JSON.
+  evidence: Story 3.4 review (blind-hunter) raised this. Purely hypothetical today -- no such
+    schema change is planned -- and this project's own convention is not to build for
+    hypothetical future requirements. Worth a JSON-shape migration plan only once a real citation/
+    segment schema change is actually proposed.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-4-remember-the-conversation.md`
+  summary: >
+    Account deletion (`auth/service.py::delete_account`) isn't coordinated with a concurrent
+    `/chat/ask` request on another session for the same account: a request that already resolved
+    `current_user` and is mid-flight when the account is deleted can still reach `_finish`'s
+    inserts against a now-missing `user_id`, surfacing as an unhandled `ForeignKeyViolation`
+    instead of a clean, handled error.
+  evidence: Story 3.4 review (edge-case-hunter and blind-hunter, independently) raised this.
+    Accepted, not fixed: matches this project's own precedent for narrow delete-vs-concurrent-
+    request races (e.g. Story 2.7's unguarded `db.commit()` window, "accepted as a narrow, rare
+    inconsistency window") -- a real fix needs per-request account-existence locking disproportionate
+    to a failure mode this rare.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-4-remember-the-conversation.md`
+  summary: >
+    `chat/service.py::_finish`'s `db.commit()` after a successful `generate_answer` call is
+    unguarded -- if the commit itself fails (e.g. a DB connectivity blip), an already-generated
+    real answer is discarded as an unhandled 500 instead of being returned to the user, who paid
+    the latency/generation cost for nothing.
+  evidence: Story 3.4 review (edge-case-hunter) raised this. Matches this codebase's own existing
+    precedent for an equivalent gap (Story 2.7's `delete_document` unguarded post-write commit,
+    "accepted as a narrow, rare inconsistency window") -- not attempted here for the same reason:
+    disproportionate compensating-transaction machinery for a rare failure window.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-4-remember-the-conversation.md`
+  summary: >
+    Two concurrent `/chat/ask` requests from the same account (double-click, two browser tabs)
+    can interleave their user/assistant row commits, breaking `_pair_messages_into_turns`'s
+    strict user-then-assistant alternation assumption and silently mispairing one turn's question
+    with another turn's answer in history/context threading.
+  evidence: Story 3.4 review (edge-case-hunter) raised this. Real but narrow -- a proper fix needs
+    per-user write serialization (e.g. `SELECT ... FOR UPDATE` or an app-level lock around
+    `_finish`), disproportionate to a failure mode requiring a genuinely fast double-submit from
+    the same account. Worth reconsidering if this is ever observed in practice.

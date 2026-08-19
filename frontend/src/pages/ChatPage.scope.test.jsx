@@ -30,6 +30,18 @@ function jsonResponse(body) {
   return { ok: true, json: async () => body }
 }
 
+// Story 3.4: ChatPage now also fires an initial `GET /chat/history` on
+// mount, through this same shared `authFetch` mock -- so the `/chat/ask`
+// call is no longer reliably `authFetch.mock.calls[0]`. Finding it by its
+// own URL keeps these two tests correct regardless of what else `authFetch`
+// gets called with (the history mock resolving as an ask-shaped body
+// rather than a history-shaped one causes `getChatHistory` to reject,
+// caught silently by ChatPage's own mount effect -- doesn't affect these
+// scope assertions either way).
+function findAskCall(authFetch) {
+  return authFetch.mock.calls.find(([url]) => url === '/chat/ask')
+}
+
 describe('ChatPage document scope', () => {
   it('sends the toggled document id as the scope for the next question', async () => {
     const authFetch = vi.fn().mockResolvedValue(jsonResponse({ segments: [], empty_reason: null }))
@@ -40,7 +52,7 @@ describe('ChatPage document scope', () => {
     await user.click(screen.getByRole('button', { name: 'toggle doc-1' }))
     await user.type(screen.getByLabelText(/ask a question/i), 'q{Enter}')
 
-    const [, options] = authFetch.mock.calls[0]
+    const [, options] = findAskCall(authFetch)
     expect(JSON.parse(options.body).document_ids).toEqual(['doc-1'])
   })
 
@@ -52,7 +64,7 @@ describe('ChatPage document scope', () => {
 
     await user.type(screen.getByLabelText(/ask a question/i), 'q{Enter}')
 
-    const [, options] = authFetch.mock.calls[0]
+    const [, options] = findAskCall(authFetch)
     expect(JSON.parse(options.body).document_ids).toEqual([])
   })
 })

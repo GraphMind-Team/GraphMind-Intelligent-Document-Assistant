@@ -6,6 +6,7 @@ from an ORM row, so `from_attributes` isn't needed here.
 """
 
 import uuid
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -91,3 +92,48 @@ class AskResponse(BaseModel):
     #                     it is a designed, correct outcome, not an error
     #                     and not an empty answer.
     empty_reason: Literal["no_documents", "empty_scope", "no_answer", "refusal"] | None = None
+
+
+class ChatHistoryMessageResponse(BaseModel):
+    """One persisted `ChatMessage` row (Story 3.4/FR-17/AD-10), as
+    rendered by `GET /chat/history`.
+
+    Built directly from the ORM row via `model_validate` (`from_attributes
+    =True`, unlike `AskResponse` above, which is hand-assembled) --
+    `segments`' stored shape (a JSON list of dicts matching
+    `AnswerSegmentResponse`, written by `chat/service.py::_finish`) is
+    exactly what `AnswerSegmentResponse`'s own field validation expects,
+    so no manual reshaping is needed here.
+
+    `role="user"` rows carry `question` (`segments`/`empty_reason` both
+    `None`); `role="assistant"` rows carry `segments` (always present,
+    possibly `[]`) and/or `empty_reason` (`question` `None`) -- the same
+    two-shape duality `ChatMessage` itself documents, surfaced verbatim
+    rather than reshaped into one merged "message" concept, so the
+    frontend can render each exactly the way `ChatMessage.jsx` already
+    renders a live turn's `user`/`assistant`/`notice`/`refusal` roles.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    role: Literal["user", "assistant"]
+    question: str | None = None
+    segments: list[AnswerSegmentResponse] | None = None
+    empty_reason: Literal["no_documents", "empty_scope", "no_answer", "refusal"] | None = None
+    created_at: datetime
+
+
+class ChatHistoryResponse(BaseModel):
+    """`GET /chat/history`'s response (Story 3.4/AD-10): a newest-first
+    page of this account's single ongoing conversation, cursor-paginated
+    -- never the full history as one unbounded blob (AD-10's explicit
+    requirement)."""
+
+    messages: list[ChatHistoryMessageResponse]
+    # Opaque token (an encoded `(created_at, id)` pair -- see
+    # `chat/service.py`'s cursor encode/decode helpers); pass verbatim as
+    # the next request's `cursor` query param to fetch the next-older
+    # page. `None` when there is nothing older to fetch.
+    next_cursor: str | None = None
+    has_more: bool

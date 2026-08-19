@@ -262,7 +262,8 @@ A user can permanently delete their own account from User Settings.
 - Answer confidence badge/indicator *(explicitly rejected during brainstorming convergence — revisit only if user feedback demands it)*.
 - Natural-language querying over the knowledge graph *(v2 candidate, noted security implication in §4.1)*.
 - Chapter-level filtered search — v1 document scoping is document-level only (FR-11); chapters remain captured as metadata (§4.2 FR-3, visible in Document Detail) but are not user-filterable in Chat.
-- Clickable citations that open/highlight the source passage inline, conversational memory/follow-ups, suggested follow-up questions, document search/filtering, project/category grouping beyond chapters, hybrid BM25+vector search, raw-context inspection panel, conversation export *(all v2/v3 backlog per course brief, prioritized in `addendum.md`)*.
+- Clickable citations that open/highlight the source passage inline, suggested follow-up questions, document search/filtering, project/category grouping beyond chapters, hybrid BM25+vector search, raw-context inspection panel, conversation export *(all v2/v3 backlog per course brief, prioritized in `addendum.md`)*.
+- ~~Conversational memory/follow-ups~~ *(pulled forward into scope as FR-17, 2026-08-18, now that v1's Definition-of-Done gate — Epic 6 — is closed. Same precedent as FR-14/FR-15 being pulled forward from the v2 backlog earlier. See `epics.md`'s FR-17, OD-8, AD-10, UX-DR29.)*
 - Account recovery/undo window after account deletion *(§4.7 FR-16)*.
 - Password reset / email verification *[ASSUMPTION, §4.1 FR-1]*.
 

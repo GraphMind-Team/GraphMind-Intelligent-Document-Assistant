@@ -20,6 +20,7 @@ from fastapi import HTTPException
 
 from app.auth import repository
 from app.auth.schemas import ChangePasswordRequest, RegisterRequest, UpdateProfileRequest
+from app.chat import repository as chat_repository
 from app.documents import repository as documents_repository
 # Safe import direction (Design Notes): `documents/` never imports `auth/`,
 # so `auth/service.py -> documents/service.py` introduces no cycle. Reuses
@@ -161,8 +162,11 @@ def change_password(db: Session, user: User, data: ChangePasswordRequest) -> Non
 
 def delete_account(db: Session, current_user: User) -> None:
     """Hard-deletes `current_user`'s account and everything they own
-    (Story 5.3): every owned `documents` row, then the `users` row itself,
-    plus their Weaviate passages and Neo4j entities/relationships. Mirrors
+    (Story 5.3): every owned `documents` row, every owned `chat_messages`
+    row (Story 3.4 -- `chat_messages.user_id` is a `NOT NULL` FK with no
+    `ON DELETE CASCADE`, so skipping this step fails the `users` delete
+    below with a `ForeignKeyViolation`), then the `users` row itself, plus
+    their Weaviate passages and Neo4j entities/relationships. Mirrors
     `documents/service.py::delete_document`'s fixed delete order --
     Weaviate first, then Neo4j, then Postgres, one commit -- widened from
     one document's stores to every store this account owns.
@@ -193,6 +197,7 @@ def delete_account(db: Session, current_user: User) -> None:
     delete_passages_for_user(user_id_str)
     delete_entities_for_user(user_id_str)
     documents_repository.delete_all_documents_for_user(db, current_user.id)
+    chat_repository.delete_all_messages_for_user(db, current_user.id)
     repository.delete_user(db, current_user.id)
     db.commit()
 

@@ -142,12 +142,41 @@ _CHAT_RETRY_DELAY_SECONDS = 3.0
 # rather than left at their original guesses.
 RELEVANCE_THRESHOLD = 0.75
 
+# OD-8 (Story 3.4, FR-17): the bounded recent-turn window fed into both
+# retrieval and generation for a follow-up question. Named constants here,
+# not hardcoded in chat/service.py, mirroring RELEVANCE_THRESHOLD's own
+# "lives as configuration in the shared LLM-client wrapper" precedent
+# immediately above -- this module doesn't read these itself either (same
+# as RELEVANCE_THRESHOLD): `chat/service.py` fetches/bounds the window
+# using these two numbers, then threads the result into both the retrieval
+# query text (its own `embed_texts` call) and `generate_answer`'s
+# `history` param below.
+#
+# 3 turns / 2000 characters -- a placeholder pending measurement against
+# real free-tier context limits and NFR-1 latency during this story's
+# manual verification (epic-3-context.md's OD-8), not yet re-tuned against
+# a live account the way RELEVANCE_THRESHOLD was above. Small enough that
+# a history-augmented prompt still fits comfortably alongside
+# _MAX_PROMPT_CHARS's own 12,000-character passage budget below (budgeted
+# entirely separately -- this number never eats into that one, see
+# _MAX_PROMPT_CHARS's own comment), while still giving a follow-up like
+# "what about its budget?" two or three real prior exchanges to resolve
+# against. Per the spec's own "Ask First": if this value visibly degrades
+# answer quality or latency during manual verification, stop and ask
+# before silently retuning it.
+HISTORY_MAX_TURNS = 3
+HISTORY_MAX_CHARS = 2000
+
 # Budgets ONLY the assembled passage block handed to the model -- not the
 # surrounding instruction/numbering scaffolding, and not the question itself
 # (bounded separately by chat/schemas.py's AskRequest.max_length=2000). Both
 # sit on top of this budget as unaccounted-for reserve; a future increase to
 # that max_length should revisit this number too, since together they bound
 # the effective prompt size sent to the free 20b model's context window.
+# Also excludes the history block Story 3.4 adds below (HISTORY_MAX_CHARS is
+# that section's own, entirely separate budget) -- a history-augmented
+# prompt's total size is the sum of both, neither one silently absorbing
+# the other's allowance.
 # Passages are dropped wholesale from the tail of the (already
 # nearest-first-ordered) list once the next one wouldn't fit -- never
 # truncated mid-passage, since a half-sentence passage is worse context than
@@ -462,6 +491,12 @@ def _parse_and_validate(content: str) -> ExtractionResult:
 # parse/validate helper) that a split isn't yet earning its keep.
 # ---------------------------------------------------------------------------
 
+# {history} is Story 3.4's addition -- always the empty string on a fresh
+# conversation (see `_build_history_block` below), which keeps this
+# template's rendered output byte-identical to pre-3.4 in that case (the
+# Boundaries' "a fresh conversation with zero prior turns behaves
+# identically to today's stateless flow" requirement, satisfied structurally
+# here rather than by a separate code path).
 _CHAT_SYSTEM_PROMPT_TEMPLATE = (
     "You answer a question using ONLY the numbered passages below. Respond "
     "with strict JSON only -- no prose, no markdown code fences -- matching "
@@ -471,8 +506,83 @@ _CHAT_SYSTEM_PROMPT_TEMPLATE = (
     "its number below) that supports that segment's claim -- never leave "
     "this list empty for a claim-bearing segment. Use only information "
     "present in the passages; do not invent facts. If the passages do not "
-    'support any answer at all, respond with {{"segments": []}}.\n\n{passages}'
+    'support any answer at all, respond with {{"segments": []}}.\n\n{history}{passages}'
 )
+
+
+@dataclass(frozen=True)
+class ChatHistoryTurn:
+    """One prior, already-completed question/answer pair from this
+    account's single ongoing conversation (Story 3.4/FR-17).
+
+    `answer` is citations-stripped plain text -- the concatenated `text`
+    of that turn's answer segments, or `""` for a turn that ended in a
+    refusal/empty outcome -- never the structured
+    `AnswerSegmentResponse`/citation shape persisted in Postgres. The
+    generation prompt needs prior *answer content* to resolve references
+    like "its" (the Boundaries' own reasoning for why generation gets full
+    Q+A while retrieval gets questions only), but never needs the
+    citations that content was originally grounded in.
+
+    `chat/service.py` builds this list from its own persisted
+    `ChatMessage` rows -- this module never reads Postgres directly
+    (AD-2/AD-6: this package's only job is the OpenRouter call itself)."""
+
+    question: str
+    answer: str
+
+
+def bound_chat_history(history: list[ChatHistoryTurn]) -> list[ChatHistoryTurn]:
+    """`history` (oldest-first) -> the same list, trimmed to at most
+    `HISTORY_MAX_TURNS` entries and further trimmed so the formatted
+    "Q: ...\\nA: ...\\n" block it would produce never exceeds
+    `HISTORY_MAX_CHARS` -- the one place both caps are actually applied,
+    so `chat/service.py`'s retrieval-query text and this module's own
+    generation prompt are always built from the exact same window rather
+    than two independently-trimmed (and potentially diverging) ones.
+    Re-applies the `HISTORY_MAX_TURNS` cap here even though the caller's
+    own DB fetch already limits to that many turns, so this function is
+    correct standing alone, not only when called with an
+    already-turn-capped list.
+
+    Drops from the *oldest* end first -- the mirror image of
+    `_select_passages_within_budget`'s drop-from-the-tail behaviour above:
+    there, "most valuable to keep" is the nearest-first (most relevant)
+    passages; here it's the *newest* turns, since a follow-up almost
+    always refers to what was just said, not what was said three turns
+    ago. Never truncates a turn's text mid-way -- a turn either fits whole
+    or is dropped whole, same "never truncate mid-unit" reasoning as
+    passage budgeting.
+    """
+    capped = history[-HISTORY_MAX_TURNS:] if len(history) > HISTORY_MAX_TURNS else list(history)
+
+    selected: list[ChatHistoryTurn] = []
+    used_chars = 0
+    for turn in reversed(capped):
+        line_len = len(f"Q: {turn.question}\nA: {turn.answer}\n")
+        if used_chars + line_len > HISTORY_MAX_CHARS:
+            break
+        selected.append(turn)
+        used_chars += line_len
+    selected.reverse()
+    return selected
+
+
+def _build_history_block(history: list[ChatHistoryTurn] | None) -> str:
+    """Empty/`None` history renders as the empty string -- the one place
+    that guarantees a fresh conversation's system prompt stays
+    byte-identical to pre-3.4 output (`_build_chat_system_prompt` always
+    calls this and slots the result directly into
+    `_CHAT_SYSTEM_PROMPT_TEMPLATE`'s `{history}` placeholder)."""
+    if not history:
+        return ""
+    turn_lines = "".join(f"Q: {turn.question}\nA: {turn.answer}\n" for turn in history)
+    return (
+        "Recent conversation so far, oldest first -- use it only to "
+        'resolve references like "it"/"that" in the current question; '
+        "never treat it as a source of facts beyond what the passages "
+        f"below support:\n{turn_lines}\n"
+    )
 
 
 @dataclass(frozen=True)
@@ -606,19 +716,35 @@ def _select_passages_within_budget(passages: list[WeaviateSearchResult]) -> list
     return selected
 
 
-def _build_chat_system_prompt(passages: list[WeaviateSearchResult]) -> str:
+def _build_chat_system_prompt(
+    passages: list[WeaviateSearchResult], history: list[ChatHistoryTurn] | None = None
+) -> str:
     passage_block = "\n".join(
         f"Passage {index} (Chapter: {passage.chapter}): {passage.text}"
         for index, passage in enumerate(passages, start=1)
     )
-    return _CHAT_SYSTEM_PROMPT_TEMPLATE.format(passages=passage_block)
+    return _CHAT_SYSTEM_PROMPT_TEMPLATE.format(
+        history=_build_history_block(history), passages=passage_block
+    )
 
 
-def generate_answer(question: str, passages: list[WeaviateSearchResult]) -> AnswerResult:
+def generate_answer(
+    question: str,
+    passages: list[WeaviateSearchResult],
+    history: list[ChatHistoryTurn] | None = None,
+) -> AnswerResult:
     """A question plus its retrieved passages -> a structured, citable
     answer. Callers (`chat/service.py`) must only call this with a
     non-empty `passages` list -- an empty-library/no-retrieval-results
     case is that caller's own degenerate branch, never this function's.
+
+    `history` (Story 3.4/FR-17): the bounded recent-turn window (already
+    trimmed by `bound_chat_history`) the caller wants folded into the
+    system prompt so a follow-up like "what about its budget?" can
+    resolve. Defaults to `None` (identical to an empty list) so every
+    pre-3.4 call site -- and this story's own zero-prior-turns case --
+    keeps producing the exact prompt it always did; see
+    `_build_history_block`'s docstring for the byte-identical guarantee.
 
     Retries up to `_CHAT_MAX_ATTEMPTS` total on a timeout, a 5xx, a 429,
     or a malformed/unparseable response -- the same treatment
@@ -632,7 +758,7 @@ def generate_answer(question: str, passages: list[WeaviateSearchResult]) -> Answ
     underlying `httpx`/`json` exception directly.
     """
     included_passages = _select_passages_within_budget(passages)
-    system_prompt = _build_chat_system_prompt(included_passages)
+    system_prompt = _build_chat_system_prompt(included_passages, history)
 
     last_error: Exception | None = None
     for attempt in range(1, _CHAT_MAX_ATTEMPTS + 1):
