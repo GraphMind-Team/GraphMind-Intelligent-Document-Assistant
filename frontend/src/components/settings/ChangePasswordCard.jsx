@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { changePassword } from '../../api/settingsClient'
 
@@ -14,6 +14,14 @@ export default function ChangePasswordCard() {
   const [status, setStatus] = useState(null) // null | 'saving' | 'saved'
 
   const canSubmit = currentPassword.length > 0 && newPassword.length >= 8
+
+  // Visible "Saved!" confirmation clears itself after a few seconds --
+  // same pattern as ProfileCard's own save confirmation.
+  useEffect(() => {
+    if (status !== 'saved') return
+    const timer = setTimeout(() => setStatus(null), 3000)
+    return () => clearTimeout(timer)
+  }, [status])
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -67,7 +75,7 @@ export default function ChangePasswordCard() {
         <button
           type="submit"
           disabled={saving || !canSubmit}
-          className="self-start rounded-md border border-border px-3 py-1.5 text-sm text-text disabled:opacity-50"
+          className="self-start rounded-md border border-border px-3 py-1.5 text-sm text-text transition-colors hover:border-primary hover:bg-primary/10 hover:text-primary disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-transparent disabled:hover:text-text"
         >
           {saving ? 'Saving...' : 'Change Password'}
         </button>
@@ -75,6 +83,9 @@ export default function ChangePasswordCard() {
       <p className="sr-only" aria-live="polite">
         {status === 'saving' ? 'Changing password...' : status === 'saved' ? 'Password changed.' : ''}
       </p>
+      {status === 'saved' && (
+        <p className="mt-3 text-sm text-success">Saved!</p>
+      )}
       {error && (
         <p role="alert" className="mt-3 text-sm text-danger">
           {error}

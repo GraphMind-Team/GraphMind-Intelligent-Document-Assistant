@@ -346,6 +346,13 @@
   --radius-2xl: var(--radius-2xl);
 }
 
+html {
+  /* Tailwind's type scale and rem-based spacing are both root-relative,
+     so bumping this scales the whole app the same way a 110% browser
+     zoom would -- on every page, not just one. */
+  font-size: 110%;
+}
+
 body {
   font-family: var(--font-sans);
   background-color: var(--bg);
