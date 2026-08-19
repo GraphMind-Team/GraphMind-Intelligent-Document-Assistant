@@ -8,8 +8,8 @@ import { badgeFor, paletteFor, relationshipLabelFor, typeColorFor } from './grap
 //
 // Design system v2 rebuilds it as an *explorer* rather than a nested
 // bullet dump. What changed and why:
-//   - Entities render as cards in a responsive grid (type badge, name,
-//     connection count) instead of indented <li> text, so the list is
+//   - Entities render as cards in a responsive grid (type dot + name)
+//     instead of indented <li> text, so the list is
 //     scannable at a glance and each entity has a real hit area's worth
 //     of visual weight.
 //   - A search field and per-type filter chips sit above it. The canvas
@@ -236,18 +236,6 @@ export default function GraphSummary({ nodes, edges, theme }) {
                         style={{ backgroundColor: typeColor.fill }}
                       />
                       <span className="min-w-0 flex-1 truncate font-medium">{node.name}</span>
-                      {/* `degree` is the same number that sizes the node
-                          on the canvas -- stated here rather than left as
-                          a size the reader has to eyeball. */}
-                      {typeof node.degree === 'number' && (
-                        <span className="shrink-0 text-[11px]" style={{ color: palette.accentText }}>
-                          {node.degree}
-                          <span className="sr-only">
-                            {' '}
-                            {node.degree === 1 ? 'connection' : 'connections'}
-                          </span>
-                        </span>
-                      )}
                     </li>
                   ))}
                 </ul>
