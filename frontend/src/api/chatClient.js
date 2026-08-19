@@ -62,3 +62,32 @@ export async function askQuestion(authFetch, question, documentIds = []) {
 
   return data
 }
+
+// Story 3.4/AD-10: `GET /chat/history`, cursor-paginated -- `cursor` is
+// `undefined`/omitted on the initial load (the backend's own "start from
+// the newest message" default), or a prior response's own `next_cursor`
+// to fetch the next-older page. `limit` mirrors UX-DR29's two call sites
+// in ChatPage.jsx: 3 on initial load, 10 per scroll-up page.
+//
+// `(authFetch, ...) => Promise` shape, same convention as `askQuestion`
+// above.
+export async function getChatHistory(authFetch, { cursor, limit } = {}) {
+  const params = new URLSearchParams()
+  if (cursor) params.set('cursor', cursor)
+  if (limit != null) params.set('limit', String(limit))
+  const query = params.toString()
+
+  const response = await authFetch(`/chat/history${query ? `?${query}` : ''}`)
+  const data = await response.json().catch(() => null)
+
+  if (!response.ok) {
+    const message = formatDetail(data?.detail)
+    throw new Error(message || `Failed to load conversation history (${response.status}).`)
+  }
+
+  if (!data || !Array.isArray(data.messages) || typeof data.has_more !== 'boolean') {
+    throw new Error('Failed to load conversation history: unexpected response.')
+  }
+
+  return data
+}

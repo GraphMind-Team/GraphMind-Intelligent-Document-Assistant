@@ -110,3 +110,78 @@ class Document(Base):
         # back, and re-queries by hash to return the winner's row.
         Index("ix_documents_user_id_content_hash", "user_id", "content_hash", unique=True),
     )
+
+
+class ChatMessage(Base):
+    """One turn of a user's single, ongoing conversation (Story 3.4/FR-17).
+
+    One row per message, same declarative pattern as `Document` above --
+    Uuid PK w/ Python-side default, plain `JSON` (not JSONB) for the same
+    SQLite-test-compat reason as `Document.chapter_breakdown`. Queried
+    exclusively through `user_scoped_select` (AD-2), never a hand-written
+    `select(ChatMessage).where(...)`.
+
+    `user_id` is *not* separately `index=True` the way `Document.user_id`
+    is -- every real query here (`chat/repository.py`'s
+    `get_recent_turn_messages`/`list_messages_for_user`) filters on
+    `user_id` and then sorts on `(created_at, role, id)`, so a plain
+    single-column `user_id` index would only ever serve the filter half
+    and leave the sort to a full pass over that user's rows. The
+    composite index in `__table_args__` below covers both in one index
+    (its leading column still serves a bare `user_id = ...` filter too,
+    making a separate single-column index redundant).
+
+    Two disjoint row shapes, both fitting this one table (mirrors
+    `AskResponse`'s own "answer OR empty_reason" duality rather than
+    inventing a second table for a per-account conversation that's always
+    exactly one thread -- FR-17 explicitly rules out a multi-conversation
+    model):
+      - `role="user"`: `question` set, `segments`/`empty_reason` both
+        `None`.
+      - `role="assistant"`: `segments` (a JSON-serialized list of
+        `AnswerSegmentResponse`-shaped dicts) set (possibly `[]` for a
+        refusal/empty outcome) and/or `empty_reason` set, `question`
+        `None`.
+    Enforced by `chat/repository.py::save_message` (the only writer), not
+    a DB constraint -- matches this codebase's existing "the writer
+    upholds the shape, not the schema" precedent (e.g. `Document
+    .failed_reason`, only ever set alongside `status="Failed"`).
+
+    No `conversation_id` -- one continuous conversation per user account,
+    per FR-17's explicit scope boundary (no multi-conversation/switcher
+    concept exists or is being introduced). `user_id` alone is the whole
+    thread's identity.
+    """
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    # 'user' | 'assistant' -- a plain string, not a DB enum, matching
+    # `Document.status`'s own "vocabulary enforced in code, not schema"
+    # precedent.
+    role: Mapped[str] = mapped_column(String, nullable=False)
+    # Set only on `role="user"` rows.
+    question: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Set only on `role="assistant"` rows -- a JSON list, always present
+    # (possibly `[]`) on an assistant row, `None` on a user row.
+    segments: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # Set only on `role="assistant"` rows when the answer was empty
+    # (mirrors `AskResponse.empty_reason`'s own four-value vocabulary);
+    # `None` for a real answer or for any `role="user"` row.
+    empty_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        # Covers every real query this table serves: `user_id` filter,
+        # then `(created_at, role, id)` sort (see
+        # `chat/repository.py`'s `_TURN_ROLE_RANK`/`_strictly_before` --
+        # `role` is the literal column here, not the `CASE`-computed rank
+        # those use, but for a two-valued column the tied `created_at`
+        # group a plain index leaves unsorted is at most a couple of
+        # rows, cheap to finish in memory; the win is skipping a full
+        # per-user table scan for the `user_id` filter and the bulk of
+        # the `created_at` ordering, which is the part that actually
+        # grows with conversation length).
+        Index("ix_chat_messages_user_id_created_at_role_id", "user_id", "created_at", "role", "id"),
+    )

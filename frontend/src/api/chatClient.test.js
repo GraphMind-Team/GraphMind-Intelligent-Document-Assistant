@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { askQuestion } from './chatClient'
+import { askQuestion, getChatHistory } from './chatClient'
 
 function jsonResponse(status, body) {
   return {
@@ -78,5 +78,70 @@ describe('askQuestion', () => {
 
     const [, options] = authFetch.mock.calls[0]
     expect(JSON.parse(options.body).document_ids).toEqual([])
+  })
+})
+
+// Story 3.4/AD-10: GET /chat/history.
+describe('getChatHistory', () => {
+  it('resolves with the parsed body on a 200 with a valid shape', async () => {
+    const page = { messages: [], next_cursor: null, has_more: false }
+    const authFetch = vi.fn().mockResolvedValue(jsonResponse(200, page))
+
+    const result = await getChatHistory(authFetch)
+
+    expect(result).toEqual(page)
+  })
+
+  it('requests /chat/history with no query string when cursor/limit are both omitted', async () => {
+    const authFetch = vi.fn().mockResolvedValue(jsonResponse(200, { messages: [], next_cursor: null, has_more: false }))
+
+    await getChatHistory(authFetch)
+
+    expect(authFetch).toHaveBeenCalledWith('/chat/history')
+  })
+
+  it('sends limit as a query param', async () => {
+    const authFetch = vi.fn().mockResolvedValue(jsonResponse(200, { messages: [], next_cursor: null, has_more: false }))
+
+    await getChatHistory(authFetch, { limit: 3 })
+
+    expect(authFetch).toHaveBeenCalledWith('/chat/history?limit=3')
+  })
+
+  it('sends both cursor and limit as query params when both are given', async () => {
+    const authFetch = vi.fn().mockResolvedValue(jsonResponse(200, { messages: [], next_cursor: null, has_more: false }))
+
+    await getChatHistory(authFetch, { cursor: '2026-01-01T00:00:00|1|abc', limit: 10 })
+
+    const [url] = authFetch.mock.calls[0]
+    const query = new URLSearchParams(url.split('?')[1])
+    expect(query.get('cursor')).toBe('2026-01-01T00:00:00|1|abc')
+    expect(query.get('limit')).toBe('10')
+  })
+
+  it('omits an empty/falsy cursor from the query string rather than sending cursor=', async () => {
+    const authFetch = vi.fn().mockResolvedValue(jsonResponse(200, { messages: [], next_cursor: null, has_more: false }))
+
+    await getChatHistory(authFetch, { cursor: null, limit: 3 })
+
+    expect(authFetch).toHaveBeenCalledWith('/chat/history?limit=3')
+  })
+
+  it('surfaces the backend detail message on a non-2xx response', async () => {
+    const authFetch = vi.fn().mockResolvedValue(jsonResponse(422, { detail: 'Invalid cursor.' }))
+
+    await expect(getChatHistory(authFetch, { cursor: 'garbage' })).rejects.toThrow('Invalid cursor.')
+  })
+
+  it('throws when the response body is missing a messages array', async () => {
+    const authFetch = vi.fn().mockResolvedValue(jsonResponse(200, { not_messages: true, has_more: false }))
+
+    await expect(getChatHistory(authFetch)).rejects.toThrow('unexpected response')
+  })
+
+  it('throws when has_more is missing from an otherwise-valid body', async () => {
+    const authFetch = vi.fn().mockResolvedValue(jsonResponse(200, { messages: [] }))
+
+    await expect(getChatHistory(authFetch)).rejects.toThrow('unexpected response')
   })
 })

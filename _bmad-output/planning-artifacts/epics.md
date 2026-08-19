@@ -44,6 +44,7 @@ This document provides the complete epic and story breakdown for GraphMind-Intel
 | FR-14 | Drag-and-drop upload with progress | Drop or browse; each file progresses independently, not as one blocking batch |
 | FR-15 | Light/dark theme | Manual toggle, no OS detection; persists across sessions; every screen works in both |
 | FR-16 | Account deletion | Explicit confirmation; removes documents, vector entries, graph data and account record; logs the user out |
+| FR-17 | Conversational memory | Chat retains prior Q&A turns within a conversation; a bounded recent window (turn count + char budget, OD-8) feeds back into both retrieval and generation so follow-ups resolve against earlier turns; history persists across reload via a paginated endpoint (AD-10) |
 
 ### NonFunctional Requirements
 
@@ -84,6 +85,7 @@ SM-3's test must cover leakage *through the generated answer* — that the LLM n
 | AD-7 | Frontend on Vercel Hobby; backend on Render free (15-min idle spin-down, ~1 min cold start) |
 | AD-8 | Local dev plus one prod environment, no staging. Secrets via environment variables only, never committed |
 | AD-9 | Account deletion is a full cascade hard-delete through the same shared DAL, with AD-1's rollback discipline if one store fails partway |
+| AD-10 | **Chat history is paginated**, not fetched as one blob. The history endpoint takes cursor/offset + limit; the frontend's progressive-reveal (UX-DR29) fetches older pages on demand as the user scrolls upward |
 
 **Also binding:**
 
@@ -95,7 +97,7 @@ SM-3's test must cover leakage *through the generated answer* — that the LLM n
 
 **Out of scope — what stories must NOT build (PRD §6.2):**
 
-Chapter-level filtered search (chapters stay read-only metadata) · query history · clickable citations · answer confidence badge *(rejected outright, not deferred)* · "explain this answer" trace · live entity preview · user-editable graph corrections · NL querying over the graph · reference-counted graph deletion · password reset / email verification · account recovery after deletion · library-wide document search and category grouping *(see OD-5)* · hybrid BM25+vector · raw-context panel · conversation export · staging environment.
+Chapter-level filtered search (chapters stay read-only metadata) · clickable citations · answer confidence badge *(rejected outright, not deferred)* · "explain this answer" trace · live entity preview · user-editable graph corrections · NL querying over the graph · reference-counted graph deletion · password reset / email verification · account recovery after deletion · library-wide document search and category grouping *(see OD-5)* · hybrid BM25+vector · raw-context panel · conversation export · staging environment. *(Conversational memory/follow-ups — formerly listed here as "query history" — pulled forward into scope as FR-17 now that the v1 DoD gate is closed; see PRD §6.2.)*
 
 **Open decisions.** Each is tied to the story it blocks.
 
@@ -108,6 +110,7 @@ Chapter-level filtered search (chapters stay read-only metadata) · query histor
 | OD-5 | ✅ RESOLVED | Chat document search is a **filter over the scope panel only**, not library search. Removes the §6.2 conflict; UX-DR10 amended |
 | OD-6 | ✅ RESOLVED | Scope panel **not pre-checked**. Empty selection still means all documents (FR-11 default) — and must visibly read that way, or it looks like "nothing selected" |
 | OD-7 | ✅ RESOLVED | Hash match shows "already uploaded" and surfaces the existing document. No second row, no reprocessing. Keyed on content hash, not filename. Replace-by-filename rejected as scope beyond FR-6 |
+| OD-8 | 🔴 OPEN | **Conversational-memory window size (FR-17).** Turn count + character budget for the bounded history window that feeds retrieval and generation; placeholder pending measurement against real free-tier context limits and NFR-1 latency during implementation |
 
 **Stale references in source docs — do not propagate:** `addendum.md` cited a non-existent "FR-18" (account deletion is FR-16) and carried a "two pages, no visual polish" mitigation predating the UX design — both now corrected. The `.memlog.md` files and `reconcile-prd.md` still use an older FR numbering; only `prd.md`'s FR-1…FR-16 is authoritative.
 
@@ -148,6 +151,7 @@ Chapter-level filtered search (chapters stay read-only metadata) · query histor
 | UX-DR26 | In scope | **Inline confirm a11y** — announced on appearance; boundary text programmatically tied to Confirm/Cancel so it is read *before* acting; defined focus movement, Escape behaviour, and focus return |
 | UX-DR27 | ✅ **CLOSED (Story 3.3, 2026-08-14)** | **Disabled-checkbox labelling** — non-Ready documents must carry status programmatically. The mock violated EXPERIENCE.md's own rule, leaving "(processing)" in an unassociated sibling span. `DocumentsScopePanel.jsx` now gives every non-Ready checkbox an `aria-label` of the form "{filename} — not available yet ({status})", with the existing `StatusPill` covering "status noted inline" as real DOM text. The disabled input is also *controlled* (`checked` always bound), so it can't be checked by a dispatched event either — verified live, not only in tests |
 | UX-DR28 | In scope | **Remaining items** — semantic element for citations, not a bare styled span; pill text as real DOM text; graph needs a stated keyboard position and must not encode type by colour alone; `prefers-reduced-motion`; 200% zoom reflow check on the fixed-width columns |
+| UX-DR29 | In scope | **Progressive chat-history reveal** — on load, only the most recent 3 messages render; scrolling upward incrementally reveals earlier messages via AD-10's paginated endpoint, rather than the full history rendering at once |
 
 ### FR Coverage Map
 
@@ -169,8 +173,9 @@ Chapter-level filtered search (chapters stay read-only metadata) · query histor
 | FR-14 | 2 | Drag-and-drop upload with per-file progress |
 | FR-15 | **1 + 5** | Tokens, palettes, ThemeContext and persistence in Epic 1 so screens are built theme-aware; the Settings toggle completes it in Epic 5 |
 | FR-16 | 5 | Account deletion as a full cascade across all three stores |
+| FR-17 | 3 | Conversational memory — bounded windowed history feeding retrieval and generation, paginated persistence, progressive-reveal UI |
 
-All 16 mapped. FR-15 is the only one split across epics — deliberately, to avoid retrofitting theming onto every screen at the end.
+All 17 mapped. FR-15 is the only one split across epics — deliberately, to avoid retrofitting theming onto every screen at the end. FR-17 was added 2026-08-18, after Epic 3 otherwise shipped, and lands there rather than a new epic since it extends the same component end-to-end (see Epic 3's Story 3.4).
 
 ## Epic List
 
@@ -191,9 +196,9 @@ A user can upload documents, watch them move through ingestion to a queryable st
 ### Epic 3: Grounded Chat Q&A
 
 A user can ask a question in plain language against a chosen scope of their documents and receive an answer whose every claim is traceable to a specific passage — or an explicit, honest refusal when the evidence isn't there.
-**FRs covered:** FR-9, FR-10, FR-11
+**FRs covered:** FR-9, FR-10, FR-11, FR-17
 
-**Implementation notes:** The product's core promise. AD-6 governs: the relevance-threshold check happens in `chat/service.py` *before* the shared LLM wrapper is invoked, and the wrapper's own failures (timeout, retry exhaustion, OpenRouter error) surface as ordinary service errors per AD-3 (e.g. 503) — never as the product's "I don't know". Open items landing here: OD-2 (threshold value), OD-5 (document search bar scope boundary), OD-6 (whether the scope panel is pre-checked), UX-DR15 (the refusal bubble has no mock and must be designed), UX-DR21 (citation chip contrast, if not closed in Epic 1).
+**Implementation notes:** The product's core promise. AD-6 governs: the relevance-threshold check happens in `chat/service.py` *before* the shared LLM wrapper is invoked, and the wrapper's own failures (timeout, retry exhaustion, OpenRouter error) surface as ordinary service errors per AD-3 (e.g. 503) — never as the product's "I don't know". Open items landing here: OD-2 (threshold value), OD-5 (document search bar scope boundary), OD-6 (whether the scope panel is pre-checked), UX-DR15 (the refusal bubble has no mock and must be designed), UX-DR21 (citation chip contrast, if not closed in Epic 1). FR-17 (conversational memory, Story 3.4) was added 2026-08-18, after this epic otherwise shipped — OD-8 (history window size) resolves during that story.
 
 ### Epic 4: Knowledge Graph View
 
@@ -828,6 +833,54 @@ So that I can ask about one contract without the answer pulling in everything el
 **When** the change registers
 **Then** it applies immediately with no separate apply step
 **And** it governs the scope of the *next* question I ask (UX-DR9)
+
+### Story 3.4: Remember the conversation
+
+As a user,
+I want GraphMind to remember what I already asked and answered,
+So that a follow-up question like "what about its budget?" resolves correctly without me repeating context, and I can scroll back through what we discussed.
+
+**Acceptance Criteria:**
+
+**Given** a conversation with prior turns
+**When** I ask a follow-up question
+**Then** a bounded recent window of prior question/answer turns (OD-8: turn count + character budget) is included in both the retrieval query text and the generation prompt, so references to earlier turns resolve correctly (FR-17)
+
+**Given** the history window
+**When** it is constructed for any question
+**Then** it never grows unbounded regardless of how long the conversation gets — old turns fall out of the window as new ones are added (OD-8)
+
+**Given** a fresh question with no prior turns in the conversation
+**When** it is asked
+**Then** behavior is identical to today's stateless flow (Stories 3.1–3.3) — an empty history window changes nothing
+
+**Given** retrieval runs with a history-augmented query
+**When** passages are searched
+**Then** it still goes through `shared/data_access/` with the `user_id` resolved server-side (AD-2) — no new cross-tenant surface is introduced
+
+**Given** the generation call includes history
+**When** it executes
+**Then** it still goes exclusively through `shared/llm_client/` (AD-6) — the `chat` module never calls OpenRouter directly, and the refusal short-circuit (Story 3.2) still happens before any generation call, history or not
+
+**Given** the scope panel's selected documents change between one question and the next (Story 3.3)
+**When** a follow-up is asked under the new scope
+**Then** retrieval honors the *current* scope, not the scope active when earlier turns were asked — history provides conversational context, never widens or narrows retrieval's document boundary
+
+**Given** a conversation's history
+**When** it is persisted
+**Then** it is stored scoped by `user_id` like every other resource, fetched through a new paginated endpoint (AD-10: cursor/offset + limit) — never fetched as one unbounded blob
+
+**Given** I return to the Chat page in a new session or after reload
+**When** the page loads
+**Then** my conversation history loads via the paginated endpoint, and only the most recent 3 messages render initially (UX-DR29)
+
+**Given** the message thread
+**When** I scroll upward toward the top
+**Then** earlier messages incrementally load and reveal via the paginated endpoint, rather than the full history rendering or fetching at once (UX-DR29, AD-10)
+
+**Given** older messages are revealed by scrolling
+**When** they render
+**Then** they do not re-trigger the `aria-live="polite"` region (UX-DR24) — that announcement is reserved for genuinely new incoming answers, not history being paged into view
 
 ## Epic 4: Knowledge Graph View
 
