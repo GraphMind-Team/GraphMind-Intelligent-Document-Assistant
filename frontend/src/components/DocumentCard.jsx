@@ -12,11 +12,14 @@ import { DELETE_BOUNDARY_TEXT, formatFileTypeShort, formatUploadedDate } from '.
 // Carries exactly the same five facts the table columns did: file type
 // (the icon tile), title, status, uploaded date, and the trash action.
 //
-// The file-icon tile reuses DESIGN.md's `.file-icon` treatment
-// (`--citation` fill, `--primary` text) rather than inventing a colour:
-// that is the one use of the citation token DESIGN.md sanctions outside a
-// literal citation chip ("the file-type icon tile in upload rows"), so the
-// grid stays inside the existing palette instead of adding to it.
+// The file-icon tile carries the brand gradient (`--grad-brand`) in
+// design system v2 -- the same fill as the logo mark, the primary button
+// and the mascot, rather than the v1 `--citation` tint. That keeps the
+// citation token strictly for citations (v2 narrowed it to that single
+// purpose) and makes the grid's densest repeated element the place the
+// brand actually shows up. White-on-gradient clears AA at this weight;
+// the two-letter label is also never the only carrier of file type --
+// the filename beneath it always is.
 export default function DocumentCard({ document, onCardClick, onDeleted }) {
   const detailHref = `/documents/${document.id}`
   const { authFetch } = useAuth()
@@ -98,12 +101,12 @@ export default function DocumentCard({ document, onCardClick, onDeleted }) {
     // nothing, since events bubble up rather than down.
     <li
       onClick={(event) => onCardClick(event, document.id)}
-      className="flex cursor-pointer flex-col gap-3 rounded-lg border border-border bg-card-bg p-4 hover:border-accent"
+      className="card-lift flex cursor-pointer flex-col gap-3.5 rounded-2xl border border-border bg-card-bg p-5 shadow-card hover:border-accent"
     >
         <div className="flex items-start justify-between gap-2">
           <span
             aria-hidden="true"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-citation text-[11px] font-extrabold tracking-[0.02em] text-primary"
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[image:var(--grad-brand)] text-[11px] font-extrabold tracking-[0.02em] text-white shadow-[var(--glow)]"
           >
             {formatFileTypeShort(document.file_type)}
           </span>
@@ -119,7 +122,7 @@ export default function DocumentCard({ document, onCardClick, onDeleted }) {
             aria-label={`Delete ${document.filename}`}
             aria-expanded={isConfirming}
             onClick={openConfirm}
-            className="-mr-1 -mt-1 shrink-0 rounded-sm p-1 text-text2 hover:bg-surface2 hover:text-danger"
+            className="-mr-1 -mt-1 shrink-0 rounded-lg p-1.5 text-text2 hover:bg-danger/10 hover:text-danger"
           >
             <svg
               aria-hidden="true"
@@ -145,7 +148,7 @@ export default function DocumentCard({ document, onCardClick, onDeleted }) {
             pathological name can't stretch its whole grid row. */}
         <Link
           to={detailHref}
-          className="line-clamp-2 text-sm font-semibold break-words text-text hover:underline"
+          className="line-clamp-2 text-[14.5px] font-semibold break-words text-text hover:text-primary hover:underline"
         >
           {document.filename}
         </Link>
@@ -171,7 +174,7 @@ export default function DocumentCard({ document, onCardClick, onDeleted }) {
             role="alert"
             onClick={(event) => event.stopPropagation()}
             onKeyDown={handleConfirmBoxKeyDown}
-            className="flex flex-col gap-2 rounded-md border border-danger/30 bg-danger/5 p-2.5"
+            className="flex flex-col gap-2 rounded-xl border border-danger/30 bg-danger/5 p-3"
           >
             <p id={boundaryTextId} className="text-xs text-text">
               Delete {document.filename}? {DELETE_BOUNDARY_TEXT}
@@ -188,7 +191,7 @@ export default function DocumentCard({ document, onCardClick, onDeleted }) {
                 aria-describedby={boundaryTextId}
                 onClick={handleCancel}
                 disabled={isDeleting}
-                className="rounded-md border border-border bg-card-bg px-2.5 py-1 text-xs font-semibold text-primary"
+                className="rounded-lg border border-border bg-card-bg px-3 py-1.5 text-xs font-semibold text-primary"
               >
                 Cancel
               </button>
@@ -197,7 +200,7 @@ export default function DocumentCard({ document, onCardClick, onDeleted }) {
                 aria-describedby={boundaryTextId}
                 onClick={handleConfirmDelete}
                 disabled={isDeleting}
-                className="rounded-md border border-border bg-card-bg px-2.5 py-1 text-xs font-semibold text-danger"
+                className="rounded-lg border border-border bg-card-bg px-3 py-1.5 text-xs font-semibold text-danger"
               >
                 {isDeleting ? 'Deleting…' : 'Delete'}
               </button>

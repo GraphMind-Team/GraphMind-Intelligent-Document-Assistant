@@ -221,13 +221,16 @@ export default function DocumentsPage() {
 
   return (
     <>
-      <div className="mb-5 flex items-center justify-between">
-        <h1 className="text-xl font-bold text-text">Documents</h1>
+      <div className="mb-6 flex items-end justify-between gap-4">
+        <div>
+          <p className="text-eyebrow uppercase text-accent">Your library</p>
+          <h1 className="text-page-title text-text">Documents</h1>
+        </div>
         <button
           ref={uploadButtonRef}
           type="button"
           onClick={handleOpenModal}
-          className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-on-primary"
+          className="btn-brand rounded-full px-5 py-2.5 text-sm font-semibold"
         >
           Upload
         </button>
@@ -247,7 +250,7 @@ export default function DocumentsPage() {
           id="documents-sort"
           value={sortBy}
           onChange={(event) => setSortBy(event.target.value)}
-          className="rounded-md border border-border bg-input-bg px-2.5 py-2 text-[13px] text-text"
+          className="rounded-full border border-border bg-input-bg px-3.5 py-2 text-[13px] text-text"
         >
           {SORT_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
@@ -263,7 +266,7 @@ export default function DocumentsPage() {
           id="documents-type-filter"
           value={typeFilter}
           onChange={(event) => setTypeFilter(event.target.value)}
-          className="rounded-md border border-border bg-input-bg px-2.5 py-2 text-[13px] text-text"
+          className="rounded-full border border-border bg-input-bg px-3.5 py-2 text-[13px] text-text"
         >
           {TYPE_FILTER_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>

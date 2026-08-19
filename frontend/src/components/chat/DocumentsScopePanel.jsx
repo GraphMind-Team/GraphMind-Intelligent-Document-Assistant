@@ -51,7 +51,7 @@ export default function DocumentsScopePanel({ authFetch }) {
     // breakpoint would leave the panel as a narrow left-aligned block
     // under the chat column instead of spanning the stacked layout's
     // full width.
-    <aside className="w-full shrink-0 rounded-xl border border-border bg-card-bg p-4 min-[901px]:w-[260px]">
+    <aside className="w-full shrink-0 self-start rounded-2xl border border-border bg-card-bg p-5 shadow-card min-[901px]:w-[260px]">
       <h2 className="mb-2.5 text-[13px] font-bold text-primary">Documents in scope</h2>
       {error && (
         <p role="alert" className="text-xs text-danger">
@@ -80,7 +80,7 @@ export default function DocumentsScopePanel({ authFetch }) {
               value={filterText}
               onChange={(event) => setFilterText(event.target.value)}
               placeholder="Filter…"
-              className="min-w-0 flex-1 rounded-full border border-border bg-surface px-2.5 py-1.5 text-[12px]"
+              className="min-w-0 flex-1 rounded-full border border-border px-3.5 py-2 text-[12px]"
             />
             <button
               type="button"
@@ -103,7 +103,7 @@ export default function DocumentsScopePanel({ authFetch }) {
           return (
             <li
               key={doc.id}
-              className="flex items-center gap-2 rounded-lg border border-border bg-surface px-2.5 py-2 text-[12.5px]"
+              className="flex items-center gap-2 rounded-xl border border-border bg-surface2 px-3 py-2.5 text-[12.5px]"
             >
               {isReady ? (
                 <label htmlFor={inputId} className="flex min-w-0 flex-1 items-center gap-2">

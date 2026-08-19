@@ -28,13 +28,19 @@ export default function RegisterPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-bg p-8">
-      <div className="w-full max-w-[400px] rounded-[14px] border border-border bg-card-bg p-9 shadow-card">
-        <span
-          aria-hidden="true"
-          className="relative mb-3.5 block h-[38px] w-[38px] rounded-[9px] bg-linear-to-br from-primary to-accent after:absolute after:inset-[10px] after:rounded-full after:border-2 after:border-bg after:content-['']"
-        />
-        <h1 className="mb-1 text-xl font-bold text-primary">Create your account</h1>
+    <main className="app-aurora flex min-h-screen items-center justify-center p-8">
+      <div className="anim-rise w-full max-w-[420px] rounded-2xl border border-border bg-card-bg p-9 shadow-modal">
+        {/* The brand mark doubles as the way back to the public page --
+            an auth form with no exit is a dead end for anyone who
+            arrived by mistake. */}
+        <Link to="/" aria-label="GraphMind home" className="mb-4 inline-flex items-center gap-2.5">
+          <span
+            aria-hidden="true"
+            className="relative block h-11 w-11 rounded-[15px] bg-[image:var(--grad-brand)] shadow-[var(--glow)] after:absolute after:inset-[11px] after:rounded-full after:border-2 after:border-white after:content-['']"
+          />
+          <span className="font-display text-[16px] font-bold text-text">GraphMind</span>
+        </Link>
+        <h1 className="mb-1 text-auth-title text-text">Create your account</h1>
         <p className="mb-6 text-sm text-text2">
           Start asking grounded questions of your documents.
         </p>
@@ -51,7 +57,7 @@ export default function RegisterPage() {
               autoComplete="name"
               value={fullName}
               onChange={(event) => setFullName(event.target.value)}
-              className="mb-4 w-full rounded-lg border border-border bg-input-bg px-3 py-2.5 text-sm text-text"
+              className="mb-4 w-full rounded-xl border border-border bg-input-bg px-4 py-3 text-sm text-text"
             />
 
             <label htmlFor="register-email" className="mb-1.5 block text-sm font-semibold text-text2">Email</label>
@@ -62,7 +68,7 @@ export default function RegisterPage() {
               autoComplete="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              className="mb-4 w-full rounded-lg border border-border bg-input-bg px-3 py-2.5 text-sm text-text"
+              className="mb-4 w-full rounded-xl border border-border bg-input-bg px-4 py-3 text-sm text-text"
             />
 
             <label htmlFor="register-password" className="mb-1.5 block text-sm font-semibold text-text2">Password</label>
@@ -75,7 +81,7 @@ export default function RegisterPage() {
               autoComplete="new-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className="mb-4 w-full rounded-lg border border-border bg-input-bg px-3 py-2.5 text-sm text-text"
+              className="mb-4 w-full rounded-xl border border-border bg-input-bg px-4 py-3 text-sm text-text"
             />
 
             {error && (
@@ -87,7 +93,7 @@ export default function RegisterPage() {
             <button
               type="submit"
               disabled={submitting}
-              className="w-full rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary disabled:opacity-60"
+              className="btn-brand w-full rounded-full px-5 py-3 text-sm font-semibold disabled:opacity-60"
             >
               Create Account
             </button>

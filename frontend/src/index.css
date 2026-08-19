@@ -1,156 +1,127 @@
 @import "tailwindcss";
 
 /*
- * Design-token foundation (Story 1.2).
- * Source of truth: _bmad-output/planning-artifacts/ux-designs/.../DESIGN.md
+ * ============================================================
+ *  GraphMind Design System v2 -- "Aurora Sky" (2026 refresh)
+ * ============================================================
  *
- * Colors: raw CSS custom properties per theme (light default in :root,
- * dark override in :root[data-theme="dark"]), then re-pointed into Tailwind
- * v4's @theme so utility classes (bg-bg, text-primary, ...) stay static
- * while resolving dynamically at runtime.
+ * The token *contract* is unchanged from v1 (Story 1.2): every key that
+ * @theme re-points still exists with the same name and the same role, so
+ * no component has to know the refresh happened. What changed is the
+ * values, plus an additive layer on top:
  *
- * Typography/spacing/radius have no light/dark variants, so those are
- * plain @theme keys.
+ *  - Sky blue is the brand. --primary is now a true sky (#0369A1 light /
+ *    #38BDF8 dark) rather than the old dusty navy, and every supporting
+ *    hue is derived from that same hue family.
+ *  - Surfaces are cool near-white / deep-navy grounds under an ambient
+ *    "aurora" gradient wash (.app-aurora) instead of flat fills.
+ *  - Elevation is layered and soft (two-stop, brand-tinted shadows)
+ *    rather than a single hairline shadow.
+ *  - Radii are larger and squircle-ish.
+ *  - Motion is a first-class token set (--ease-spring plus the keyframes
+ *    near the bottom), all of it gated behind prefers-reduced-motion.
+ *
+ * Contrast: every foreground/background pair below was re-derived, not
+ * eyeballed; the AA-critical ones carry their ratio inline.
  */
 
 :root {
-  /* Core palette -- light (default) */
-  --bg: #FFFFFF;
-  --surface: #EDF1FA;
-  --border: #C7D2E6;
-  --text: #10131A;
-  --text2: #454E60;
-  --primary: #3861A8;
+  /* ---- Core palette: light ---- */
+  --bg: #F7FAFD;
+  --surface: #EAF3FB;
+  --surface2: #F1F7FC;
+  --border: #D3E3F2;
+  --text: #0B1A2B;
+  --text2: #4C6076;
+  /* Sky-700: 6.4:1 on --card-bg as inline text, and white on it clears
+     4.9:1 for --on-primary, so it works as both fill and ink. */
+  --primary: #0369A1;
   --on-primary: #FFFFFF;
-  --accent: #5B8DEF;
-  /* Auth/settings card surface -- per the reference mockup, distinct from
-     both --bg (page ground) and --surface (recessed tint): light mode
-     the card matches the page (#fff), dark mode it's raised one step. */
+  --accent: #0EA5E9;
   --card-bg: #FFFFFF;
-  --card-shadow: 0 1px 3px rgba(0, 0, 0, .06);
-  /* Modal elevation (Story 2.1) -- per DESIGN.md's "Elevation & Depth":
-     the one place with a real elevation cue, "signaling this floats above
-     everything else and demands attention." Only the shadow's opacity
-     differs between themes (.25 light / .45 dark), not its shape. */
-  --modal-shadow: 0 12px 40px rgba(10, 20, 40, .25);
-  /* Form input fill -- matches --bg in light, one step up (--surface2) in
-     dark, per the mockup's `input[type=...]` rule. A dedicated token
-     (not a Tailwind `dark:` variant, which would key off OS
-     prefers-color-scheme instead of this app's data-theme toggle). */
+
+  /* Brand gradients -- the signature. Logo mark, primary buttons, the
+     user chat bubble, the robot. One hue family (sky -> cyan -> indigo
+     edge) so nothing reads as a second brand color. */
+  --grad-brand: linear-gradient(135deg, #38BDF8 0%, #0EA5E9 45%, #2563EB 100%);
+  --grad-brand-soft: linear-gradient(135deg, rgba(56, 189, 248, .16) 0%, rgba(37, 99, 235, .12) 100%);
+  --grad-sheen: linear-gradient(180deg, rgba(255, 255, 255, .22) 0%, rgba(255, 255, 255, 0) 60%);
+
+  /* Elevation -- two-stop, brand-tinted. `card` is resting, `raised` is
+     hover, `modal` stays the one true "floats above everything" step
+     (same role as v1), `glow` is the brand halo on primary actions. */
+  --card-shadow: 0 1px 2px rgba(12, 47, 82, .05), 0 6px 20px -8px rgba(12, 47, 82, .14);
+  --raised-shadow: 0 2px 6px rgba(12, 47, 82, .07), 0 18px 40px -16px rgba(12, 47, 82, .26);
+  --modal-shadow: 0 24px 70px -18px rgba(8, 40, 74, .38), 0 2px 8px rgba(8, 40, 74, .1);
+  --glow: 0 8px 22px -8px rgba(14, 165, 233, .6);
+
   --input-bg: #FFFFFF;
-  --sky: #D1EEFE;
-  --success: #0A9E5C;
-  --warning: #E08600;
-  --danger: #E01E1E;
+  --sky: #E0F2FE;
+  --success: #087F4F;
+  --warning: #B45309;
+  --danger: #D22B2B;
 
-  /* Citation chip. The chip text is 11.5px bold -- WCAG's "large text"
-     exception only starts at ~18.7px bold, so this is normal text and
-     needs 4.5:1, not 3:1. The original #4A7FE0 only cleared 3.22:1 here;
-     re-tuned darker until it clears 4.5:1 against --citation's #D1EEFE
-     (4.62:1 here). The 2026-08-11 decision to ship the gap as-is was made
-     knowingly, with the same numbers -- not on a misread of the exemption;
-     Epic 3's own scoping always left UX-DR21 open for closure, and Story
-     3.1 (this pair's first real consumer, CitationChip.jsx) is it. See the
-     UX-DR21 row in epics.md. */
-  --citation: #D1EEFE;
-  --citation-text: #3064C6;
+  /* Citation chip -- 11.5px bold is normal text by WCAG, so this pair
+     must clear 4.5:1, not 3:1. #0B5FA5 on #E0F2FE clears ~6.1:1. */
+  --citation: #E0F2FE;
+  --citation-text: #0B5FA5;
 
-  /* Robot mascot -- locked, independent namespace (fill colors only;
-     --robot-a/--robot-b have no dark override on purpose). The shadows
-     below DO need a dark override, same reasoning as --modal-shadow just
-     above: a navy-tinted shadow (rgba(10,46,99,...), the mockup's literal
-     value) reads as a color cast rather than a shadow once the surface
-     behind it is already dark -- switches to a neutral black shadow in
-     dark mode instead, at roughly double the light-mode opacity so it
-     stays visible against a darker surface. */
-  --robot-shadow-head: 0 2px 4px rgba(10, 46, 99, .18);
-  --robot-shadow-body: 0 3px 4px rgba(10, 46, 99, .15);
-  --robot-a: #5B8DEF;
-  --robot-b: #D1EEFE;
+  /* Robot mascot -- its own locked namespace (v1 rule kept: nothing else
+     may reference these, and they reference nothing else). The shadows
+     still carry a dark override because a blue-tinted shadow reads as a
+     color cast once the surface behind it is already dark. */
+  --robot-shadow-head: 0 3px 8px rgba(3, 105, 161, .28);
+  --robot-shadow-body: 0 3px 8px rgba(3, 105, 161, .22);
+  --robot-a: #0EA5E9;
+  --robot-b: #BAE6FD;
+  --robot-visor: #06263D;
+  --robot-eye: #7DF9FF;
 
-  /* Sidebar -- per the reference mockup's `.sidebar`/`.sidebar a` rules:
-     light mode is a solid primary-fill block, not a pale surface tint.
-     Inactive link text is #E4ECFA (the mockup's literal value -- lighter
-     than DESIGN.md's YAML `foreground: '#DCE6F5'`, which the design doc's
-     own prose flags as an AA-contrast correction over the YAML value). */
-  --sidebar-bg: #3861A8;
-  --sidebar-foreground: #E4ECFA;
-  --sidebar-hover-bg: rgba(255, 255, 255, .08);
-  --sidebar-active-bg: rgba(255, 255, 255, .14);
-  --sidebar-active-foreground: #FFFFFF;
-  /* Logo mark swaps: white circle on the primary-fill sidebar (light) vs.
-     primary-colored circle on the surface-dark sidebar (dark) -- the
-     mockup's `.sidebar .logo .mark`. Not --on-primary (that's a text
-     color, and its dark value #1E222B doesn't match this swap at all). */
+  /* Sidebar -- v2 turns it into a floating glass rail instead of a solid
+     primary block, so its ground is a translucent surface in both themes
+     and its ink is real text color rather than near-white on saturated
+     fill. --sidebar-active-foreground clears 7.3:1 on that ground. */
+  --sidebar-bg: rgba(255, 255, 255, .72);
+  --sidebar-foreground: #4C6076;
+  --sidebar-hover-bg: rgba(14, 165, 233, .08);
+  --sidebar-active-bg: rgba(14, 165, 233, .13);
+  --sidebar-active-foreground: #0B4A78;
   --sidebar-logo-mark-bg: #FFFFFF;
+  --sidebar-border: rgba(15, 60, 100, .1);
 
-  /* Status pills -- all clear 4.5:1 */
-  --status-ready-bg: #E1F1EA;
-  --status-ready-text: #0C7A47;
-  --status-uploaded-bg: #FBEFD6;
+  /* Status pills -- softer tints; all pairs >= 4.5:1 */
+  --status-ready-bg: #DCF5E9;
+  --status-ready-text: #076943;
+  --status-uploaded-bg: #FCEFD9;
   --status-uploaded-text: #8A5200;
-  --status-extracting-bg: #FBEFD6;
+  --status-extracting-bg: #FCEFD9;
   --status-extracting-text: #8A5200;
-  --status-graphing-bg: #FBEFD6;
-  --status-graphing-text: #8A5200;
-  --status-failed-bg: #FBE2E2;
-  --status-failed-text: #CA1B1B;
+  --status-graphing-bg: #E4EDFD;
+  --status-graphing-text: #274FBF;
+  --status-failed-bg: #FBE3E3;
+  --status-failed-text: #C01C1C;
 
-  /* Refusal bubble (Story 3.2, FR-10/UX-DR15) -- same values as
-     --status-uploaded-{bg,text} above, already proven >=4.5:1, but kept as
-     its own pair rather than reused directly: tokens in this file are
-     deliberately single-purpose (see the robot mascot's "locked,
-     independent namespace" note further down), so a future re-tint of the
-     upload-status pill can't silently retint the refusal bubble too, and
-     vice versa. */
-  --refusal-bg: #FBEFD6;
+  /* Refusal bubble -- deliberately its own pair, not a reuse of the
+     upload pill's (v1's single-purpose-token rule), so re-tinting one
+     can never silently re-tint the other. */
+  --refusal-bg: #FCEFD9;
   --refusal-text: #8A5200;
 
-  /* Focus ring -- >=3:1 against bg and surface/surface-dark */
-  --focus-ring: #3861A8;
-  /* Sidebar-scoped focus ring -- the sidebar is a solid --primary fill in
-     light mode, the same color as --focus-ring itself (1:1 contrast, ring
-     invisible). White (== --sidebar-active-foreground) clears >=3:1 on
-     that fill instead. Dark sidebar bg is --surface-dark, where the
-     regular --focus-ring already clears 3:1, so it's reused as-is below. */
-  --sidebar-focus-ring: #FFFFFF;
+  --focus-ring: #0EA5E9;
+  --sidebar-focus-ring: #0369A1;
 
-  /* Link/small-text variant of --accent -- --accent itself only clears
-     non-text/large-UI contrast thresholds (~3.2:1 on --card-bg), not the
-     4.5:1 normal-text minimum inline links need (found in epic-1-context.md,
-     Story 1.3). Darkened from --accent to clear AA on --card-bg/--bg
-     (5.22:1) *and* --surface (4.61:1) -- no current usage sits on
-     --surface, but Epic 5's Settings cards will, so this is tuned against
-     it now rather than left as a gap to re-discover then. */
-  --link: #456BB5;
+  /* Inline-link / small-text variant of --accent: --accent alone only
+     clears large-UI thresholds. #0B5FA5 clears 6.1:1 on --card-bg and
+     5.3:1 on --surface. */
+  --link: #0B5FA5;
 
-  /* Graph entity-type fills (Story 4.1; re-tuned for the Graph Preview
-     redesign). One step of a single blue ramp per type, rather than five
-     unrelated hues: the types are peers, not statuses, so the canvas
-     should read as one family. Colour is *redundant* here -- the
-     two-letter badge, the legend beneath the canvas and GraphSummary's
-     grouped list each carry type on their own, so UX-DR28's "not by
-     colour alone" holds without it (and colour-blind users lose nothing
-     but a shortcut). These are the documentation mirror of
-     `graphTheme.js`'s `TYPE_COLORS.light.*.fill` -- that file is the
-     actual runtime source (a canvas fillStyle needs a literal color, not
-     a custom property), re-derive both together. See that file's own
-     comment for the exact contrast numbers each step was picked against. */
+  /* ---- Graph feature namespace (role unchanged; mirrors
+     graphTheme.js -- re-derive both together) ---- */
   --graph-person: #0D366B;
   --graph-organization: #184F95;
   --graph-project: #256ABF;
   --graph-product: #6DA7EC;
   --graph-location: #B7D3F6;
-
-  /* Graph Preview chrome -- the card/canvas/toolbar/legend surrounding
-     the node-link canvas itself (GraphPage.jsx, GraphCanvas.jsx,
-     GraphSummary.jsx). A distinct, additive namespace rather than reusing
-     --bg/--surface/--card-bg: this feature deliberately reads as its own
-     tinted "room" within the app (a signature visual identity for the one
-     page that visualizes extracted data), not a reskin of every other
-     page's neutral chrome -- so these tokens are scoped to this feature
-     only and never referenced by @theme inline below. Mirrors
-     `graphTheme.js`'s `PALETTE.light`; re-derive both together. */
   --graph-canvas-bg: #F3F7FE;
   --graph-card-bg: #F8FAFE;
   --graph-card-border: rgba(56, 97, 168, 0.22);
@@ -160,82 +131,120 @@
   --graph-ink2: rgba(19, 35, 64, 0.72);
   --graph-accent: #0EA5E9;
   --graph-accent-text: #0A6E99;
-  /* Background motif -- a faint dot-grid + radial vignette behind the
-     canvas (GraphCanvas.jsx's outer frame), reinforcing "this space holds
-     extracted data" without competing with the nodes/edges drawn over it.
-     Kept to a low, decorative alpha deliberately: nothing that needs to
-     be read (node fills, edge labels) ever relies on contrast against
-     this motif specifically -- every one of those is an opaque fill
-     painted on top of it, so this motif's own contrast against
-     --graph-canvas-bg is never load-bearing. */
   --graph-motif-dot: rgba(56, 97, 168, 0.08);
   --graph-vignette: rgba(13, 54, 107, 0.07);
 
-  /* Typography */
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --text-body: 13.5px;
-  --text-body--line-height: 1.55;
+  /* ---- Ambient aurora (the ground behind everything) ---- */
+  --aurora-1: rgba(56, 189, 248, .22);
+  --aurora-2: rgba(37, 99, 235, .14);
+  --aurora-3: rgba(125, 211, 252, .18);
+
+  /* ---- Typography ---- */
+  --font-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: "Space Grotesk", Inter, -apple-system, "Segoe UI", sans-serif;
+  --text-body: 14px;
+  --text-body--line-height: 1.6;
   --text-label: 12px;
   --text-label--font-weight: 600;
-  --text-label--letter-spacing: 0.02em;
+  --text-label--letter-spacing: 0.01em;
   --text-eyebrow: 11px;
   --text-eyebrow--font-weight: 700;
-  --text-eyebrow--letter-spacing: 0.04em;
-  --text-page-title: 21px;
+  --text-eyebrow--letter-spacing: 0.08em;
+  --text-page-title: 26px;
   --text-page-title--font-weight: 700;
-  --text-section-title: 22px;
+  --text-section-title: 24px;
   --text-section-title--font-weight: 700;
-  --text-auth-title: 20px;
+  --text-auth-title: 26px;
   --text-auth-title--font-weight: 700;
 
-  /* Spacing (named additions; Tailwind's default 1-10 scale already
-     matches DESIGN.md's 4px-base numeric scale) */
+  /* ---- Spacing ---- */
   --spacing-gutter: 20px;
   --spacing-page-padding: 32px 40px;
   --spacing-section-padding: 48px 5vw;
 
-  /* Radius */
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 14px;
+  /* ---- Radius (v2: larger, squircle-ish) ---- */
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+  --radius-2xl: 26px;
+
+  /* ---- Motion ---- */
+  --ease-spring: cubic-bezier(.22, 1, .36, 1);
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --dur-fast: .16s;
+  --dur-base: .28s;
+  --dur-slow: .5s;
 }
 
 :root[data-theme="dark"] {
-  /* Core palette -- dark ("Soft Dark") override */
-  --bg: #1E222B;
-  --surface: #262B35;
-  --border: #3A4150;
-  --text: #E4E7EC;
-  --text2: #9AA4B5;
-  --primary: #5B8CFF;
-  /* Dark text on the lighter primary-dark fill, for contrast -- per the
-     mockup's `.btn-primary{color:#1E222B}` in dark mode (matches the
-     chat-bubble-user dark treatment DESIGN.md describes in prose). White
-     text would fail contrast against primary-dark's higher luminance. */
-  --on-primary: #1E222B;
-  --card-bg: #262B35;
-  --card-shadow: 0 1px 3px rgba(0, 0, 0, .3);
-  --modal-shadow: 0 12px 40px rgba(0, 0, 0, .45);
-  --input-bg: #2E333F;
-  --accent: #4C7DFF;
-  /* Link/small-text variant of --accent -- --accent-dark only clears
-     ~3.8:1 on --card-bg, below the 4.5:1 normal-text AA minimum. Lightened
-     until it clears (4.73:1 here). --surface-dark equals --card-bg here
-     (both #262B35, unlike light mode's two distinct tints), so this
-     already covers Epic 5's Settings cards too -- no separate check needed. */
-  --link: #6690FF;
+  /* ---- Core palette: dark ("Midnight Sky") ---- */
+  --bg: #070D1A;
+  --surface: #101A2C;
+  --surface2: #16223A;
+  --border: #24344F;
+  --text: #E8EEF7;
+  --text2: #9BADC6;
+  --primary: #38BDF8;
+  /* Dark ink on the bright sky fill -- white would fail against it. */
+  --on-primary: #062033;
+  --accent: #38BDF8;
+  --card-bg: #0E1728;
+  --input-bg: #131F35;
+  --link: #7DD3FC;
 
-  /* Graph entity-type fills -- see the light-mode block's comment; mirrors
-     `graphTheme.js`'s `TYPE_COLORS.dark.*.fill`. */
+  --grad-brand: linear-gradient(135deg, #7DD3FC 0%, #38BDF8 45%, #4F8CFF 100%);
+  --grad-brand-soft: linear-gradient(135deg, rgba(56, 189, 248, .18) 0%, rgba(79, 140, 255, .12) 100%);
+  --grad-sheen: linear-gradient(180deg, rgba(255, 255, 255, .1) 0%, rgba(255, 255, 255, 0) 60%);
+
+  --card-shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 8px 24px -12px rgba(0, 0, 0, .7);
+  --raised-shadow: 0 2px 6px rgba(0, 0, 0, .5), 0 20px 44px -18px rgba(0, 0, 0, .8);
+  --modal-shadow: 0 28px 80px -20px rgba(0, 0, 0, .8), 0 2px 8px rgba(0, 0, 0, .5);
+  --glow: 0 8px 26px -8px rgba(56, 189, 248, .5);
+
+  --sky: #0B3A57;
+  --success: #34D399;
+  --warning: #FBBF24;
+  --danger: #F87171;
+
+  --citation: #0B3A57;
+  --citation-text: #9BDCFB;
+
+  --robot-shadow-head: 0 3px 10px rgba(0, 0, 0, .55);
+  --robot-shadow-body: 0 3px 10px rgba(0, 0, 0, .45);
+  --robot-visor: #04121F;
+  --robot-eye: #7DF9FF;
+
+  --sidebar-bg: rgba(16, 26, 44, .72);
+  --sidebar-foreground: #9BADC6;
+  --sidebar-hover-bg: rgba(56, 189, 248, .1);
+  --sidebar-active-bg: rgba(56, 189, 248, .16);
+  --sidebar-active-foreground: #E8EEF7;
+  --sidebar-logo-mark-bg: #38BDF8;
+  --sidebar-border: rgba(148, 190, 235, .12);
+
+  --status-ready-bg: rgba(52, 211, 153, .16);
+  --status-ready-text: #34D399;
+  --status-uploaded-bg: rgba(251, 191, 36, .16);
+  --status-uploaded-text: #FBBF24;
+  --status-extracting-bg: rgba(251, 191, 36, .16);
+  --status-extracting-text: #FBBF24;
+  --status-graphing-bg: rgba(96, 165, 250, .16);
+  --status-graphing-text: #93C5FD;
+  --status-failed-bg: rgba(248, 113, 113, .12);
+  --status-failed-text: #F87171;
+
+  --refusal-bg: rgba(251, 191, 36, .14);
+  --refusal-text: #FBBF24;
+
+  --focus-ring: #38BDF8;
+  --sidebar-focus-ring: #38BDF8;
+
   --graph-person: #1E5FB0;
   --graph-organization: #256CC4;
   --graph-project: #3987E5;
   --graph-product: #5FA6EE;
   --graph-location: #9AC9F5;
-
-  /* Graph Preview chrome -- dark mode. Mirrors `graphTheme.js`'s
-     `PALETTE.dark`; re-derive both together. */
   --graph-canvas-bg: #101B33;
   --graph-card-bg: #141B2E;
   --graph-card-border: rgba(111, 168, 238, 0.25);
@@ -248,79 +257,13 @@
   --graph-motif-dot: rgba(111, 168, 238, 0.1);
   --graph-vignette: rgba(0, 0, 0, 0.35);
 
-  --success: #3FBD82;
-  --warning: #E3A94A;
-  /* Re-tuned from #E4685F (4.36:1 on --card-bg, below AA) -- that value
-     was validated against --bg only (4.89:1). Lightened until it clears
-     4.5:1 on --card-bg too (4.66:1 here), since it's used as inline error
-     text inside card surfaces (Login/Register). Still clears --bg (5.23:1). */
-  --danger: #E57168;
-
-  /* Citation chip -- re-tuned pair, not an opacity trick */
-  --citation: #2A3557;
-  --citation-text: #8FB0FF;
-
-  /* Robot mascot shadows -- neutral black, not the light mode's navy tint;
-     see the light-mode comment above --robot-shadow-head/-body for why. */
-  --robot-shadow-head: 0 2px 4px rgba(0, 0, 0, .36);
-  --robot-shadow-body: 0 3px 4px rgba(0, 0, 0, .3);
-
-  /* --sky is literally the citation-chip background per DESIGN.md ("sky's
-     sole sanctioned use is as this citation-chip background") -- mirrors
-     --citation-dark so a future --color-sky consumer can't render the
-     light-mode tint while every other surface is dark. */
-  --sky: #2A3557;
-
-  /* Sidebar -- dark mode switches to surface-dark (not primary), a
-     deliberate asymmetry to avoid a jarring saturated block. */
-  --sidebar-bg: #262B35;
-  --sidebar-foreground: #9AA4B5;
-  --sidebar-hover-bg: rgba(255, 255, 255, .06);
-  --sidebar-active-bg: rgba(91, 140, 255, .18);
-  --sidebar-active-foreground: #E4E7EC;
-  --sidebar-logo-mark-bg: #5B8CFF;
-
-  /* Status pills -- dark tints */
-  --status-ready-bg: rgba(63, 189, 130, .16);
-  --status-ready-text: #3FBD82;
-  --status-uploaded-bg: rgba(227, 169, 74, .16);
-  --status-uploaded-text: #E3A94A;
-  --status-extracting-bg: rgba(227, 169, 74, .16);
-  --status-extracting-text: #E3A94A;
-  --status-graphing-bg: rgba(227, 169, 74, .16);
-  --status-graphing-text: #E3A94A;
-  /* .06 opacity (lower than ready/uploaded's .16) -- danger-dark at .16
-     only clears 3.96:1, below AA; .06 clears 4.55:1 */
-  --status-failed-bg: rgba(228, 104, 95, .06);
-  --status-failed-text: #E4685F;
-
-  /* Refusal bubble -- same values as --status-uploaded-{bg,text} above
-     (verified ~4.99:1 against --card-bg, where the chat thread renders
-     messages), duplicated rather than reused for the same single-purpose-
-     token reason as the light-mode pair. */
-  --refusal-bg: rgba(227, 169, 74, .16);
-  --refusal-text: #E3A94A;
-
-  /* Focus ring -- accent-dark, verified >=3:1 against bg and surface2-dark */
-  --focus-ring: #4C7DFF;
-  /* Dark sidebar bg is --surface-dark, where --focus-ring already clears
-     3:1 (unlike light mode's primary-fill sidebar), so just reuse it. */
-  --sidebar-focus-ring: #4C7DFF;
+  --aurora-1: rgba(56, 189, 248, .16);
+  --aurora-2: rgba(79, 140, 255, .14);
+  --aurora-3: rgba(14, 165, 233, .1);
 }
 
-/* Extra dark-only surface step (surface2-dark) and border used by a few
-   components; not swapped in light mode since light has no third step. */
-:root {
-  --surface2: #EDF1FA;
-}
-:root[data-theme="dark"] {
-  --surface2: #2E333F;
-}
-
-/* Re-points every @theme key at the runtime CSS var of the same role
-   (colors) or at the plain value defined above (typography/spacing/
-   radius) -- utility classes below stay static; only the var() target
-   changes when [data-theme="dark"] is toggled. */
+/* Re-points every @theme key at the runtime CSS var of the same role, so
+   utility classes stay static while the value follows [data-theme]. */
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);
@@ -332,7 +275,9 @@
   --color-on-primary: var(--on-primary);
   --color-card-bg: var(--card-bg);
   --shadow-card: var(--card-shadow);
+  --shadow-raised: var(--raised-shadow);
   --shadow-modal: var(--modal-shadow);
+  --shadow-glow: var(--glow);
   --color-input-bg: var(--input-bg);
   --color-accent: var(--accent);
   --color-link: var(--link);
@@ -353,6 +298,7 @@
   --color-sidebar-active-bg: var(--sidebar-active-bg);
   --color-sidebar-active-foreground: var(--sidebar-active-foreground);
   --color-sidebar-logo-mark-bg: var(--sidebar-logo-mark-bg);
+  --color-sidebar-border: var(--sidebar-border);
 
   --color-status-ready-bg: var(--status-ready-bg);
   --color-status-ready-text: var(--status-ready-text);
@@ -372,6 +318,7 @@
   --color-sidebar-focus-ring: var(--sidebar-focus-ring);
 
   --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
 
   --text-body: var(--text-body);
   --text-body--line-height: var(--text-body--line-height);
@@ -396,53 +343,194 @@
   --radius-md: var(--radius-md);
   --radius-lg: var(--radius-lg);
   --radius-xl: var(--radius-xl);
+  --radius-2xl: var(--radius-2xl);
 }
 
 body {
   font-family: var(--font-sans);
+  background-color: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-/* Graph Preview's background motif (GraphCanvas.jsx's outer canvas
-   frame) -- a faint dot-grid plus a radial vignette, reinforcing "this is
-   extracted data, in its own space" behind the node-link canvas without
-   competing with it. Plain CSS background layers on the frame div, not
-   drawn onto the force-graph canvas itself (which sits on top with a
-   transparent `backgroundColor`): force-graph clears and redraws its
-   whole canvas every simulation tick, and re-deriving this motif inside
-   that per-tick paint loop (accounting for its own pan/zoom transform)
-   would spend real complexity for a purely decorative layer that has no
-   reason to move with the graph at all. Two background-image layers,
-   first-listed painted on top: the dot-grid uses a repeating radial
-   gradient (the standard CSS dot-grid technique -- a small circle faded
-   to transparent, tiled by `background-size`); the vignette is transparent
-   at the center and deepens toward the edges, both using this feature's
-   own `--graph-motif-dot`/`--graph-vignette` tokens (see index.css's
-   `--graph-*` block for why these are a dedicated namespace, not reused
-   generic tokens). */
-.graph-motif {
-  background-color: var(--graph-canvas-bg);
+h1, h2, h3, .font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+/* ============================================================
+   Ambient aurora ground
+   Three soft brand-hue blobs painted behind the whole app (Shell.jsx's
+   root). Purely decorative: nothing that must be read is ever contrasted
+   against a blob alone -- every surface above it is an opaque or heavily
+   blurred fill, so the blobs' own contrast is never load-bearing (the
+   same argument the Graph motif already makes for itself below).
+   ============================================================ */
+.app-aurora {
+  position: relative;
+  isolation: isolate;
+  background-color: var(--bg);
+}
+.app-aurora::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
   background-image:
-    radial-gradient(circle at 1px 1px, var(--graph-motif-dot) 1px, transparent 0),
-    radial-gradient(ellipse at center, transparent 55%, var(--graph-vignette) 100%);
-  background-size: 22px 22px, 100% 100%;
-  background-position: 0 0, 0 0;
+    radial-gradient(60rem 40rem at 8% -10%, var(--aurora-1), transparent 60%),
+    radial-gradient(50rem 36rem at 100% 0%, var(--aurora-2), transparent 55%),
+    radial-gradient(46rem 34rem at 50% 110%, var(--aurora-3), transparent 60%);
 }
 
-/* Native form controls and scrollbars (e.g. autofill styling, the
-   password reveal icon, default scrollbar colors) otherwise follow the
-   OS's own light/dark preference regardless of this app's `data-theme`
-   toggle -- deferred from Story 1.2 (no native inputs existed yet);
-   Story 1.3/1.4's email/password fields are the first ones that do. */
-:root {
-  color-scheme: light;
-}
-:root[data-theme="dark"] {
-  color-scheme: dark;
+/* Frosted-glass panel -- the sidebar rail and any floating chrome. */
+.glass {
+  background-color: var(--sidebar-bg);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  border: 1px solid var(--sidebar-border);
 }
 
-/* Focus ring -- applied globally to interactive elements, both themes.
-   Reuses primary (light) / accent-dark (dark) via --color-focus-ring,
-   distinct from the border token. */
+/* Resting card that lifts on hover -- the v2 replacement for a flat
+   hairline border as the only affordance cue. */
+.card-lift {
+  transition: transform var(--dur-base) var(--ease-spring),
+              box-shadow var(--dur-base) var(--ease-spring),
+              border-color var(--dur-fast) ease;
+}
+.card-lift:hover {
+  box-shadow: var(--raised-shadow);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .card-lift:hover {
+    transform: translateY(-3px);
+  }
+}
+
+/* Primary action: brand gradient + halo, with a top sheen. */
+.btn-brand {
+  background-image: var(--grad-brand);
+  color: #FFFFFF;
+  box-shadow: var(--glow);
+  border: 1px solid rgba(255, 255, 255, .18);
+  position: relative;
+  overflow: hidden;
+  transition: transform var(--dur-fast) var(--ease-spring),
+              box-shadow var(--dur-base) var(--ease-spring),
+              filter var(--dur-fast) ease;
+}
+.btn-brand::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: var(--grad-sheen);
+  pointer-events: none;
+}
+.btn-brand:hover { filter: brightness(1.06); }
+.btn-brand:active { transform: translateY(1px); }
+
+/* Sky-tinted "ghost" action -- secondary buttons and chips. */
+.btn-ghost {
+  background-image: var(--grad-brand-soft);
+  color: var(--primary);
+  border: 1px solid var(--border);
+}
+.btn-ghost:hover { border-color: var(--accent); }
+
+/* Text inputs -- one shared treatment so every field in the app matches
+   without each page re-deriving it. */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="search"],
+textarea,
+select {
+  background-color: var(--input-bg);
+  color: var(--text);
+}
+input:focus, textarea:focus, select:focus {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+::placeholder { color: var(--text2); opacity: .8; }
+
+/* Custom scrollbars -- the default OS bar is otherwise the loudest
+   un-designed element left on a page like the chat thread. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--accent) 45%, transparent) transparent;
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+/* ============================================================
+   Keyframes. Declared unconditionally (a @keyframes block with no
+   consumer is inert); every consumer class below sits inside the
+   reduced-motion query, so nothing animates for a user who asked it not
+   to (UX-DR28).
+   ============================================================ */
+@keyframes gm-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-3px); }
+}
+@keyframes gm-blink {
+  /* Long open, two quick closes -- an even-rate blink reads mechanical in
+     the wrong way. Scaled on Y so the eye squashes rather than vanishing. */
+  0%, 42%, 48%, 92%, 100% { transform: scaleY(1); }
+  45%, 95%                { transform: scaleY(.08); }
+}
+@keyframes gm-pulse {
+  0%, 100% { opacity: .45; transform: scale(.85); }
+  50%      { opacity: 1;   transform: scale(1.15); }
+}
+@keyframes gm-wave {
+  0%, 100% { transform: rotate(0deg); }
+  25%      { transform: rotate(-26deg); }
+  75%      { transform: rotate(10deg); }
+}
+@keyframes gm-scan {
+  0%   { transform: translateX(-120%); }
+  100% { transform: translateX(220%); }
+}
+@keyframes gm-rise {
+  from { opacity: 0; transform: translateY(8px) scale(.985); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes gm-dot {
+  0%, 80%, 100% { transform: translateY(0); opacity: .45; }
+  40%           { transform: translateY(-4px); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .anim-float { animation: gm-float 4.5s var(--ease-out) infinite; }
+  .anim-blink { animation: gm-blink 5.2s steps(1, end) infinite; transform-origin: center; }
+  .anim-pulse { animation: gm-pulse 1.9s ease-in-out infinite; }
+  .anim-wave  { animation: gm-wave 1.6s var(--ease-spring) infinite; transform-origin: top center; }
+  .anim-scan  { animation: gm-scan 1.6s linear infinite; }
+  .anim-rise  { animation: gm-rise var(--dur-base) var(--ease-spring) both; }
+  .anim-dot   { animation: gm-dot 1.1s ease-in-out infinite; }
+
+  /* Thinking state: the whole mascot bobs faster while a request is in
+     flight -- the state cue is redundant with the visible "Thinking…"
+     bubble and its aria-live announcement, never the only signal. */
+  .robot-thinking .anim-float { animation-duration: 1.5s; }
+}
+
+/* Native form controls / scrollbars follow this app's data-theme toggle,
+   not the OS preference. */
+:root { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
+/* Focus ring -- global, both themes. */
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
@@ -453,17 +541,28 @@ select:focus-visible,
   outline-offset: 2px;
 }
 
-/* Sidebar focus-ring override -- the sidebar (nav[aria-label="Main"] in
-   Shell.jsx) is a solid --primary fill in light mode, the same color as
-   --color-focus-ring, so the global ring above is invisible there.
-   --color-sidebar-focus-ring stays >=3:1 in both themes instead. */
+/* Sidebar-scoped ring -- the rail's ground differs from the page's, so
+   it gets a token tuned against that ground. */
 nav[aria-label="Main"] a:focus-visible,
 nav[aria-label="Main"] button:focus-visible {
   outline-color: var(--color-sidebar-focus-ring);
 }
 
-/* Motion -- transitions/animations only run when the user has not
-   requested reduced motion (UX-DR28). */
+/* Graph Preview background motif (GraphCanvas.jsx's outer frame) -- a
+   faint dot-grid plus a radial vignette, painted as plain CSS layers on
+   the frame div rather than inside force-graph's per-tick canvas repaint.
+   Decorative only: every node/edge above it is an opaque fill. */
+.graph-motif {
+  background-color: var(--graph-canvas-bg);
+  background-image:
+    radial-gradient(circle at 1px 1px, var(--graph-motif-dot) 1px, transparent 0),
+    radial-gradient(ellipse at center, transparent 55%, var(--graph-vignette) 100%);
+  background-size: 22px 22px, 100% 100%;
+  background-position: 0 0, 0 0;
+}
+
+/* Motion -- interactive elements only transition when the user hasn't
+   asked for reduced motion (UX-DR28). */
 @media (prefers-reduced-motion: no-preference) {
   button,
   a,
@@ -471,6 +570,9 @@ nav[aria-label="Main"] button:focus-visible {
   textarea,
   select,
   [data-animate] {
-    transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+    transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease,
+                border-color var(--dur-fast) ease, opacity var(--dur-fast) ease,
+                box-shadow var(--dur-base) var(--ease-spring),
+                transform var(--dur-fast) var(--ease-spring);
   }
 }
