@@ -234,24 +234,31 @@ describe('GraphCanvas', () => {
     await screen.findByTestId('force-graph-stub')
 
     const props = MockForceGraph2D.mock.calls.at(-1)[0]
-    let strokeAtOutlineTime
-    let shadowAtOutlineTime
+    const strokes = []
     const ctx = makeCtx({
       stroke: vi.fn(() => {
-        strokeAtOutlineTime = ctx.strokeStyle
-        shadowAtOutlineTime = ctx.shadowBlur
+        strokes.push({ color: ctx.strokeStyle, shadowBlur: ctx.shadowBlur })
       }),
     })
 
-    // The palest light-mode fill (#B7D3F6, 1.43:1 on the graph canvas bg)
-    // -- the one the outline exists for.
+    // The palest light-mode fill (#BEE7FB, ~1.1:1 on the graph canvas bg)
+    // -- the one the ring exists for.
     props.nodeCanvasObject({ x: 0, y: 0, degree: 3, type: 'Location', name: 'Sofia' }, ctx, 1)
 
     expect(ctx.stroke).toHaveBeenCalled()
-    // graphTheme.js's `ink`, 14.56:1 against the light graph canvas bg.
-    expect(strokeAtOutlineTime).toBe('#132340')
-    // Cleared first, so the outline doesn't repaint the fill's shadow.
-    expect(shadowAtOutlineTime).toBe(0)
+    // Design system v2 separates a node from the canvas with a
+    // canvas-coloured ring knocked out around it (plus a type-coloured
+    // halo behind that), rather than v1's dark hairline outline -- so
+    // the ring is `nodeRing`, and this is the stroke WCAG 1.4.11's
+    // shape-distinguishability rides on for the pale ramp steps.
+    expect(strokes.map((entry) => entry.color)).toContain('#F5FAFE')
+    // No stroke is ever painted while the fill's drop shadow is active,
+    // which would repaint that shadow a second time on top of the fill.
+    // `?? 0`: the ring is stroked before any shadow is configured at
+    // all, so on the stub context the property is still unset there.
+    for (const entry of strokes) {
+      expect(entry.shadowBlur ?? 0).toBe(0)
+    }
   })
 
   it('draws a node without throwing, with the type badge and the entity name as labels (AC1/AC6)', async () => {
@@ -503,7 +510,7 @@ describe('GraphCanvas', () => {
     // 3.67:1 against the light graph canvas bg -- an edge is the
     // relationship this view exists to show, so WCAG 1.4.11's 3:1 applies
     // to it (see graphTheme.js's PALETTE comment for the derivation).
-    expect(props.linkColor()).toBe('rgba(34, 80, 143, 0.7)')
+    expect(props.linkColor()).toBe('rgba(3, 105, 161, 0.55)')
   })
 
   it('draws the relationship label after the line, in plain language rather than the raw enum value', async () => {

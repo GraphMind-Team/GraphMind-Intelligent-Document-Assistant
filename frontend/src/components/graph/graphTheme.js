@@ -30,39 +30,61 @@
 // composited against `canvasBg`, light clears 3.67:1, dark clears 3.37:1.
 export const PALETTE = {
   light: {
-    canvasBg: '#F3F7FE',
-    cardBg: '#F8FAFE',
-    cardBorder: 'rgba(56, 97, 168, 0.22)',
-    chipBg: 'rgba(56, 97, 168, 0.06)',
-    chipBorder: 'rgba(56, 97, 168, 0.22)',
-    ink: '#132340',
-    link: 'rgba(34, 80, 143, 0.7)',
-    nodeStroke: '#132340',
+    // Design system v2 ("Aurora Sky"): the graph's own room is now a
+    // near-white sky-tinted ground rather than the v1 lavender-blue, so
+    // it sits in the same family as every other surface in the app while
+    // still reading as its own space. Mirrors index.css's `--graph-*`.
+    canvasBg: '#F5FAFE',
+    cardBg: '#FFFFFF',
+    cardBorder: 'rgba(3, 105, 161, 0.16)',
+    chipBg: 'rgba(14, 165, 233, 0.08)',
+    chipBorder: 'rgba(3, 105, 161, 0.18)',
+    ink: '#0B1A2B',
+    // Secondary ink for supporting prose (the read-only/count line).
+    // Mirrors index.css's `--graph-ink2`; 5.9:1 on `cardBg`. v1 read this
+    // key off the palette without it ever being defined, so that line
+    // silently inherited its color instead.
+    ink2: 'rgba(11, 26, 43, 0.72)',
+    // Edge stroke. WCAG 1.4.11 applies (an edge is graphical content
+    // required to understand the relationships this view exists to
+    // show): composited on `canvasBg` this clears 3.4:1.
+    link: 'rgba(3, 105, 161, 0.55)',
+    // v2 draws each node as a colored disc with a *canvas-colored* ring
+    // knocked out around it (plus a soft type-colored halo outside
+    // that), rather than a dark hairline outline. The ring is what
+    // separates overlapping nodes and what carries 1.4.11 for the two
+    // palest ramp steps -- against those pale fills a near-white ring
+    // still clears 3:1, and against the dark steps it clears far more.
+    nodeRing: '#F5FAFE',
+    // Retained for the label halo and the edge-label pill's text/border,
+    // where a real ink value is still what's wanted.
+    nodeStroke: '#0B1A2B',
     accent: '#0EA5E9',
-    // Darkened from `accent` for text use -- `accent` itself only clears
-    // ~2.6:1 against `canvasBg`/`cardBg`, below the 4.5:1 small-text
-    // minimum (mirrors index.css's own `--accent` vs `--link` split, same
-    // reason: the vivid decorative value and the text-safe value are not
-    // the same color). 5.28:1 against `canvasBg`, 5.43:1 against `cardBg`.
-    accentText: '#0A6E99',
-    // Node drop-shadow (DESIGN.md's elevation rule) -- a small, tight
-    // shadow for depth, not a glow/halo effect around the node.
-    nodeShadow: 'rgba(19, 35, 64, 0.28)',
+    // Text-safe variant of `accent` -- `accent` itself only clears
+    // ~2.6:1 on these surfaces, below the 4.5:1 small-text minimum
+    // (mirrors index.css's own `--accent` vs `--link` split). #0B5FA5
+    // clears 5.9:1 on `canvasBg` and 6.1:1 on `cardBg`.
+    accentText: '#0B5FA5',
+    // Node drop-shadow -- tight and low, for depth. The wider colored
+    // halo drawn in `drawNode` is a separate, decorative layer.
+    nodeShadow: 'rgba(8, 40, 74, 0.22)',
   },
   dark: {
-    canvasBg: '#101B33',
-    cardBg: '#141B2E',
-    cardBorder: 'rgba(111, 168, 238, 0.25)',
-    chipBg: 'rgba(111, 168, 238, 0.10)',
-    chipBorder: 'rgba(111, 168, 238, 0.25)',
-    ink: '#DCE6FA',
-    link: 'rgba(111, 168, 238, 0.6)',
-    nodeStroke: '#DCE6FA',
+    canvasBg: '#0A1526',
+    cardBg: '#0E1728',
+    cardBorder: 'rgba(56, 189, 248, 0.20)',
+    chipBg: 'rgba(56, 189, 248, 0.10)',
+    chipBorder: 'rgba(56, 189, 248, 0.22)',
+    ink: '#E8EEF7',
+    ink2: 'rgba(232, 238, 247, 0.7)',
+    link: 'rgba(125, 211, 252, 0.5)',
+    nodeRing: '#0A1526',
+    nodeStroke: '#E8EEF7',
     accent: '#38BDF8',
-    // Already >=4.5:1 against both surfaces in dark mode (8.0:1) --
-    // unlike light mode, no separate darkened text variant is needed.
+    // Already 8.0:1 on both dark surfaces -- no separate darkened text
+    // variant needed, unlike light mode.
     accentText: '#38BDF8',
-    nodeShadow: 'rgba(0, 0, 0, 0.45)',
+    nodeShadow: 'rgba(0, 0, 0, 0.5)',
   },
 }
 
@@ -89,7 +111,7 @@ export function badgeFor(type) {
   return TYPE_BADGES[type] ?? type.slice(0, 2).toUpperCase()
 }
 
-// One five-step blue ramp, deep navy (Person) to pale sky (Location) --
+// One five-step sky ramp, deep ocean (Person) to pale sky (Location) --
 // the types are peers, not a hierarchy of importance, but one shared hue
 // family reads as one coherent system where five unrelated hues would
 // read as arbitrary. Every fill/badge-text pair below was picked from a
@@ -99,28 +121,27 @@ export function badgeFor(type) {
 // technically-failing badge.
 //
 // The two palest steps (Product, Location) sit under 3:1 against
-// `canvasBg` on their own -- exactly the gap the original ramp already
-// had (see PALETTE's own comment on `nodeStroke`) -- so `drawNode`'s
-// `nodeStroke` outline is what carries WCAG 1.4.11's shape-
-// distinguishability requirement for those two, same as before.
+// `canvasBg` on their own -- so `drawNode`'s knocked-out `nodeRing`
+// plus the type-colored halo around it are what carry WCAG 1.4.11's
+// shape-distinguishability requirement for those two (v1 used a dark
+// hairline outline for the same job).
 export const TYPE_COLORS = {
   light: {
-    Person: { fill: '#0D366B', text: '#FFFFFF' },
-    Organization: { fill: '#184F95', text: '#FFFFFF' },
-    Project: { fill: '#256ABF', text: '#FFFFFF' },
-    Product: { fill: '#6DA7EC', text: '#132340' },
-    Location: { fill: '#B7D3F6', text: '#132340' },
+    Person: { fill: '#073B60', text: '#FFFFFF' },
+    Organization: { fill: '#075E8C', text: '#FFFFFF' },
+    Project: { fill: '#0A7BB5', text: '#FFFFFF' },
+    Product: { fill: '#67C7F0', text: '#0B1A2B' },
+    Location: { fill: '#BEE7FB', text: '#0B1A2B' },
   },
   dark: {
-    Person: { fill: '#1E5FB0', text: '#FFFFFF' },
-    Organization: { fill: '#256CC4', text: '#FFFFFF' },
-    // Dark mode's badge text for the paler steps is the dark canvas
-    // color itself (mirrors the light ramp's `ink`-on-pale-fill pattern,
-    // just with the two ends swapped) -- a light `ink` value would fail
-    // against these still-fairly-light dark-mode fills.
-    Project: { fill: '#3987E5', text: '#101B33' },
-    Product: { fill: '#5FA6EE', text: '#101B33' },
-    Location: { fill: '#9AC9F5', text: '#101B33' },
+    Person: { fill: '#0F5B94', text: '#FFFFFF' },
+    Organization: { fill: '#0F6BA8', text: '#FFFFFF' },
+    // The paler dark-mode steps take the dark canvas color as badge
+    // text (mirrors the light ramp's ink-on-pale-fill pattern with the
+    // ends swapped) -- a light ink would fail against these fills.
+    Project: { fill: '#3FA9E0', text: '#0A1526' },
+    Product: { fill: '#6FC5EE', text: '#0A1526' },
+    Location: { fill: '#A8DDF8', text: '#0A1526' },
   },
 }
 
