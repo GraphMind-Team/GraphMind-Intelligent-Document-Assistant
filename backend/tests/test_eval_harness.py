@@ -225,7 +225,7 @@ def test_run_question_treats_a_503_as_a_run_error_not_a_refusal():
     }
     document_ids_by_filename = {"fixture.md": document_id}
 
-    def _raising_ask_fn(db, user, question_text, document_ids):
+    def _raising_ask_fn(db, user, question_text, document_ids, *, use_history=True):
         raise HTTPException(status_code=503, detail="Answer generation is temporarily unavailable.")
 
     result = _run_question(
@@ -250,7 +250,7 @@ def test_run_question_treats_a_non_503_http_exception_as_a_run_error_too():
     }
     document_ids_by_filename = {"fixture.md": document_id}
 
-    def _raising_ask_fn(db, user, question_text, document_ids):
+    def _raising_ask_fn(db, user, question_text, document_ids, *, use_history=True):
         raise HTTPException(status_code=404, detail="not found")
 
     result = _run_question(
@@ -277,7 +277,7 @@ def test_run_question_treats_any_other_exception_as_a_run_error_and_does_not_rai
     }
     document_ids_by_filename = {"fixture.md": document_id}
 
-    def _raising_ask_fn(db, user, question_text, document_ids):
+    def _raising_ask_fn(db, user, question_text, document_ids, *, use_history=True):
         raise ConnectionError("Weaviate unreachable")
 
     result = _run_question(
@@ -330,7 +330,7 @@ def test_run_question_scores_a_correct_answerable_response_end_to_end():
     }
     document_ids_by_filename = {"fixture.md": document_id}
 
-    def _fake_ask(db, user, question_text, document_ids):
+    def _fake_ask(db, user, question_text, document_ids, *, use_history=True):
         assert document_ids == [document_id]
         return AskResponse(segments=[AnswerSegmentResponse(text="$184,000.", citations=[])])
 
@@ -361,7 +361,7 @@ def test_run_question_scopes_to_the_whole_fixture_corpus_not_just_the_supporting
     document_ids_by_filename = {"supporting.md": supporting_id, "other.md": other_id}
     seen: list = []
 
-    def _fake_ask(db, user, question_text, document_ids):
+    def _fake_ask(db, user, question_text, document_ids, *, use_history=True):
         seen.append(document_ids)
         return AskResponse(segments=[AnswerSegmentResponse(text="$184,000.", citations=[])])
 
@@ -715,3 +715,39 @@ def test_print_report_reports_zero_sm2_violations_when_none_occurred(capsys):
 
     out = capsys.readouterr().out
     assert "SM-2 violations: 0" in out
+
+
+def test_run_question_asks_with_history_disabled():
+    """Regression guard (Story 3.4): this harness runs its whole question
+    set sequentially through one QA account, so `ask_question`'s default
+    conversational-memory threading would fold the previous three
+    unrelated questions into every question's retrieval embedding and
+    generation prompt -- silently changing what SM-1/SM-2/SM-C1 measure
+    relative to OD-3's baseline, and making consecutive runs
+    non-comparable once rows persist between them. `_run_question` must
+    always opt out explicitly."""
+    document_id = uuid.uuid4()
+    question = {
+        "id": "f1",
+        "category": "factual",
+        "question": "What is the budget?",
+        "document_filenames": ["fixture.md"],
+        "must_contain": ["$184,000"],
+        "match": "all",
+    }
+    seen: dict = {}
+
+    def _capturing_ask_fn(db, user, question_text, document_ids, *, use_history=True):
+        seen["use_history"] = use_history
+        return AskResponse(segments=[AnswerSegmentResponse(text="$184,000.", citations=[])])
+
+    result = _run_question(
+        db=None,
+        user=None,
+        question=question,
+        document_ids_by_filename={"fixture.md": document_id},
+        ask_fn=_capturing_ask_fn,
+    )
+
+    assert seen["use_history"] is False
+    assert result.status == "correct"

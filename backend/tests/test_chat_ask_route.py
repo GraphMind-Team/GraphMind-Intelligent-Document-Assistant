@@ -1074,3 +1074,87 @@ def test_ask_scope_change_with_multiple_prior_turns_still_respects_current_scope
     assert "What does document A say about pricing?" in query_text
     assert "What about delivery?" in query_text
     assert "What about warranty?" in query_text
+
+
+def test_ask_with_use_history_false_skips_the_history_read_entirely(client, db_session, monkeypatch):
+    """Story 3.4: `use_history=False` (the flag `scripts/eval_harness.py`
+    passes so Epic 6's measurement stays single-question, as OD-3's
+    baseline and OD-2's threshold calibration both assume) must make the
+    retrieval/generation calls byte-identical to the fresh-conversation
+    shapes -- and must not even query for the window, so an opted-out
+    caller can't drift with whatever happens to be persisted on its
+    account."""
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-chat-nohistory@example.com", password="password12345"
+    )
+    user_id = uuid.UUID(client.get("/auth/me", headers=_auth_headers(token)).json()["id"])
+    _seed_turn(
+        db_session,
+        user_id,
+        question="Who is the vendor?",
+        answer_text="TechCorp is the vendor.",
+        created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+    document = _upload(client, token)
+    captured = {}
+
+    def _fake_embed_texts(texts):
+        captured["texts"] = texts
+        return [[0.0] * 384 for _ in texts]
+
+    monkeypatch.setattr(chat_service_module, "embed_texts", _fake_embed_texts)
+    monkeypatch.setattr(
+        chat_service_module, "search_passages", lambda *a, **k: [_passage(document["id"])]
+    )
+    generate_answer_mock = Mock(
+        return_value=AnswerResult(
+            segments=[AnswerSegment(text="An answer.", passage_numbers=[1])],
+            included_passages=[_passage(document["id"])],
+        )
+    )
+    monkeypatch.setattr(chat_service_module, "generate_answer", generate_answer_mock)
+    recent_turns_mock = Mock(return_value=[])
+    monkeypatch.setattr(
+        chat_service_module.repository, "get_recent_turn_messages", recent_turns_mock
+    )
+
+    from app.shared.models import User
+
+    user = db_session.get(User, user_id)
+    response = chat_service_module.ask_question(
+        db_session, user, "What about its refund window?", [], use_history=False
+    )
+
+    assert response.empty_reason is None
+    # The DB round-trip itself is skipped, not merely its result ignored.
+    recent_turns_mock.assert_not_called()
+    # Exactly the pre-3.4 shapes: the bare question, and falsy history.
+    assert captured["texts"] == ["What about its refund window?"]
+    assert not generate_answer_mock.call_args.kwargs["history"]
+
+
+def test_ask_still_persists_the_turn_when_use_history_is_false(client, db_session, monkeypatch):
+    """The opt-out gates the *read* half only -- `_finish`'s "every path
+    except the 503 path persists" invariant holds for every caller,
+    without an exception carved out for this flag."""
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-chat-nohistory-2@example.com", password="password12345"
+    )
+    user_id = uuid.UUID(client.get("/auth/me", headers=_auth_headers(token)).json()["id"])
+    _stub_embed(monkeypatch)
+    monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: [])
+
+    from app.shared.models import User
+
+    user = db_session.get(User, user_id)
+    chat_service_module.ask_question(db_session, user, "Any documents?", [], use_history=False)
+
+    rows = (
+        db_session.query(ChatMessage)
+        .filter(ChatMessage.user_id == user_id)
+        .order_by(ChatMessage.role.desc())
+        .all()
+    )
+    assert [r.role for r in rows] == ["user", "assistant"]
+    assert rows[0].question == "Any documents?"
+    assert rows[1].empty_reason == "no_documents"

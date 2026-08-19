@@ -123,22 +123,37 @@ function ChatPageContent() {
     let cancelled = false
     getChatHistory(authFetch, { limit: INITIAL_HISTORY_LIMIT })
       .then((page) => {
-        // The user may have already asked (and gotten an answer to) a
-        // live question while this fetch was in flight -- seeding now
-        // would silently overwrite that turn with this stale page.
-        if (cancelled || hasSubmittedLiveQuestionRef.current) return
+        if (cancelled) return
         const seeded = page.messages.slice().reverse().map(toUiMessage)
         if (seeded.length > 0) {
           // This is a history reveal, not a new incoming answer -- must
           // not announce (Story 3.4's own aria-live requirement applies
           // to the initial load exactly as it does to a scroll-up page).
           setLiveAnnouncementsEnabled(false)
-          setMessages(seeded)
+          // Prepended, not assigned. The user may have already asked (and
+          // gotten an answer to) a live question while this fetch was in
+          // flight, in which case `previous` already holds that turn; a
+          // bare `setMessages(seeded)` would silently drop it. The
+          // functional prepend makes clobbering impossible by
+          // construction, which is strictly stronger than the
+          // `hasSubmittedLiveQuestionRef` bail-out it replaces -- and
+          // that bail-out also skipped the two setters below, leaving
+          // `hasMoreHistory` false for the rest of the session, i.e.
+          // silently killing history reveal entirely for exactly the
+          // users who had history to reveal. On the ordinary path
+          // `previous` is `[]`, so this is identical to an assignment.
+          setMessages((previous) => [...seeded, ...previous])
         }
+        // Recorded unconditionally: this is the anchor for every older
+        // page, and losing it is unrecoverable without a reload.
         setHistoryCursor(page.next_cursor)
         setHasMoreHistory(page.has_more)
       })
       .catch((err) => {
+        // Still guarded: a failed *background* fetch must not throw an
+        // error banner over a conversation the user is actively using and
+        // that is plainly working. Only the messages path needed the
+        // stronger structural fix above.
         if (cancelled || hasSubmittedLiveQuestionRef.current) return
         setError({ kind: err.isServiceError ? 'service' : 'other', message: err.message })
       })
@@ -199,6 +214,13 @@ function ChatPageContent() {
       const older = page.messages.slice().reverse().map(toUiMessage)
       const el = messageListRef.current
       if (el) {
+        // Exact because the "Loading earlier messages…" indicator lives in
+        // the header strip *outside* this scroller, not inside it. When it
+        // was rendered inside, this measurement ran while it was still
+        // mounted but the restore below ran in the commit that removed it,
+        // so the restored `scrollTop` was short by the indicator's own
+        // height -- a visible jump, which is precisely what this effect
+        // exists to prevent.
         pendingScrollAdjustmentRef.current = {
           previousScrollHeight: el.scrollHeight,
           previousScrollTop: el.scrollTop,
@@ -290,11 +312,42 @@ function ChatPageContent() {
               "don't re-trigger the live region for paged-in history"
               requirement is actually enforced. onScroll triggers the next
               older page once the user scrolls to the very top.
-              aria-busy reflects a scroll-triggered history fetch actually
-              in flight -- paired with the visible "Loading earlier
-              messages…" text below rather than standing in alone, mirroring
-              how the "Thinking…" bubble is both a visible cue and (via this
-              same live region) an audible one. */}
+              aria-busy reflects a history fetch actually in flight --
+              paired with the visible "Loading earlier messages…" text in
+              the header strip above rather than standing in alone,
+              mirroring how the "Thinking…" bubble is both a visible cue
+              and (via this same live region) an audible one. That strip
+              sits outside this scroller on purpose: content mounting and
+              unmounting inside it would shift the `scrollHeight` the
+              prepend-restore effect measures against. */}
+          {/* Story 3.4 fix: scrolling to the top was the *only* trigger for
+              the next older page, and a scroll event can only fire on a
+              scroller that actually overflows. Three short messages don't
+              fill this 480px-minimum container, so a returning user with a
+              long conversation but a short recent tail could never reach
+              their own history -- and no keyboard-only path existed even
+              when it did overflow. jsdom dispatches `fireEvent.scroll`
+              regardless of layout, so the suite couldn't see it either.
+              This button is the primary, always-available affordance;
+              `onScroll` below stays as the additional gesture. Rendered
+              outside the scroller, so neither it nor the loading indicator
+              perturbs the prepend scroll-restore's `scrollHeight` math. */}
+          {(hasMoreHistory || isLoadingHistory) && (
+            <div className="flex justify-center border-b border-border px-5 py-2">
+              {isLoadingHistory ? (
+                <p className="text-[11px] text-text2">Loading earlier messages…</p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={loadOlderHistory}
+                  className="rounded-full border border-border px-3 py-1 text-[11px] text-text2"
+                >
+                  Load earlier messages
+                </button>
+              )}
+            </div>
+          )}
+
           <div
             ref={messageListRef}
             role="log"
@@ -306,11 +359,6 @@ function ChatPageContent() {
             onScroll={handleMessageListScroll}
             className="flex flex-1 flex-col gap-3 overflow-y-auto p-5"
           >
-            {isLoadingHistory && (
-              <p className="mx-auto max-w-[78%] self-center text-center text-[11px] text-text2">
-                Loading earlier messages…
-              </p>
-            )}
             {messages.map((message, index) => (
               <ChatMessage key={index} message={message} />
             ))}

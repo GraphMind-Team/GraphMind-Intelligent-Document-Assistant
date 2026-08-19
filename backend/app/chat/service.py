@@ -44,7 +44,12 @@ _DEFAULT_HISTORY_PAGE_SIZE = 20
 
 
 def ask_question(
-    db: Session, current_user: User, question: str, document_ids: list[uuid.UUID]
+    db: Session,
+    current_user: User,
+    question: str,
+    document_ids: list[uuid.UUID],
+    *,
+    use_history: bool = True,
 ) -> AskResponse:
     """Embed -> search -> (degenerate zero-passage case) -> generate ->
     resolve -> assemble.
@@ -89,6 +94,28 @@ def ask_question(
     Story 3.4, even if an earlier turn in the same conversation used a
     different scope.
 
+    `use_history=False` opts a caller out of the *read* half of that
+    threading entirely: no window is fetched, and the retrieval/generation
+    calls are the exact pre-3.4 shapes. It exists for one caller --
+    `scripts/eval_harness.py`, Epic 6's measurement instrument (FR-13),
+    which runs a 15-20 question set sequentially through this function
+    against a single QA account. With history on, question N's retrieval
+    embedding becomes the previous three questions newline-joined ahead of
+    its own -- four unrelated questions spanning different fixture
+    documents, embedded as one vector -- so SM-1/SM-2/SM-C1
+    would no longer measure what OD-3's 92.9% baseline measured, and
+    persisted rows surviving between runs would make consecutive runs
+    non-comparable to each other on top of that. The harness measures
+    single-question retrieval, which is what OD-2's `RELEVANCE_THRESHOLD`
+    was itself calibrated against; it is not the instrument for OD-8's
+    window size. Default `True` -- every real request path keeps history.
+    The *write* half is deliberately not gated: `_finish` still persists,
+    so the "every path except 503 persists" invariant below holds for
+    every caller without exception (the harness's own rows simply go
+    unread, accumulating on the QA account the same way its ingested
+    fixture documents already do -- see that script's own
+    known-limitation note).
+
     Persistence (Story 3.4/AD-10): every return point below except the
     `ChatCompletionError` -> 503 path goes through `_finish`, which
     persists this turn's question and the resulting assistant message
@@ -110,9 +137,17 @@ def ask_question(
     number -- worth knowing before this is mistaken for a scaling bug
     found the hard way rather than a known, documented limit.
     """
-    history = bound_chat_history(
-        _pair_messages_into_turns(repository.get_recent_turn_messages(db, current_user.id, HISTORY_MAX_TURNS))
-    )
+    if use_history:
+        history = bound_chat_history(
+            _pair_messages_into_turns(
+                repository.get_recent_turn_messages(db, current_user.id, HISTORY_MAX_TURNS)
+            )
+        )
+    else:
+        # Not merely an empty result -- the DB round-trip is skipped too,
+        # so an opted-out caller's behaviour can't drift with whatever
+        # happens to be persisted on its account.
+        history = []
 
     if history:
         # Design Notes: prior questions only, newest last, then the

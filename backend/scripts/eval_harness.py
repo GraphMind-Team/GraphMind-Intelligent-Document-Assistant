@@ -27,7 +27,11 @@ Known limitation (not fixed here, out of scope for this harness):
 `eval_fixtures/*.md` file after a prior run creates a *new* document row
 under the QA account rather than replacing the old one -- there is no
 cleanup step, so the QA account's document library grows across repeated
-runs of an edited fixture set. See `_print_report`'s footer, which
+runs of an edited fixture set. The same is true of the `chat_messages`
+rows `ask_question` persists per question (Story 3.4): they accumulate on
+the QA account across runs. They can't affect any measurement -- every
+call here passes `use_history=False`, so nothing ever reads them back --
+but nothing prunes them either. See `_print_report`'s footer, which
 restates this at the end of every run.
 
 Usage (run from `backend/`, same convention as
@@ -572,7 +576,17 @@ def _run_question(
     document_ids = list(document_ids_by_filename.values())
 
     try:
-        response = ask_fn(db, user, question["question"], document_ids)
+        # `use_history=False` (Story 3.4): this harness runs the whole
+        # question set sequentially through one QA account, so with chat
+        # history on, question N's retrieval embedding would be the
+        # concatenation of the previous three unrelated questions plus its
+        # own, and rows persisted by earlier runs would leak into later
+        # ones. Either alone would mean SM-1/SM-2/SM-C1 no longer measure
+        # what OD-3's baseline measured, and that consecutive runs aren't
+        # comparable. Passed explicitly rather than relying on the
+        # default so the statelessness this harness depends on is visible
+        # at the call site.
+        response = ask_fn(db, user, question["question"], document_ids, use_history=False)
     except Exception as exc:
         if isinstance(exc, HTTPException):
             detail = f"{exc.status_code}: {exc.detail}"
