@@ -12,7 +12,8 @@
 // `state`:
 //   'idle'     -- slow bob, occasional blink, a wave on the arm.
 //   'thinking' -- faster bob, a scan line sweeping the visor, faster
-//                 beacon. Purely decorative reinforcement: the request's
+//                 beacon, and a thought bubble beside the head whose
+//                 three dots ripple. Purely decorative reinforcement: the request's
 //                 real status is the visible "Thinking…" bubble and its
 //                 aria-live announcement in ChatPage, never this.
 //
@@ -60,6 +61,37 @@ export function RobotFigure({ state = 'idle', className = 'w-[46px]' }) {
               <rect x="12" y="17" width="22" height="12" rx="6" />
             </clipPath>
           </defs>
+
+          {/* --- Thinking bubble --- */}
+          {/* A little "thought cloud" that pops in beside the head while a
+              request is in flight, with three dots rising in sequence --
+              the same three-dot idiom as the "Thinking…" bubble in the
+              transcript, so the two read as one state. Drawn outside the
+              viewBox (the svg is `overflow-visible`) so adding it costs the
+              mascot's layout box nothing. Decorative only: the wrapper is
+              `aria-hidden`, and the real status stays the aria-live
+              announcement in ChatPage. */}
+          {isThinking && (
+            <g className="anim-rise">
+              {/* Tail: two puffs stepping up from the shoulder. */}
+              <circle cx="38.5" cy="14" r="1.6" fill="var(--robot-b)" stroke="var(--robot-a)" strokeWidth="0.7" />
+              <circle cx="42" cy="9.5" r="2.2" fill="var(--robot-b)" stroke="var(--robot-a)" strokeWidth="0.7" />
+              {/* Cloud body. */}
+              <rect x="41" y="-8" width="22" height="14" rx="7" fill="var(--robot-b)" stroke="var(--robot-a)" strokeWidth="0.9" />
+              {/* Dots -- staggered so they ripple left to right. */}
+              {[47, 52, 57].map((cx, i) => (
+                <circle
+                  key={cx}
+                  cx={cx}
+                  cy="-1"
+                  r="1.7"
+                  fill="var(--robot-visor)"
+                  className="anim-dot"
+                  style={{ transformOrigin: `${cx}px -1px`, animationDelay: `${i * 0.16}s` }}
+                />
+              ))}
+            </g>
+          )}
 
           {/* --- Antenna + beacon --- */}
           <path d="M23 12V7" stroke="var(--robot-a)" strokeWidth="2" strokeLinecap="round" />
