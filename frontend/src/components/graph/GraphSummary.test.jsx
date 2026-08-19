@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import GraphSummary from './GraphSummary'
 
@@ -58,6 +59,67 @@ describe('GraphSummary', () => {
     expect(relationshipsGroup).toHaveTextContent('Works at')
     expect(relationshipsGroup).not.toHaveTextContent('WORKS_AT')
     expect(relationshipsGroup).toHaveTextContent('TechCorp')
+  })
+
+  it('filters entities and relationships by the search field (design system v2)', async () => {
+    const user = userEvent.setup()
+    render(<GraphSummary nodes={NODES} edges={EDGES} />)
+
+    await user.type(screen.getByLabelText(/search entities/i), 'ivan')
+
+    // "Maria Ivanova" and "Ivan Petrov" both contain "ivan"; TechCorp
+    // does not, and its now-empty Organization group drops out entirely
+    // rather than leaving a heading with nothing under it.
+    // Maria appears twice -- once as an entity card, once as the source
+    // of the surviving relationship row.
+    expect(screen.getAllByText('Maria Ivanova').length).toBeGreaterThan(0)
+    expect(screen.getByText('Ivan Petrov')).toBeInTheDocument()
+    expect(screen.queryByText('Organization')).not.toBeInTheDocument()
+  })
+
+  it('narrows to one entity type when its filter chip is pressed, and restores on a second press', async () => {
+    const user = userEvent.setup()
+    render(<GraphSummary nodes={NODES} edges={EDGES} />)
+
+    const chip = screen.getByRole('button', { name: /^Organization/ })
+    await user.click(chip)
+
+    expect(chip).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getAllByText('TechCorp').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Ivan Petrov')).not.toBeInTheDocument()
+
+    await user.click(chip)
+
+    expect(chip).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByText('Ivan Petrov')).toBeInTheDocument()
+  })
+
+  it('says so plainly when a search matches nothing, rather than rendering an empty list', async () => {
+    const user = userEvent.setup()
+    render(<GraphSummary nodes={NODES} edges={EDGES} />)
+
+    await user.type(screen.getByLabelText(/search entities/i), 'zzzz')
+
+    expect(screen.getByText(/nothing matches that search/i)).toBeInTheDocument()
+    // The unfiltered totals stay on screen, so a filtered view can never
+    // be mistaken for the whole graph being empty.
+    expect(screen.getByText(/3 entities/)).toBeInTheDocument()
+  })
+
+  it('keeps relationships in their own disclosure, collapsed by default but still in the DOM', async () => {
+    const user = userEvent.setup()
+    render(<GraphSummary nodes={NODES} edges={EDGES} />)
+
+    const toggle = screen.getByText('Relationships')
+    const disclosure = toggle.closest('details')
+    expect(disclosure).not.toHaveAttribute('open')
+    // Collapsed is a visual state only -- <details> never removes its
+    // content, so this stays reachable for assistive tech (AC7).
+    expect(disclosure).toHaveTextContent('Works at')
+
+    await user.click(toggle)
+
+    expect(disclosure).toHaveAttribute('open')
   })
 
   it('handles an empty graph without crashing', () => {

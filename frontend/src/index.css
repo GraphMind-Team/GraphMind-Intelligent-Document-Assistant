@@ -117,22 +117,22 @@
 
   /* ---- Graph feature namespace (role unchanged; mirrors
      graphTheme.js -- re-derive both together) ---- */
-  --graph-person: #0D366B;
-  --graph-organization: #184F95;
-  --graph-project: #256ABF;
-  --graph-product: #6DA7EC;
-  --graph-location: #B7D3F6;
-  --graph-canvas-bg: #F3F7FE;
-  --graph-card-bg: #F8FAFE;
-  --graph-card-border: rgba(56, 97, 168, 0.22);
-  --graph-chip-bg: rgba(56, 97, 168, 0.06);
-  --graph-chip-border: rgba(56, 97, 168, 0.22);
-  --graph-ink: #132340;
-  --graph-ink2: rgba(19, 35, 64, 0.72);
+  --graph-person: #073B60;
+  --graph-organization: #075E8C;
+  --graph-project: #0A7BB5;
+  --graph-product: #67C7F0;
+  --graph-location: #BEE7FB;
+  --graph-canvas-bg: #F5FAFE;
+  --graph-card-bg: #FFFFFF;
+  --graph-card-border: rgba(3, 105, 161, 0.16);
+  --graph-chip-bg: rgba(14, 165, 233, 0.08);
+  --graph-chip-border: rgba(3, 105, 161, 0.18);
+  --graph-ink: #0B1A2B;
+  --graph-ink2: rgba(11, 26, 43, 0.72);
   --graph-accent: #0EA5E9;
-  --graph-accent-text: #0A6E99;
-  --graph-motif-dot: rgba(56, 97, 168, 0.08);
-  --graph-vignette: rgba(13, 54, 107, 0.07);
+  --graph-accent-text: #0B5FA5;
+  --graph-motif-dot: rgba(3, 105, 161, 0.07);
+  --graph-vignette: rgba(3, 105, 161, 0.06);
 
   /* ---- Ambient aurora (the ground behind everything) ---- */
   --aurora-1: rgba(56, 189, 248, .22);
@@ -240,22 +240,22 @@
   --focus-ring: #38BDF8;
   --sidebar-focus-ring: #38BDF8;
 
-  --graph-person: #1E5FB0;
-  --graph-organization: #256CC4;
-  --graph-project: #3987E5;
-  --graph-product: #5FA6EE;
-  --graph-location: #9AC9F5;
-  --graph-canvas-bg: #101B33;
-  --graph-card-bg: #141B2E;
-  --graph-card-border: rgba(111, 168, 238, 0.25);
-  --graph-chip-bg: rgba(111, 168, 238, 0.1);
-  --graph-chip-border: rgba(111, 168, 238, 0.25);
-  --graph-ink: #DCE6FA;
-  --graph-ink2: rgba(220, 230, 250, 0.68);
+  --graph-person: #0F5B94;
+  --graph-organization: #0F6BA8;
+  --graph-project: #3FA9E0;
+  --graph-product: #6FC5EE;
+  --graph-location: #A8DDF8;
+  --graph-canvas-bg: #0A1526;
+  --graph-card-bg: #0E1728;
+  --graph-card-border: rgba(56, 189, 248, 0.2);
+  --graph-chip-bg: rgba(56, 189, 248, 0.1);
+  --graph-chip-border: rgba(56, 189, 248, 0.22);
+  --graph-ink: #E8EEF7;
+  --graph-ink2: rgba(232, 238, 247, 0.7);
   --graph-accent: #38BDF8;
   --graph-accent-text: #38BDF8;
-  --graph-motif-dot: rgba(111, 168, 238, 0.1);
-  --graph-vignette: rgba(0, 0, 0, 0.35);
+  --graph-motif-dot: rgba(56, 189, 248, 0.1);
+  --graph-vignette: rgba(0, 0, 0, 0.4);
 
   --aurora-1: rgba(56, 189, 248, .16);
   --aurora-2: rgba(79, 140, 255, .14);

@@ -40,7 +40,11 @@ const ForceGraph2D = fromKapsule(ForceGraphKapsule, {
 })
 
 // UX-DR11's literal spec.
-const CANVAS_HEIGHT = 480
+const CANVAS_HEIGHT = 520
+// Edge stroke width, in world units like everything else drawn here. v2
+// thins the line so the (also-scaled) label pills and the nodes stay the
+// loudest things on the canvas.
+const LINK_WIDTH = 1.4
 const MIN_NODE_DIAMETER = 52
 const MAX_NODE_DIAMETER = 78
 const MID_NODE_DIAMETER = 65 // used when every node has the same degree -- no ranking signal to normalize against
@@ -146,6 +150,14 @@ const ZOOM_TRANSITION_MS = 180
 // World units, like the radius -- so the outline thins out with the fit
 // instead of thickening into a blob as a large graph zooms away.
 const NODE_STROKE_WIDTH = 1.5
+// v2 node treatment: a soft type-coloured halo, a knocked-out ring in the
+// canvas colour, then the fill and a thin top highlight. All four are
+// world-unit values (like the node diameter itself), so they scale with
+// the node when `fitToView` zooms a large graph out.
+const NODE_HALO_WIDTH = 7
+const NODE_HALO_ALPHA = 0.18
+const NODE_RING_WIDTH = 3
+const NODE_HIGHLIGHT_ALPHA = 0.35
 
 function diameterFor(degree, minDegree, maxDegree) {
   if (minDegree === maxDegree) return MID_NODE_DIAMETER
@@ -508,28 +520,55 @@ export default function GraphCanvas({ graph }) {
     const typeColor = typeColorFor(theme, node.type)
 
     ctx.save()
+
+    // 1. Halo -- a soft, type-coloured disc a little wider than the node,
+    //    drawn first so everything else lands on top of it. This is what
+    //    makes a node read as a lit object sitting *above* the canvas
+    //    rather than a flat sticker, and it visually separates two nodes
+    //    whose circles nearly touch.
+    ctx.beginPath()
+    ctx.arc(node.x, node.y, radius + NODE_HALO_WIDTH, 0, 2 * Math.PI)
+    ctx.globalAlpha = NODE_HALO_ALPHA
+    ctx.fillStyle = typeColor.fill
+    ctx.fill()
+    ctx.globalAlpha = 1
+
+    // 2. Ring -- the canvas-coloured gap knocked out between the halo and
+    //    the fill. Together with the halo this is what carries WCAG
+    //    1.4.11's shape-distinguishability for the two palest ramp steps
+    //    (v1 used a dark hairline outline for the same job; see
+    //    graphTheme.js's PALETTE.nodeRing comment).
+    ctx.beginPath()
+    ctx.arc(node.x, node.y, radius + NODE_RING_WIDTH / 2, 0, 2 * Math.PI)
+    ctx.lineWidth = NODE_RING_WIDTH
+    ctx.strokeStyle = palette.nodeRing
+    ctx.stroke()
+
+    // 3. Fill. Shadow blur/offset are specified in device space and are
+    //    *not* affected by the canvas transform, so these stay literal
+    //    rather than being scaled.
     ctx.beginPath()
     ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI)
-    // Shadow blur/offset are specified in device space and are *not*
-    // affected by the canvas transform, so these stay the literal
-    // `0 2px 6px` from DESIGN.md's elevation rule rather than being
-    // scaled.
     ctx.shadowColor = palette.nodeShadow
-    ctx.shadowBlur = 6
+    ctx.shadowBlur = 8
     ctx.shadowOffsetY = 2
     ctx.fillStyle = typeColor.fill
     ctx.fill()
-
-    // The boundary that makes a pale fill a distinguishable object at all
-    // (WCAG 1.4.11 -- see graphTheme.js's PALETTE.nodeStroke comment).
-    // Shadow cleared first so the outline doesn't paint a second copy of
-    // it on top of the fill's.
     ctx.shadowColor = 'transparent'
     ctx.shadowBlur = 0
     ctx.shadowOffsetY = 0
+
+    // 4. Inner highlight -- a thin arc across the upper edge, in the
+    //    badge's own text colour at low alpha. Reads as a light source
+    //    from above, consistent with the app's elevation model, and costs
+    //    one stroke.
+    ctx.beginPath()
+    ctx.arc(node.x, node.y, radius - NODE_STROKE_WIDTH, Math.PI * 1.15, Math.PI * 1.85)
+    ctx.globalAlpha = NODE_HIGHLIGHT_ALPHA
     ctx.lineWidth = NODE_STROKE_WIDTH
-    ctx.strokeStyle = palette.nodeStroke
+    ctx.strokeStyle = typeColor.text
     ctx.stroke()
+    ctx.globalAlpha = 1
     ctx.restore()
 
     const fontSize = 10.5
@@ -610,15 +649,18 @@ export default function GraphCanvas({ graph }) {
     // graphTheme.js's PALETTE comment) -- rather than a new pair of
     // colours that would need their own contrast check.
     pillPath(ctx, x, y, boxWidth, boxHeight)
-    ctx.fillStyle = palette.canvasBg
+    ctx.fillStyle = palette.cardBg
     ctx.fill()
     ctx.lineWidth = 1
-    ctx.strokeStyle = palette.nodeStroke
+    // The chip's own border and text are the accent pair the DOM chips
+    // (toolbar, legend, explorer) use, so an edge label on the canvas and
+    // a relationship chip in the list below read as the same object.
+    ctx.strokeStyle = palette.chipBorder
     ctx.stroke()
 
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    ctx.fillStyle = palette.nodeStroke
+    ctx.fillStyle = palette.accentText
     ctx.fillText(label, x, y)
     ctx.restore()
   }
@@ -634,145 +676,155 @@ export default function GraphCanvas({ graph }) {
     return <span aria-hidden="true" className="my-1.5 w-px self-stretch" style={{ backgroundColor: palette.chipBorder }} />
   }
 
+  // Zoom/fit control, rendered as one glass pill *floating over* the
+  // canvas's top-right corner in v2 rather than as a strip above it: the
+  // controls belong to the viewport they act on, and pulling them onto
+  // the canvas gives the whole 520px box back to the graph. `chipBg` over
+  // a backdrop blur keeps the nodes underneath faintly visible, so the
+  // pill reads as glass sitting on the canvas rather than a hole cut in
+  // it.
+  function ToolbarButton({ onClick, children, color }) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="rounded-full px-3 py-1.5 text-sm font-semibold"
+        style={{ color: color ?? palette.ink }}
+      >
+        {children}
+      </button>
+    )
+  }
+
   return (
     <div>
-      <div className="mb-3 flex items-center justify-end">
-        {/* One grouped "glass" pill rather than three separate floating
-            buttons -- the brief's own complaint about the original design
-            ("generic square buttons floating top-right with no visual
-            integration"). `chipBg`/`chipBorder` are the same translucent
-            blue surface the legend below and GraphSummary's redesigned
-            chips use, so this toolbar reads as part of one system rather
-            than a distinct control style. */}
+      <div className="relative">
         <div
-          className="flex items-center rounded-full px-0.5 py-0.5 shadow-sm"
-          style={{ backgroundColor: palette.chipBg, border: `1px solid ${palette.chipBorder}` }}
+          ref={containerRef}
+          role="img"
+          // The canvas is one image to assistive tech: its own contents
+          // are unreachable, and GraphSummary below is the equivalent
+          // (AC7/UX-DR28). The label stays generic on purpose -- the
+          // counts live in GraphSummary's own text, where they can be
+          // read rather than crammed into one announcement.
+          aria-label="Knowledge graph visualization"
+          // `graph-motif` (index.css) paints the dot-grid + vignette
+          // behind the graph; `ForceGraph2D`'s own `backgroundColor`
+          // below is transparent specifically so it shows through.
+          className="graph-motif overflow-hidden rounded-2xl"
+          style={{
+            height: CANVAS_HEIGHT,
+            border: `1px solid ${palette.cardBorder}`,
+            boxShadow:
+              theme === 'dark'
+                ? 'inset 0 1px 0 rgba(255,255,255,.04), 0 18px 44px -22px rgba(0, 0, 0, 0.8)'
+                : 'inset 0 1px 0 rgba(255,255,255,.6), 0 18px 44px -22px rgba(8, 40, 74, 0.35)',
+          }}
+          onWheel={markUserViewChange}
+          onPointerMove={handlePointerMove}
         >
-          <button
-            type="button"
-            onClick={() => stepZoom(1 / ZOOM_STEP)}
-            className="rounded-full px-3 py-1.5 text-sm font-semibold"
-            style={{ color: palette.ink }}
-          >
+          {width > 0 && (
+            <ForceGraph2D
+              ref={graphRef}
+              graphData={graphData}
+              width={width}
+              height={CANVAS_HEIGHT}
+              backgroundColor="transparent"
+              nodeCanvasObject={drawNode}
+              nodeVal={nodeVal}
+              nodeRelSize={1}
+              nodeLabel={null}
+              linkColor={linkColor}
+              linkWidth={LINK_WIDTH}
+              // Relationships are directed (a Person WORKS_AT an
+              // Organization, not the reverse); an undecorated line loses
+              // that. Placed at the target end, which lands just outside
+              // the target circle now that `nodeVal` tells the engine how
+              // big these nodes really are.
+              linkDirectionalArrowLength={8}
+              linkDirectionalArrowRelPos={1}
+              linkCurvature={linkCurvature}
+              linkCanvasObjectMode={linkCanvasObjectMode}
+              linkCanvasObject={drawLinkLabel}
+              onEngineTick={handleEngineTick}
+              onEngineStop={handleEngineStop}
+              minZoom={MIN_ZOOM}
+              maxZoom={MAX_ZOOM}
+              // AC5's read-only rule is about the *graph*: no
+              // click-to-query, no drag-to-rearrange, no editing. Moving
+              // the viewport is none of those, and at 150 capped entities
+              // in one box a fitted view alone is not readable -- so
+              // wheel zoom and pan are on, while node drag and all
+              // pointer hit-testing stay off.
+              enableNodeDrag={false}
+              enablePointerInteraction={false}
+              enableZoomInteraction={true}
+              enablePanInteraction={true}
+            />
+          )}
+        </div>
+
+        <div
+          className="absolute right-3 top-3 flex items-center rounded-full px-0.5 py-0.5 backdrop-blur-md"
+          style={{
+            backgroundColor: palette.chipBg,
+            border: `1px solid ${palette.chipBorder}`,
+            boxShadow: '0 6px 18px -10px rgba(8, 40, 74, .5)',
+          }}
+        >
+          <ToolbarButton onClick={() => stepZoom(1 / ZOOM_STEP)}>
             <span aria-hidden="true">−</span>
             <span className="sr-only">Zoom out</span>
-          </button>
+          </ToolbarButton>
           <ToolbarDivider />
-          <button
-            type="button"
-            onClick={() => stepZoom(ZOOM_STEP)}
-            className="rounded-full px-3 py-1.5 text-sm font-semibold"
-            style={{ color: palette.ink }}
-          >
+          <ToolbarButton onClick={() => stepZoom(ZOOM_STEP)}>
             <span aria-hidden="true">+</span>
             <span className="sr-only">Zoom in</span>
-          </button>
+          </ToolbarButton>
           <ToolbarDivider />
-          <button
-            type="button"
-            onClick={resetView}
-            className="rounded-full px-3 py-1.5 text-sm font-semibold"
-            style={{ color: palette.accentText }}
-          >
+          <ToolbarButton onClick={resetView} color={palette.accentText}>
             Fit
-          </button>
+          </ToolbarButton>
         </div>
       </div>
-      <div
-        ref={containerRef}
-        role="img"
-        // Short and generic on purpose -- GraphSummary immediately below
-        // is the real accessible content (AC7) and already states the
-        // entity/relationship counts and the read-only, zoomable nature of
-        // the view in visible text. Restating all of that here would have
-        // a screen reader announce the same sentence twice back to back;
-        // this just identifies what kind of region a screen-reader user
-        // has landed on.
-        aria-label="Knowledge graph visualization"
-        // `graph-motif` (index.css) paints the dot-grid + vignette behind
-        // the canvas -- a plain CSS background on this frame, not drawn
-        // into the force-graph canvas itself (see that class's own
-        // comment for why). `ForceGraph2D`'s own `backgroundColor` below
-        // is transparent specifically so this shows through it.
-        className="graph-motif overflow-hidden rounded-xl"
-        style={{
-          height: CANVAS_HEIGHT,
-          border: `1px solid ${palette.cardBorder}`,
-          boxShadow: theme === 'dark' ? '0 12px 32px rgba(0, 0, 0, 0.35)' : '0 12px 32px rgba(19, 35, 64, 0.10)',
-        }}
-        onWheel={markUserViewChange}
-        onPointerMove={handlePointerMove}
-      >
-        {width > 0 && (
-          <ForceGraph2D
-            ref={graphRef}
-            graphData={graphData}
-            width={width}
-            height={CANVAS_HEIGHT}
-            backgroundColor="transparent"
-            nodeCanvasObject={drawNode}
-            nodeVal={nodeVal}
-            nodeRelSize={1}
-            nodeLabel={null}
-            linkColor={linkColor}
-            // Relationships are directed (a Person WORKS_AT an
-            // Organization, not the reverse); an undecorated line loses
-            // that. Placed at the target end, which lands just outside the
-            // target circle now that `nodeVal` tells the engine how big
-            // these nodes really are.
-            linkDirectionalArrowLength={9}
-            linkDirectionalArrowRelPos={1}
-            linkCurvature={linkCurvature}
-            linkCanvasObjectMode={linkCanvasObjectMode}
-            linkCanvasObject={drawLinkLabel}
-            onEngineTick={handleEngineTick}
-            onEngineStop={handleEngineStop}
-            minZoom={MIN_ZOOM}
-            maxZoom={MAX_ZOOM}
-            // AC5's read-only rule is about the *graph*: no click-to-query,
-            // no drag-to-rearrange, no editing. Moving the viewport is none
-            // of those, and at 150 capped entities in a 480px box a fitted
-            // view alone is not readable -- so wheel zoom and pan are on,
-            // while node drag and all pointer hit-testing stay off.
-            enableNodeDrag={false}
-            enablePointerInteraction={false}
-            enableZoomInteraction={true}
-            enablePanInteraction={true}
-          />
-        )}
-      </div>
+
       {/* The badge drawn inside each circle is two letters -- unreadable
           as a type name on its own. This spells out only the types
-          actually on the canvas, so it stays short. Wrapped in the same
-          `chipBg`/`chipBorder` surface the toolbar above uses, so the key
-          reads as this card's own chrome rather than bare text floating
-          under the canvas. */}
+          actually on the canvas, so it stays short. v2 makes each entry
+          its own pill (rather than one long tinted bar) so the key reads
+          as a row of the same chips used everywhere else in this
+          feature. */}
       <ul
         aria-label="Entity type key"
-        className="mt-3 flex list-none flex-wrap gap-x-4 gap-y-2 rounded-lg px-3 py-2.5 text-sm"
-        style={{ backgroundColor: palette.chipBg, border: `1px solid ${palette.chipBorder}`, color: palette.ink }}
+        className="mt-3 flex list-none flex-wrap items-center gap-2 text-sm"
+        style={{ color: palette.ink }}
       >
         {presentTypes.map((type) => {
           const typeColor = typeColorFor(theme, type)
           return (
-            <li key={type} className="flex items-center gap-1.5">
+            <li
+              key={type}
+              className="flex items-center gap-1.5 rounded-full py-1 pl-1 pr-3"
+              style={{ backgroundColor: palette.chipBg, border: `1px solid ${palette.chipBorder}` }}
+            >
               {/* The badge sits on its own colour, so the key shows the
                   same pairing the canvas does. aria-hidden because the
-                  badge letters and the type name next to it already say
-                  everything this conveys. */}
+                  sr-only badge text and the type name next to it already
+                  say everything this conveys. */}
               <span
                 aria-hidden="true"
-                className="inline-flex h-5 w-7 items-center justify-center rounded-full text-[11px] font-bold shadow-sm"
+                className="inline-flex h-5 w-7 items-center justify-center rounded-full text-[11px] font-bold"
                 style={{ backgroundColor: typeColor.fill, color: typeColor.text }}
               >
                 {badgeFor(type)}
               </span>
               <span className="sr-only">{badgeFor(type)}</span>{' '}
-              <span className="font-medium">{type}</span>
+              <span className="text-[13px] font-semibold">{type}</span>
             </li>
           )
         })}
       </ul>
+
       <GraphSummary nodes={nodes} edges={edges} theme={theme} />
     </div>
   )
