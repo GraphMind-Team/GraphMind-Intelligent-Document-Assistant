@@ -287,12 +287,15 @@ function ChatPageContent() {
 
   return (
     <>
-      <h1 className="text-xl font-bold text-text">Chat</h1>
+      <header className="mb-5">
+        <p className="text-eyebrow uppercase text-accent">Ask your library</p>
+        <h1 className="text-page-title text-text">Chat</h1>
+      </header>
 
-      <div className="mt-4 grid grid-cols-[1fr_260px] gap-[20px] max-[900px]:grid-cols-1">
+      <div className="grid grid-cols-[1fr_260px] gap-[20px] max-[900px]:grid-cols-1">
         <div
-          className="flex min-w-0 flex-col rounded-xl border border-border bg-card-bg"
-          style={{ minHeight: '480px', maxHeight: '70vh' }}
+          className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-card-bg shadow-card"
+          style={{ minHeight: '520px', maxHeight: '72vh' }}
         >
           {/* aria-atomic="false": only the newly-appended message is
               announced, not a full re-read of the thread every turn
@@ -340,7 +343,7 @@ function ChatPageContent() {
                 <button
                   type="button"
                   onClick={loadOlderHistory}
-                  className="rounded-full border border-border px-3 py-1 text-[11px] text-text2"
+                  className="btn-ghost rounded-full px-3.5 py-1.5 text-[11px] font-semibold"
                 >
                   Load earlier messages
                 </button>
@@ -373,9 +376,12 @@ function ChatPageContent() {
             </p>
           )}
 
-          <form onSubmit={handleSubmit} className="border-t border-border p-3.5">
-            <div className="relative mt-6 w-full">
-              <RobotMascot />
+          <form onSubmit={handleSubmit} className="border-t border-border bg-surface2/60 p-4">
+            <div className="relative mt-9 w-full">
+              {/* The mascot mirrors the request state -- decorative
+                  reinforcement of the "Thinking…" bubble, never the only
+                  signal that something is in flight. */}
+              <RobotMascot state={isAsking ? 'thinking' : 'idle'} />
               <div className="flex w-full items-stretch gap-2">
                 <label htmlFor="chat-question" className="sr-only">
                   Ask a question about your documents
@@ -400,7 +406,7 @@ function ChatPageContent() {
                   // which of the two attributes is used here.
                   readOnly={isAsking}
                   placeholder="Ask a question about your documents…"
-                  className={`min-w-0 flex-1 rounded-full border border-border px-3.5 py-2.5 text-[13.5px] ${isAsking ? 'opacity-60' : ''}`}
+                  className={`min-w-0 flex-1 rounded-full border border-border px-5 py-3 text-[14px] shadow-card ${isAsking ? 'opacity-60' : ''}`}
                 />
                 <button
                   type="submit"
@@ -414,9 +420,22 @@ function ChatPageContent() {
                   // asking a no-op, exactly as it already does for the
                   // input's readOnly re-submit case.
                   aria-disabled={isAsking}
-                  className={`shrink-0 rounded-full border border-transparent bg-primary px-4.5 py-2.5 text-[13px] font-semibold text-on-primary ${isAsking ? 'cursor-not-allowed opacity-60' : ''}`}
+                  className={`btn-brand inline-flex shrink-0 items-center gap-1.5 rounded-full px-5 py-3 text-[13px] font-semibold ${isAsking ? 'cursor-not-allowed opacity-60' : ''}`}
                 >
                   Ask
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="h-4 w-4"
+                  >
+                    <path d="M5 12h13" />
+                    <path d="M13 6l6 6-6 6" />
+                  </svg>
                 </button>
               </div>
             </div>

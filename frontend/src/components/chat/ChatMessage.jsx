@@ -35,7 +35,7 @@ const REFUSAL_COPY = 'No supporting evidence found in your documents for this qu
 export default function ChatMessage({ message }) {
   if (message.role === 'user') {
     return (
-      <div className="ml-auto max-w-[70%] self-end rounded-[12px_12px_2px_12px] bg-primary px-3.5 py-2.5 text-[13.5px] text-on-primary">
+      <div className="anim-rise ml-auto max-w-[70%] self-end rounded-[20px_20px_6px_20px] bg-[image:var(--grad-brand)] px-4 py-2.5 text-[14px] text-white shadow-[var(--glow)]">
         {/* Sighted users get the sender cue from alignment/fill/corner
             (UX-DR5) alone; a screen reader gets none of that, so without
             this prefix two turns read as one undifferentiated stream. */}
@@ -47,7 +47,7 @@ export default function ChatMessage({ message }) {
 
   if (message.role === 'notice') {
     return (
-      <p className="mx-auto max-w-[78%] self-center text-center text-[13px] text-text2">
+      <p className="anim-rise mx-auto max-w-[78%] self-center text-center text-[13px] text-text2">
         {NOTICE_COPY[message.reason] ?? DEFAULT_NOTICE_COPY}
       </p>
     )
@@ -68,7 +68,7 @@ export default function ChatMessage({ message }) {
   // already passed Story 3.1's own accessibility review.
   if (message.role === 'refusal') {
     return (
-      <div className="max-w-[78%] self-center rounded-xl border border-warning/40 bg-refusal-bg px-3.5 py-3 text-center text-[13.5px] font-medium text-refusal-text">
+      <div className="anim-rise max-w-[78%] self-center rounded-2xl border border-warning/40 bg-refusal-bg px-4 py-3 text-center text-[14px] font-medium text-refusal-text">
         <span className="sr-only">Refusal: </span>
         {REFUSAL_COPY}
       </div>
@@ -77,15 +77,28 @@ export default function ChatMessage({ message }) {
 
   if (message.role === 'thinking') {
     return (
-      <div className="mr-auto max-w-[78%] self-start rounded-[12px_12px_12px_2px] border border-border bg-surface px-3.5 py-3 text-[13.5px] text-text2">
-        Thinking…
+      <div className="anim-rise mr-auto flex max-w-[78%] items-center gap-2 self-start rounded-[20px_20px_20px_6px] border border-border bg-surface px-4 py-3 text-[14px] text-text2">
+        {/* Three staggered dots carry the "working" cue visually; the
+            word stays in the DOM (sr-only) so the live region still
+            announces something meaningful rather than nothing. */}
+        <span className="sr-only">Thinking…</span>
+        <span aria-hidden="true" className="flex items-center gap-1">
+          {[0, 1, 2].map((index) => (
+            <span
+              key={index}
+              className="anim-dot block h-1.5 w-1.5 rounded-full bg-accent"
+              style={{ animationDelay: `${index * 0.16}s` }}
+            />
+          ))}
+        </span>
+        <span aria-hidden="true">Thinking…</span>
       </div>
     )
   }
 
   // 'assistant'
   return (
-    <div className="mr-auto max-w-[78%] self-start rounded-[12px_12px_12px_2px] border border-border bg-surface px-3.5 py-3 text-[13.5px] leading-[1.55] text-text">
+    <div className="anim-rise mr-auto max-w-[78%] self-start rounded-[20px_20px_20px_6px] border border-border bg-card-bg px-4 py-3 text-[14px] leading-[1.6] text-text shadow-card">
       <span className="sr-only">GraphMind: </span>
       {message.segments.map((segment, index) => (
         <span key={index}>

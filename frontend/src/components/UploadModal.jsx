@@ -226,7 +226,7 @@ export default function UploadModal({ onClose }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby={HEADING_ID}
-        className="flex w-full max-w-[520px] flex-col rounded-xl border border-border bg-card-bg shadow-modal"
+        className="anim-rise flex w-full max-w-[520px] flex-col rounded-2xl border border-border bg-card-bg shadow-modal"
       >
         <div className="border-b border-border px-6 py-4">
           <h2 id={HEADING_ID} className="text-lg font-bold text-text">
@@ -276,7 +276,7 @@ export default function UploadModal({ onClose }) {
               {files.map((row) => (
                 <li
                   key={row.id}
-                  className="rounded-lg border border-border bg-surface px-3.5 py-2.5"
+                  className="rounded-xl border border-border bg-surface2 px-4 py-3"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <span className="min-w-0 flex-1 truncate text-sm text-text">{row.name}</span>
@@ -339,7 +339,7 @@ export default function UploadModal({ onClose }) {
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-border bg-surface2 px-4 py-2 text-sm font-semibold text-primary"
+            className="rounded-full border border-border bg-surface2 px-5 py-2.5 text-sm font-semibold text-primary"
           >
             Cancel
           </button>

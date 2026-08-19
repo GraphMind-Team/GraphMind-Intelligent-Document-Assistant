@@ -58,7 +58,7 @@ export default function GraphPage() {
           Knowledge Graph
         </span>
       </div>
-      <h1 className="text-xl font-bold" style={{ color: 'var(--graph-ink)' }}>
+      <h1 className="text-page-title" style={{ color: 'var(--graph-ink)' }}>
         Graph Preview
       </h1>
       <p className="mt-1 text-sm" style={{ color: 'var(--graph-ink2)' }}>

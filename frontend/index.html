@@ -5,6 +5,17 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GraphMind</title>
+    <!-- Brand typefaces (design system v2): Inter for UI/body, Space
+         Grotesk for display headings. Preconnect first so the font CSS
+         request doesn't pay a fresh DNS+TLS handshake; `display=swap` so
+         text paints immediately in the local fallback stack that
+         --font-sans/--font-display already declare. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
     <script>
       // Sets data-theme before first paint so a stored dark preference
       // doesn't flash light on reload. Kept in sync with the same

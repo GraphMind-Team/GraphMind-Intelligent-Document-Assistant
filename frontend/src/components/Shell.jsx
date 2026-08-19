@@ -1,25 +1,99 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
-// Authenticated shell (Story 1.5): fixed 220px sidebar + fluid content,
-// per UX-DR1. DOM order matches visual order (sidebar first, then
-// <Outlet/> content) so tab order is correct with zero extra tabIndex
-// management (UX-DR18 -- no CSS `order`/`row-reverse` on this layout).
+// Authenticated shell: fixed-width sidebar + fluid content, per UX-DR1.
+// DOM order matches visual order (sidebar first, then <Outlet/>) so tab
+// order is correct with zero tabIndex management (UX-DR18 -- no CSS
+// `order`/`row-reverse` on this layout).
 //
-// Structure/values match the reference mockup's `.sidebar` exactly:
-// logo row, emoji-prefixed nav links (the one accepted emoji-as-substance
-// exception, per DESIGN.md), 10px/12px link padding, 2-4px inter-item
-// gap, distinct hover vs. active backgrounds, Exit separated purely by
-// margin-top:auto (no divider line -- the mockup doesn't have one).
+// Design system v2: the rail is now a *floating glass card* (sticky,
+// inset from the viewport edges) over the app's ambient aurora ground,
+// rather than a solid primary-fill block flush to the edge, and the nav
+// items are pill-shaped with a gradient active state plus a left
+// indicator bar. The emoji glyphs are replaced by inline stroke icons --
+// emoji render as a different typeface (and often a different color)
+// on every platform, which is exactly the inconsistency a design system
+// exists to remove. They stay `aria-hidden`; the link text is the label,
+// as before.
 //
-// NavLink's className render-prop supplies the `active` state itself
-// (based on the current URL), so exactly one of the four route links is
-// ever active without any manual `useLocation` comparison.
+// NavLink's className render-prop supplies the `active` state from the
+// current URL, so exactly one link is ever active with no manual
+// `useLocation` comparison.
+
+// Shared stroke-icon frame -- one size, one stroke weight, one join
+// style for every glyph in the rail, so they read as a set.
+function Icon({ children }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-[18px] w-[18px] shrink-0"
+    >
+      {children}
+    </svg>
+  )
+}
+
+const NAV_ITEMS = [
+  {
+    to: '/settings',
+    label: 'User Settings',
+    icon: (
+      <>
+        <circle cx="12" cy="12" r="3.2" />
+        <path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7.5 19l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 7.5l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 2.7-1.1V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1.3Z" />
+      </>
+    ),
+  },
+  {
+    to: '/documents',
+    label: 'Documents',
+    icon: (
+      <>
+        <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" />
+        <path d="M14 3v5h5" />
+        <path d="M9 13h6M9 17h4" />
+      </>
+    ),
+  },
+  {
+    to: '/chat',
+    label: 'Chat',
+    icon: (
+      <>
+        <path d="M20 14a3 3 0 0 1-3 3H8l-4 3V7a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3Z" />
+        <path d="M8.5 10.5h.01M12 10.5h.01M15.5 10.5h.01" />
+      </>
+    ),
+  },
+  {
+    to: '/graph',
+    label: 'Graph Preview',
+    icon: (
+      <>
+        <circle cx="6" cy="7" r="2.4" />
+        <circle cx="18" cy="9" r="2.4" />
+        <circle cx="11" cy="18" r="2.4" />
+        <path d="M8.2 8.2 15.7 9M7.2 9.2 10 15.7M16.6 11.1 12.6 16.4" />
+      </>
+    ),
+  },
+]
+
 const NAV_LINK_CLASS = ({ isActive }) =>
   [
-    'flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm',
+    // `relative` + the ::before-style indicator span inside each link is
+    // what makes the active item legible without relying on the tint
+    // alone -- the fill, the indicator bar and the font weight are three
+    // redundant cues, not one.
+    'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13.5px]',
     isActive
-      ? 'bg-sidebar-active-bg font-semibold text-sidebar-active-foreground'
+      ? 'bg-sidebar-active-bg font-semibold text-sidebar-active-foreground shadow-[inset_0_1px_0_rgba(255,255,255,.2)]'
       : 'text-sidebar-foreground hover:bg-sidebar-hover-bg hover:text-sidebar-active-foreground',
   ].join(' ')
 
@@ -33,52 +107,65 @@ export default function Shell() {
   }
 
   return (
-    <div className="flex min-h-screen bg-bg">
+    <div className="app-aurora flex min-h-screen gap-4 p-3 sm:p-4">
       <nav
         aria-label="Main"
-        className="flex w-[220px] shrink-0 flex-col gap-1 bg-sidebar-bg p-3.5"
+        className="glass sticky top-4 flex h-[calc(100vh-2rem)] w-[236px] shrink-0 flex-col gap-1 rounded-2xl p-3.5 shadow-card max-[900px]:w-[76px]"
       >
-        <div className="mb-6 flex items-center gap-2.5 px-2">
-          <span className="relative block h-[26px] w-[26px] shrink-0 rounded-[7px] bg-sidebar-logo-mark-bg after:absolute after:inset-[6px] after:rounded-full after:border-2 after:border-sidebar-bg after:content-['']" />
-          <span className="text-[15px] font-bold text-sidebar-active-foreground">GraphMind</span>
+        {/* Logo lockup. The mark is the brand gradient with a knocked-out
+            ring -- the same gradient the primary button and the mascot
+            use, so the identity is one object seen in three places. */}
+        <div className="mb-6 flex items-center gap-3 px-1.5 pt-1">
+          <span
+            aria-hidden="true"
+            className="relative block h-9 w-9 shrink-0 rounded-[12px] bg-[image:var(--grad-brand)] shadow-[var(--glow)] after:absolute after:inset-[9px] after:rounded-full after:border-2 after:border-white after:content-['']"
+          />
+          <span className="font-display text-[17px] font-bold tracking-[-0.02em] text-sidebar-active-foreground max-[900px]:hidden">
+            GraphMind
+          </span>
         </div>
 
-        <ul className="flex flex-col gap-[2px]">
-          <li>
-            <NavLink to="/settings" className={NAV_LINK_CLASS}>
-              <span aria-hidden="true">⚙</span> User Settings
-            </NavLink>
-          </li>
-          <li>
-            <NavLink to="/documents" className={NAV_LINK_CLASS}>
-              <span aria-hidden="true">📄</span> Documents
-            </NavLink>
-          </li>
-          <li>
-            <NavLink to="/chat" className={NAV_LINK_CLASS}>
-              <span aria-hidden="true">💬</span> Chat
-            </NavLink>
-          </li>
-          <li>
-            <NavLink to="/graph" className={NAV_LINK_CLASS}>
-              <span aria-hidden="true">🕸</span> Graph Preview
-            </NavLink>
-          </li>
+        <ul className="flex flex-col gap-1">
+          {NAV_ITEMS.map((item) => (
+            <li key={item.to}>
+              <NavLink to={item.to} className={NAV_LINK_CLASS}>
+                {({ isActive }) => (
+                  <>
+                    {/* Active indicator bar -- a second, non-color cue
+                        (position + presence) alongside the tint. */}
+                    <span
+                      aria-hidden="true"
+                      className={[
+                        'absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-[image:var(--grad-brand)]',
+                        isActive ? 'opacity-100' : 'opacity-0',
+                      ].join(' ')}
+                    />
+                    <Icon>{item.icon}</Icon>
+                    <span className="max-[900px]:sr-only">{item.label}</span>
+                  </>
+                )}
+              </NavLink>
+            </li>
+          ))}
         </ul>
 
-        {/* Bottom-anchored via margin-top: auto, separated from the four
-            nav-destination links purely by that spacing -- the mockup has
-            no divider line here. */}
+        {/* Bottom-anchored via margin-top:auto, separated from the nav
+            destinations by spacing plus a hairline rule. */}
         <button
           type="button"
           onClick={handleExit}
-          className="mt-auto flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm text-sidebar-foreground hover:bg-sidebar-hover-bg hover:text-sidebar-active-foreground"
+          className="mt-auto flex w-full items-center gap-3 rounded-xl border-t border-sidebar-border px-3 py-2.5 text-left text-[13.5px] text-sidebar-foreground hover:bg-sidebar-hover-bg hover:text-sidebar-active-foreground"
         >
-          <span aria-hidden="true">↩</span> Exit
+          <Icon>
+            <path d="M15 17l5-5-5-5" />
+            <path d="M20 12H9" />
+            <path d="M12 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6" />
+          </Icon>
+          <span className="max-[900px]:sr-only">Exit</span>
         </button>
       </nav>
 
-      <main className="min-w-0 flex-1 p-8">
+      <main className="min-w-0 flex-1 px-2 py-4 sm:px-6">
         <Outlet />
       </main>
     </div>

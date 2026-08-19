@@ -1,9 +1,10 @@
-import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Link, Route, Routes } from 'react-router-dom'
 import ProtectedRoute from './components/ProtectedRoute'
 import PublicOnlyRoute from './components/PublicOnlyRoute'
 import Shell from './components/Shell'
 import RegisterPage from './pages/RegisterPage'
 import LoginPage from './pages/LoginPage'
+import LandingPage from './pages/LandingPage'
 import HealthPage from './pages/HealthPage'
 import DocumentsPage from './pages/DocumentsPage'
 import DocumentDetailPage from './pages/DocumentDetailPage'
@@ -15,8 +16,11 @@ import ThemeAccountSync from './components/ThemeAccountSync'
 // Catch-all for anything that isn't a real route.
 function NotFoundPage() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-bg p-8">
-      <p className="text-sm text-text2">Page not found.</p>
+    <main className="app-aurora flex min-h-screen flex-col items-center justify-center gap-4 p-8 text-center">
+      <p className="font-display text-[22px] font-bold text-text">Page not found.</p>
+      <Link to="/" className="btn-brand rounded-full px-6 py-3 text-sm font-semibold">
+        Back to GraphMind
+      </Link>
     </main>
   )
 }
@@ -28,10 +32,16 @@ function App() {
       <Routes>
         <Route path="/health" element={<HealthPage />} />
 
+        {/* The public front door. Deliberately *not* under
+            PublicOnlyRoute: a landing page that bounces signed-in
+            visitors makes the product's own logo a broken link for
+            them. It adapts its calls to action instead. */}
+        <Route path="/" element={<LandingPage />} />
+
         {/* Already-authenticated visitors get sent into the shell instead
             of seeing a register/login form they don't need. */}
         <Route element={<PublicOnlyRoute />}>
-          <Route path="/" element={<RegisterPage />} />
+          <Route path="/register" element={<RegisterPage />} />
           <Route path="/login" element={<LoginPage />} />
         </Route>
 

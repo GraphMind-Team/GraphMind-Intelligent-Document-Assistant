@@ -39,7 +39,7 @@ export default function StatusPill({ status }) {
   return (
     <span
       className={[
-        'inline-block rounded-full px-2.5 py-[3px] text-[11px] font-bold',
+        'inline-block rounded-full px-2.5 py-[4px] text-[11px] font-bold tracking-[0.01em]',
         STATUS_CLASSES[status] ?? UNKNOWN_STATUS_CLASSES,
       ].join(' ')}
     >

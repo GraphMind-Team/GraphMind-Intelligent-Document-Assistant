@@ -9,7 +9,7 @@ import ProfileCard from '../components/settings/ProfileCard'
 export default function SettingsPage() {
   return (
     <>
-      <h1 className="text-xl font-bold text-text">User Settings</h1>
+      <h1 className="text-page-title text-text">User Settings</h1>
       <div className="mt-6 grid max-w-[900px] grid-cols-1 gap-5 sm:grid-cols-2">
         <ProfileCard />
         <ChangePasswordCard />
