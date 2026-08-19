@@ -477,6 +477,37 @@ def test_bound_chat_history_never_exceeds_the_char_budget(monkeypatch):
     assert total_chars <= 2000
 
 
+def test_bound_chat_history_skips_an_oversized_newest_turn_but_keeps_older_ones(monkeypatch):
+    """An individual turn that alone blows the whole budget must be
+    skipped, not treated as a stop signal that discards the older turns
+    behind it. Reachable in production, not exotic: `AskRequest.question`
+    permits 2000 characters, so one maximal question already exceeds
+    `HISTORY_MAX_CHARS` on its own -- with a `break`, asking it would zero
+    the conversational-memory window outright for the following
+    `HISTORY_MAX_TURNS` questions."""
+    monkeypatch.setattr(llm_client_module, "HISTORY_MAX_TURNS", 3)
+    monkeypatch.setattr(llm_client_module, "HISTORY_MAX_CHARS", 100)
+    turns = [
+        ChatHistoryTurn(question="older question", answer="older answer"),
+        ChatHistoryTurn(question="middle question", answer="middle answer"),
+        ChatHistoryTurn(question="q" * 500, answer="a" * 500),
+    ]
+
+    bounded = bound_chat_history(turns)
+
+    assert [t.question for t in bounded] == ["older question", "middle question"]
+
+
+def test_bound_chat_history_returns_empty_when_no_single_turn_fits(monkeypatch):
+    """Skipping is per-turn, not a fallback that eventually gives up on
+    the budget -- if nothing fits, nothing is returned."""
+    monkeypatch.setattr(llm_client_module, "HISTORY_MAX_TURNS", 3)
+    monkeypatch.setattr(llm_client_module, "HISTORY_MAX_CHARS", 10)
+    turns = [ChatHistoryTurn(question="q" * 50, answer="a" * 50) for _ in range(3)]
+
+    assert bound_chat_history(turns) == []
+
+
 def test_bound_chat_history_empty_input_returns_empty_list():
     assert bound_chat_history([]) == []
 

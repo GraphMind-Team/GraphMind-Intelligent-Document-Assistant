@@ -152,10 +152,17 @@ RELEVANCE_THRESHOLD = 0.75
 # query text (its own `embed_texts` call) and `generate_answer`'s
 # `history` param below.
 #
-# 3 turns / 2000 characters -- a placeholder pending measurement against
-# real free-tier context limits and NFR-1 latency during this story's
-# manual verification (epic-3-context.md's OD-8), not yet re-tuned against
-# a live account the way RELEVANCE_THRESHOLD was above. Small enough that
+# 3 turns / 2000 characters -- OD-8, resolved (epics.md) on Story 3.4's
+# manual verification against real OpenRouter/Weaviate/Postgres:
+# history-augmented follow-ups resolved their references correctly with no
+# observable answer-quality or latency regression at these values. Weaker
+# evidence than RELEVANCE_THRESHOLD's above, and knowingly so -- that one
+# came from measured retrieval distances, this one from a live session
+# working. Note Epic 6's harness cannot tighten this: it passes
+# `use_history=False` (chat/service.py) precisely so SM-1/SM-2/SM-C1 stay
+# comparable to OD-3's stateless baseline, so it measures single-question
+# retrieval and never this window. An instrumented sweep is carried in
+# deferred-work.md. Small enough that
 # a history-augmented prompt still fits comfortably alongside
 # _MAX_PROMPT_CHARS's own 12,000-character passage budget below (budgeted
 # entirely separately -- this number never eats into that one, see
@@ -553,6 +560,22 @@ def bound_chat_history(history: list[ChatHistoryTurn]) -> list[ChatHistoryTurn]:
     ago. Never truncates a turn's text mid-way -- a turn either fits whole
     or is dropped whole, same "never truncate mid-unit" reasoning as
     passage budgeting.
+
+    An individual turn that alone exceeds `HISTORY_MAX_CHARS` is *skipped*
+    (`continue`), not treated as a stop signal (`break`) -- the newest
+    turn being oversized must not discard the older turns behind it that
+    would have fit. This is reachable, not exotic: `AskRequest.question`
+    (chat/schemas.py) permits 2000 characters, so a single maximal
+    question already exceeds this whole budget on its own, and a
+    four-or-five-segment answer gets there too. With `break`, one such
+    turn zeroed the window outright for the next `HISTORY_MAX_TURNS`
+    questions -- a total, silent loss of conversational memory. Skipping
+    leaves a gap in an otherwise contiguous window, which the rendered
+    block ("oldest first") doesn't signal; that's the accepted cost of
+    keeping *some* context over none. For the ordinary over-budget case
+    (several normally-sized turns) this is identical to the old
+    behaviour, since the first turn that doesn't fit is also the oldest
+    one considered.
     """
     capped = history[-HISTORY_MAX_TURNS:] if len(history) > HISTORY_MAX_TURNS else list(history)
 
@@ -561,7 +584,7 @@ def bound_chat_history(history: list[ChatHistoryTurn]) -> list[ChatHistoryTurn]:
     for turn in reversed(capped):
         line_len = len(f"Q: {turn.question}\nA: {turn.answer}\n")
         if used_chars + line_len > HISTORY_MAX_CHARS:
-            break
+            continue
         selected.append(turn)
         used_chars += line_len
     selected.reverse()

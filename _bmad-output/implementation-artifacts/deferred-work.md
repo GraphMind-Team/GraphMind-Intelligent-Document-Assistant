@@ -641,3 +641,29 @@
     per-user write serialization (e.g. `SELECT ... FOR UPDATE` or an app-level lock around
     `_finish`), disproportionate to a failure mode requiring a genuinely fast double-submit from
     the same account. Worth reconsidering if this is ever observed in practice.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-4-remember-the-conversation.md`
+  summary: >
+    OD-8's window size (`HISTORY_MAX_TURNS = 3` / `HISTORY_MAX_CHARS = 2000`) is resolved on the
+    strength of Story 3.4's manual verification -- a live history-augmented session that resolved
+    follow-up references correctly with no observable quality or latency regression -- not on an
+    instrumented sweep across candidate window sizes against real free-tier context limits and
+    NFR-1 latency. Nothing measures whether 2 turns would do as well, or 5 better.
+  evidence: Story 3.4 post-merge review raised this. Epic 6's harness deliberately cannot close it:
+    it passes `use_history=False` so SM-1/SM-2/SM-C1 stay comparable to OD-3's stateless baseline,
+    which means measuring this window needs a *second*, history-aware harness mode with its own
+    multi-turn question set -- disproportionate to a value that demonstrably works. Worth building
+    if a free-tier model swap tightens the context margin, or if NFR-1 latency work resumes and the
+    history block becomes a suspect.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-4-remember-the-conversation.md`
+  summary: >
+    `bound_chat_history` skips an individual turn whose formatted "Q: ...\nA: ...\n" block alone
+    exceeds `HISTORY_MAX_CHARS`, keeping the older turns behind it. That leaves a silent gap in a
+    window the generation prompt presents as contiguous ("Recent conversation so far, oldest
+    first"), so the model can resolve a reference against turn N-2 while turn N-1 is invisible to it.
+  evidence: Story 3.4 post-merge review. Accepted as strictly better than the alternative it
+    replaced (`break`, which discarded the entire window whenever the newest turn was oversized --
+    reachable via a single maximal 2000-character question, and a total silent loss of memory).
+    Signalling the gap in the prompt text, or truncating the oversized turn on a sentence boundary,
+    both cost more than the failure mode justifies today.

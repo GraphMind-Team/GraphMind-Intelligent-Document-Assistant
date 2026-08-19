@@ -616,4 +616,150 @@ describe('ChatPage conversation history (Story 3.4)', () => {
     expect(notice.tagName).toBe('P')
     expect(notice).not.toHaveClass('bg-surface')
   })
+
+  // --- Review fixes: the three ways history could become unreachable. ---
+
+  it('offers a Load earlier messages button whenever more history exists', async () => {
+    // Regression: scrolling to the top used to be the ONLY trigger, and a
+    // scroll event can only fire on a scroller that actually overflows.
+    // Three short messages don't fill the 480px-minimum container, so a
+    // returning user's own history was unreachable with no visible
+    // affordance and no keyboard path. Asserted on the button, not on
+    // `fireEvent.scroll`, precisely because jsdom dispatches a synthetic
+    // scroll regardless of layout and so cannot see that failure.
+    const historySpy = vi.spyOn(chatClient, 'getChatHistory')
+    historySpy.mockResolvedValueOnce({
+      messages: [
+        {
+          id: 'm2',
+          role: 'user',
+          question: 'Recent question?',
+          segments: null,
+          empty_reason: null,
+          created_at: '2026-01-01T00:00:02',
+        },
+      ],
+      next_cursor: 'cursor-1',
+      has_more: true,
+    })
+    historySpy.mockResolvedValueOnce({
+      messages: [
+        {
+          id: 'm1',
+          role: 'user',
+          question: 'Older question?',
+          segments: null,
+          empty_reason: null,
+          created_at: '2026-01-01T00:00:01',
+        },
+      ],
+      next_cursor: null,
+      has_more: false,
+    })
+    const user = userEvent.setup()
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    render(<ChatPage />)
+
+    const button = await screen.findByRole('button', { name: /load earlier messages/i })
+    await user.click(button)
+
+    expect(await screen.findByText('Older question?')).toBeInTheDocument()
+    const [, secondCallOptions] = historySpy.mock.calls[1]
+    expect(secondCallOptions).toEqual({ cursor: 'cursor-1', limit: 10 })
+    // Gone once the backend says there is nothing older left.
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /load earlier messages/i })).not.toBeInTheDocument(),
+    )
+  })
+
+  it('does not offer the button when the account has no older history', async () => {
+    renderChatPage()
+
+    await waitFor(() => expect(chatClient.getChatHistory).toHaveBeenCalled())
+    expect(screen.queryByRole('button', { name: /load earlier messages/i })).not.toBeInTheDocument()
+  })
+
+  it('keeps history reachable when the initial fetch resolves after a live question', async () => {
+    // Regression: the initial fetch used to bail out entirely once a live
+    // question had been submitted, which also skipped recording
+    // `next_cursor`/`has_more` -- leaving pagination dead for the rest of
+    // the session for exactly the users who had history to page through.
+    let resolveHistory
+    vi.spyOn(chatClient, 'getChatHistory').mockImplementation(
+      () => new Promise((resolve) => { resolveHistory = resolve }),
+    )
+    vi.spyOn(chatClient, 'askQuestion').mockResolvedValue(ANSWER_RESULT)
+    const user = userEvent.setup()
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    render(<ChatPage />)
+
+    await user.type(screen.getByLabelText(/ask a question/i), 'What is the refund window?')
+    await user.click(screen.getByRole('button', { name: 'Ask' }))
+    expect(await screen.findByText("TechCorp's refund window is 30 days.")).toBeInTheDocument()
+
+    resolveHistory({
+      messages: [
+        {
+          id: 'm1',
+          role: 'user',
+          question: 'An earlier question?',
+          segments: null,
+          empty_reason: null,
+          created_at: '2026-01-01T00:00:01',
+        },
+      ],
+      next_cursor: 'cursor-1',
+      has_more: true,
+    })
+
+    // The stale page is prepended above the live turn rather than
+    // replacing it -- neither is lost.
+    expect(await screen.findByText('An earlier question?')).toBeInTheDocument()
+    expect(screen.getByText('What is the refund window?')).toBeInTheDocument()
+    expect(screen.getByText("TechCorp's refund window is 30 days.")).toBeInTheDocument()
+    // And the pagination anchor survived, so older pages stay reachable.
+    expect(
+      await screen.findByRole('button', { name: /load earlier messages/i }),
+    ).toBeInTheDocument()
+  })
+
+  it('renders the loading indicator outside the scrollable log', async () => {
+    // The prepend scroll-restore measures the scroller's `scrollHeight`
+    // before the update and reapplies it after. Anything that mounts or
+    // unmounts *inside* the scroller between those two moments -- as the
+    // indicator used to -- makes the restored position short by its own
+    // height, the exact visible jump that effect exists to prevent.
+    const historySpy = vi.spyOn(chatClient, 'getChatHistory')
+    historySpy.mockResolvedValueOnce({
+      messages: [
+        {
+          id: 'm2',
+          role: 'user',
+          question: 'Recent question?',
+          segments: null,
+          empty_reason: null,
+          created_at: '2026-01-01T00:00:02',
+        },
+      ],
+      next_cursor: 'cursor-1',
+      has_more: true,
+    })
+    let resolveSecond
+    historySpy.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveSecond = resolve }),
+    )
+    const user = userEvent.setup()
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    render(<ChatPage />)
+
+    await user.click(await screen.findByRole('button', { name: /load earlier messages/i }))
+
+    const indicator = await screen.findByText('Loading earlier messages…')
+    const log = screen.getByRole('log', { name: /conversation/i })
+    expect(log).toHaveAttribute('aria-busy', 'true')
+    expect(log.contains(indicator)).toBe(false)
+
+    resolveSecond({ messages: [], next_cursor: null, has_more: false })
+    await waitFor(() => expect(log).toHaveAttribute('aria-busy', 'false'))
+  })
 })
