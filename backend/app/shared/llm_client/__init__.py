@@ -123,43 +123,51 @@ _CHAT_RETRY_DELAY_SECONDS = 3.0
 # timeout, retries, prompt budget), and this is that same decision, made
 # one step earlier than the others.
 #
-# `distance` is Weaviate's cosine distance from `paraphrase-multilingual-
-# MiniLM-L12-v2` embeddings (lower = more similar). Measured, not guessed:
-# against this account's one real `Ready` document (English, vendor/
-# refund-terms), three on-topic questions returned best-passage distances
-# of 0.162, 0.236, 0.459 (the last confirmed on-topic -- the source chunk
-# states outright "Northbridge Logistics handles shipping for all Q2
-# rollout hardware"), three off-topic questions returned 0.899, 1.061,
-# 1.094, and one Bulgarian on-topic question (cross-lingual, same English
-# document) returned 0.182 -- multilingual retrieval showed no widening
-# here. 0.75 sits in the resulting gap, biased toward the "don't wrongly
-# refuse" side (0.29 margin above the worst on-topic case vs. 0.15 below
-# the best off-topic case), matching FR-10's intent that a false refusal
-# is worse than an occasional weak-but-attempted answer. Small sample (one
-# document, mostly English) -- flagged for re-measurement once Epic 6's
-# evaluation set exists (SM-2/SM-C1), same as `TOP_K_PASSAGES` and
-# `_MAX_PROMPT_CHARS` above were themselves re-tuned against real data
-# rather than left at their original guesses.
+# `distance` is Weaviate's cosine distance (lower = more similar) from
+# `weaviate_client.EMBEDDING_MODEL` -- arctic-embed-l-v2.0, computed
+# server-side by text2vec-weaviate. Measured, not guessed.
 #
-# !! NEEDS RE-MEASUREMENT AFTER THE MOVE TO SERVER-SIDE EMBEDDINGS !!
-# Every number above was measured against the old in-process model
-# (fastembed paraphrase-multilingual-MiniLM-L12-v2, 384-dim). Passages
-# and queries are now embedded by Weaviate under a *different* model
-# (`weaviate_client.EMBEDDING_MODEL`, arctic-embed-l-v2.0, 1024-dim), and
-# cosine distances are only comparable within one model -- a threshold
-# calibrated on one says nothing about the other. 0.75 is retained as a
-# starting point, NOT as a validated value.
+# Re-measured after embeddings moved from the old in-process fastembed
+# model to Weaviate. That mattered: cosine distances are only comparable
+# within one model, so the previous calibration (on-topic 0.162-0.459,
+# off-topic 0.899-1.094, gap 0.44) described a model no longer in use.
+# Current numbers, over 12 questions against 6 re-indexed documents
+# across two accounts -- English fixtures and real Bulgarian documents:
 #
-# Both failure modes are silent, which is why this note is this loud: set
-# too low, every question refuses and the app looks like it has no data;
-# set too high, nothing ever refuses and FR-10's grounding guarantee is
-# gone while answers still look plausible. Neither raises anything.
+#   on-topic, English            0.375 .. 0.529
+#   on-topic, Bulgarian          0.403 .. 0.693
+#   on-topic, cross-lingual      0.452 .. 0.691   (EN question, BG source)
+#   off-topic                    0.793 .. 0.951
 #
-# `scripts/eval_harness.py` is the instrument -- it runs the
-# `eval_questions.json` set with `use_history=False`, which is exactly
-# the single-question retrieval shape this constant is meant to describe.
-# Re-run it against re-indexed data and re-derive the on-topic /
-# off-topic gap the same way the numbers above were derived.
+# Cross-lingual retrieval genuinely works -- an English question matched
+# the correct Bulgarian passage at 0.452, comfortably inside the
+# on-topic band. That is the property this project switched to a
+# multilingual model for, and it survived the move to Weaviate.
+#
+# 0.75 is KEPT rather than moved. It still sits in the gap (0.693 worst
+# on-topic, 0.793 best off-topic), and the arithmetic "ideal" of ~0.76 is
+# within the noise of a 12-question sample -- moving it would be fitting
+# noise, not evidence.
+#
+# What genuinely changed is the *margin*, and it is worth knowing: the
+# gap narrowed from 0.44 to 0.099, leaving 0.057 of headroom above the
+# worst on-topic case where there used to be 0.29. This threshold is
+# much more fragile than its previous incarnation.
+#
+# Part of that narrowing is a test-data artifact, not the model: the
+# 0.793 off-topic floor came from an off-topic question matching the
+# near-contentless "plain test document" HTML fixture, which weakly
+# matches anything. Excluding it, the real-content off-topic floor is
+# 0.896 and the gap is a healthier 0.203. Deleting that fixture would
+# widen the measured gap without changing retrieval quality at all --
+# which is exactly why it is called out here rather than quietly
+# excluded from the numbers above.
+#
+# Still a small sample. Re-measure via `scripts/eval_harness.py` (which
+# runs with `use_history=False`, the single-question shape this constant
+# describes) once Epic 6's evaluation set exists (SM-2/SM-C1), same as
+# `TOP_K_PASSAGES` and `_MAX_PROMPT_CHARS` above were re-tuned against
+# real data rather than left at their original guesses.
 RELEVANCE_THRESHOLD = 0.75
 
 # OD-8 (Story 3.4, FR-17): the bounded recent-turn window fed into both
