@@ -667,3 +667,15 @@
     reachable via a single maximal 2000-character question, and a total silent loss of memory).
     Signalling the gap in the prompt text, or truncating the oversized turn on a sentence boundary,
     both cost more than the failure mode justifies today.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-6-email-verification.md`
+  summary: >
+    Pick and configure a real SMTP relay for production before this deploys -- Render's free tier
+    blocks outbound port 25, so `SMTP_HOST`/`SMTP_PORT=587` must point at a relay that speaks SMTP
+    over 587 (Mailtrap works for local/dev testing; a real transactional provider such as Brevo is
+    needed for production so verification emails actually reach real inboxes rather than a sandbox).
+    Left unset, the app still works correctly (`shared/email.send_email`'s console fallback logs
+    the link instead of mailing it), so this isn't a blocker to running the app locally or in CI --
+    only to a real deployment where a human needs to receive the email.
+  evidence: Story 1.6 (see `backend/.env.example`'s own SMTP block for the same note). No SMTP
+    provider has been chosen or credentials obtained as of this story's implementation.

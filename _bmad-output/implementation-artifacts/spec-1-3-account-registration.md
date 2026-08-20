@@ -32,6 +32,7 @@ provenance: 'reconstructed-after-implementation'
 - The Alembic migration for this story creates only the `users` table — no other table is created ahead of the story that actually needs it (a standing convention this project holds through every later migration).
 - A rejected request returns FastAPI's own `HTTPException` `{"detail": ...}` shape — no custom error envelope (AD-3, first applied here). The message is plain and declarative, no apologetic filler or emoji (UX-DR19).
 - No password reset flow, no email verification flow — both explicitly out of v1 scope; not a partial stub, not present at all.
+  > **Superseded 2026-08-20 (Story 1.6):** email verification is now implemented — see `spec-1-6-email-verification.md`. This line correctly described Story 1.3's own scope at the time it shipped; password reset remains out of scope, unchanged.
 - The Registration page renders correctly in both light and dark themes (UX-DR2), even though it sits outside the authenticated shell and Story 1.2's full token system doesn't exist yet.
 - Email normalization happens once, at the schema/validator layer (`RegisterRequest`), not in the service — so Story 1.4's login can't drift onto a different casing rule than registration used to create the account.
 - The DB engine and session factory are constructed lazily, never at module import time — an eager construction would open a live Neon connection on every test-process import and crash the suite outright on any machine without `backend/.env` configured.
@@ -40,6 +41,7 @@ provenance: 'reconstructed-after-implementation'
 
 **Never:**
 - No password reset or email verification flow (see Always — repeated because it is the AC most likely to be "helpfully" half-built by a future change).
+  > **Superseded 2026-08-20 (Story 1.6):** see the matching note under Always above — email verification is now real, deliberately built as its own story rather than "helpfully" retrofitted into this one.
 - No rebuilding of the Postgres session plumbing or the theme context when Story 1.5 / Story 1.2 land — those stories extend what 1.3 built here, per this story's own commit message recording the overlap as intentional.
 - Real Neon credentials never become visible to the test process — `conftest.py`'s env-var fallbacks are set at module import time, before any test module (starting with `test_health.py`) is collected, specifically so a developer's real `.env` can never leak into a pytest run via import order.
 
@@ -107,6 +109,7 @@ Story 1.3 shipped before this file existed, so this entry is reconstructed from 
 - Given no database schema exists yet, when this story is implemented, then the migration creates only the `users` table.
 - Given invalid or incomplete input, when the request is rejected, then it returns as `HTTPException` with a `{"detail": ...}` body, plain and declarative.
 - Given password reset and email verification are out of v1 scope, when registration is built, then neither flow is implemented, even partially.
+  > **Superseded 2026-08-20 (Story 1.6):** no longer true for email verification, which Story 1.6 implements. Password reset remains unimplemented and out of scope.
 - Given the Registration page is outside the authenticated shell, when it renders, then it displays correctly in both light and dark themes.
 
 ## Design Notes

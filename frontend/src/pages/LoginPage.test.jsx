@@ -1,11 +1,16 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import LoginPage from './LoginPage'
 import { useAuth } from '../context/AuthContext'
+import * as authClient from '../api/authClient'
 
 vi.mock('../context/AuthContext', () => ({ useAuth: vi.fn() }))
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 function renderLoginPage(initialEntry) {
   return render(
@@ -55,5 +60,52 @@ describe('LoginPage redirect-target logic', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Invalid email or password.')
     expect(screen.queryByText('Documents page')).not.toBeInTheDocument()
+  })
+})
+
+describe('LoginPage email-verification gate (Story 1.6)', () => {
+  it('offers a resend action when login rejects with a 403', async () => {
+    const rejection = new Error(
+      'Please verify your email address before logging in. We sent a link when you registered.',
+    )
+    rejection.status = 403
+    useAuth.mockReturnValue({ login: vi.fn().mockRejectedValue(rejection) })
+    const user = userEvent.setup()
+
+    renderLoginPage('/login')
+    await submitLoginForm(user)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/verify your email/i)
+    expect(screen.getByRole('button', { name: /resend verification email/i })).toBeInTheDocument()
+  })
+
+  it('does not offer a resend action on a plain 401', async () => {
+    const rejection = new Error('Invalid email or password.')
+    rejection.status = 401
+    useAuth.mockReturnValue({ login: vi.fn().mockRejectedValue(rejection) })
+    const user = userEvent.setup()
+
+    renderLoginPage('/login')
+    await submitLoginForm(user)
+
+    await screen.findByRole('alert')
+    expect(screen.queryByRole('button', { name: /resend verification email/i })).not.toBeInTheDocument()
+  })
+
+  it('confirms inline once the resend action is used', async () => {
+    const rejection = new Error('Please verify your email address before logging in.')
+    rejection.status = 403
+    useAuth.mockReturnValue({ login: vi.fn().mockRejectedValue(rejection) })
+    vi.spyOn(authClient, 'resendVerification').mockResolvedValue({ detail: 'sent' })
+    const user = userEvent.setup()
+
+    renderLoginPage('/login')
+    await submitLoginForm(user)
+    await user.click(await screen.findByRole('button', { name: /resend verification email/i }))
+
+    expect(authClient.resendVerification).toHaveBeenCalledWith({ email: 'maria@example.com' })
+    expect(
+      await screen.findByText(/if that account exists and isn't verified yet/i),
+    ).toBeInTheDocument()
   })
 })

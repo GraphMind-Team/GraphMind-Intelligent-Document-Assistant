@@ -147,7 +147,23 @@ _FAILED_STATUS = "Failed"
 # literal text and as a defensive no-op if a future FastAPI version ever
 # does wrap them as `APIRoute`.
 PUBLIC_ALLOWLIST_PATHS = frozenset(
-    {"/auth/register", "/auth/login", "/health", "/docs", "/openapi.json"}
+    {
+        "/auth/register",
+        "/auth/login",
+        # Story 1.6: both reachable by a logged-out caller by design -- a
+        # freshly registered account has no session yet, and a stuck/lost
+        # verification link is exactly the case resend-verification exists
+        # to recover from. Neither leaks per-account data (verify-email
+        # only flips one column keyed by a signed token's own subject;
+        # resend-verification's response is identical for every input --
+        # see `auth/service.py::resend_verification`'s docstring), so
+        # neither needs `get_current_user`.
+        "/auth/verify-email",
+        "/auth/resend-verification",
+        "/health",
+        "/docs",
+        "/openapi.json",
+    }
 )
 
 # `_covered_routes` ducktypes on FastAPI 0.141.1's private

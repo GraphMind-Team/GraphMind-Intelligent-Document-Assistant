@@ -15,12 +15,18 @@ the authenticated user's id alone, not IP -- the caller already holds a
 valid access token by the time this route runs, so the threat isn't an
 anonymous source grinding accounts, it's that same token being used (e.g.
 after theft) to brute-force `current_password` against the one account it
-belongs to.
+belongs to. `resend_verification` (Story 1.6) is keyed like login --
+(client IP, normalized email) -- since the attack shape is the same one
+being guarded against there: a source spamming a specific victim's inbox
+with verification emails, not grinding many different accounts (which
+would call for an IP-only key, like register).
 
 `login` follows up with `limiter.reset(...)` on success so legitimate
 repeat logins don't erode the same budget as failed guesses; `register`
 has no equivalent -- a given email can only register once, so there's no
-"legitimate repeat" to protect.
+"legitimate repeat" to protect. `resend_verification` also has no
+equivalent -- every resend is a "legitimate repeat" of the same action, so
+there's no success/failure split to reset on.
 """
 
 from app.shared.rate_limiter import RateLimiter
@@ -30,12 +36,16 @@ __all__ = [
     "get_login_rate_limiter",
     "get_register_rate_limiter",
     "get_change_password_rate_limiter",
+    "get_resend_verification_rate_limiter",
 ]
 
 _default_login_limiter = RateLimiter(detail="Too many login attempts. Try again later.")
 _default_register_limiter = RateLimiter(detail="Too many registration attempts. Try again later.")
 _default_change_password_limiter = RateLimiter(
     detail="Too many password change attempts. Try again later."
+)
+_default_resend_verification_limiter = RateLimiter(
+    detail="Too many verification email requests. Try again later."
 )
 
 
@@ -49,3 +59,7 @@ def get_register_rate_limiter() -> RateLimiter:
 
 def get_change_password_rate_limiter() -> RateLimiter:
     return _default_change_password_limiter
+
+
+def get_resend_verification_rate_limiter() -> RateLimiter:
+    return _default_resend_verification_limiter

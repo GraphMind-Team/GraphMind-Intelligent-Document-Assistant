@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { registerAccount } from '../api/authClient'
+import { registerAccount, resendVerification } from '../api/authClient'
 
 // Registration page (Story 1.3). Sits outside the authenticated shell but
 // still themes correctly via the CSS variable tokens in index.css
@@ -12,6 +12,9 @@ export default function RegisterPage() {
   const [error, setError] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const [registered, setRegistered] = useState(false)
+  // Story 1.6: lets the "check your inbox" panel offer a resend without
+  // making the visitor retype their address.
+  const [resendState, setResendState] = useState('idle') // idle | sending | sent
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -24,6 +27,18 @@ export default function RegisterPage() {
       setError(err.message)
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  async function handleResend() {
+    setResendState('sending')
+    try {
+      await resendVerification({ email })
+    } finally {
+      // resend-verification always answers the same way regardless of
+      // outcome (it never reveals account existence) -- "sent" is the
+      // honest thing to show either way, mirroring VerifyEmailPage.
+      setResendState('sent')
     }
   }
 
@@ -46,7 +61,25 @@ export default function RegisterPage() {
         </p>
 
         {registered ? (
-          <p className="text-sm text-text">Account created for {email}.</p>
+          <div>
+            <p className="mb-4 text-sm text-text">
+              Check your inbox at <strong>{email}</strong> for a verification link before you log in.
+            </p>
+            {resendState === 'sent' ? (
+              <p className="text-sm text-text2">
+                If that account exists and isn't verified yet, we've sent a new link.
+              </p>
+            ) : (
+              <button
+                type="button"
+                onClick={handleResend}
+                disabled={resendState === 'sending'}
+                className="text-sm font-semibold text-link disabled:opacity-60"
+              >
+                Resend verification email
+              </button>
+            )}
+          </div>
         ) : (
           <form onSubmit={handleSubmit} className="flex flex-col">
             <label htmlFor="register-fullname" className="mb-1.5 block text-sm font-semibold text-text2">Full name</label>

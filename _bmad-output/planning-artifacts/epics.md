@@ -46,6 +46,8 @@ This document provides the complete epic and story breakdown for GraphMind-Intel
 | FR-16 | Account deletion | Explicit confirmation; removes documents, vector entries, graph data and account record; logs the user out |
 | FR-17 | Conversational memory | Chat retains prior Q&A turns within a conversation; a bounded recent window (turn count + char budget, OD-8) feeds back into both retrieval and generation so follow-ups resolve against earlier turns; history persists across reload via a paginated endpoint (AD-10) |
 
+> **Superseded 2026-08-20 (Story 1.6):** FR-1's "no ... email verification in v1" is no longer accurate. `POST /auth/login` now rejects an unverified account with a 403 (gated by `REQUIRE_EMAIL_VERIFICATION`, on by default), a signed `typ: "email_verify"` JWT is mailed on registration, and `POST /auth/verify-email` / `POST /auth/resend-verification` complete the flow. Password reset remains out of scope. This row still correctly describes what Epic 1 shipped before Story 1.6 amended it — see Story 1.6's own AC block in Epic 1 below, and the matching notes at the out-of-scope list and Story 1.3's "no verification flow" AC further down this document.
+
 ### NonFunctional Requirements
 
 | ID | Area | Target |
@@ -98,6 +100,8 @@ SM-3's test must cover leakage *through the generated answer* — that the LLM n
 **Out of scope — what stories must NOT build (PRD §6.2):**
 
 Chapter-level filtered search (chapters stay read-only metadata) · clickable citations · answer confidence badge *(rejected outright, not deferred)* · "explain this answer" trace · live entity preview · user-editable graph corrections · NL querying over the graph · reference-counted graph deletion · password reset / email verification · account recovery after deletion · library-wide document search and category grouping *(see OD-5)* · hybrid BM25+vector · raw-context panel · conversation export · staging environment. *(Conversational memory/follow-ups — formerly listed here as "query history" — pulled forward into scope as FR-17 now that the v1 DoD gate is closed; see PRD §6.2.)*
+
+> **Superseded 2026-08-20 (Story 1.6):** "password reset / email verification" — email verification is pulled forward into scope the same way FR-17 was above; password reset stays out of scope, unchanged. See Story 1.6 in Epic 1.
 
 **Open decisions.** Each is tied to the story it blocks.
 
@@ -326,6 +330,8 @@ So that I can upload documents that only I can ever see.
 **When** registration is built
 **Then** no reset or verification flow is implemented
 
+> **Superseded 2026-08-20 (Story 1.6):** email verification is now implemented (see Story 1.6 in this epic) — this AC no longer holds for verification. It still correctly describes what Story 1.3 shipped and why at the time; password reset remains genuinely out of scope, unchanged.
+
 **Given** the Registration page is outside the authenticated shell
 **When** it renders
 **Then** it displays correctly in both light and dark themes, like every other screen (UX-DR2)
@@ -396,6 +402,46 @@ So that I can move around the product confidently knowing isolation is enforced 
 **When** the browser is zoomed to 200% on a typical laptop viewport
 **Then** content reflows without horizontal scrolling or clipping (WCAG 1.4.4, UX-DR28)
 **And** no CSS `order` or `row-reverse` is applied to any layout carrying interactive content, so DOM order and visual order cannot silently diverge (UX-DR18)
+
+### Story 1.6: Verify my email address before I can log in
+
+> **Added 2026-08-20, after the v1 DoD gate closed.** Amends FR-1 and the PRD §6.2/Story 1.3 out-of-scope decision that explicitly excluded email verification from v1 — see the superseded notes at FR-1's table row, the out-of-scope bullet list, and Story 1.3's own "no verification flow" AC above. Password reset remains out of scope; only email verification is pulled forward.
+
+As the owner of a newly registered account,
+I want to prove I own the email address I registered with before I can log in,
+So that no one can create a working account under an address that isn't theirs, and my inbox is confirmed reachable if I ever need it.
+
+**Acceptance Criteria:**
+
+**Given** I submit valid registration details
+**When** the account is created
+**Then** a verification email is sent to the address I registered with, containing a one-time link
+**And** account creation itself still succeeds (201) even if sending the email fails — the account exists in an unverified state, recoverable via resend
+
+**Given** I have registered but not yet clicked the verification link
+**When** I attempt to log in with correct credentials
+**Then** the request is rejected with a 403 and a message telling me to verify my email first, not the generic "invalid email or password" (FR-1)
+
+**Given** a valid, unexpired verification link
+**When** I open it
+**Then** my account is marked verified
+**And** I can now log in
+
+**Given** a verification link that is expired, malformed, or already consumed by a still-valid re-click
+**When** I open it
+**Then** re-clicking an already-consumed link still succeeds harmlessly (idempotent); an actually invalid/expired token shows a clear failure state with a way to request a new link
+
+**Given** I request a new verification link (registration resend, or from the failed-link page)
+**When** the request is handled
+**Then** the response is identical whether or not the email belongs to a real, unverified account — this endpoint must not become an account-enumeration oracle, and it is rate-limited per (client IP, email)
+
+**Given** an account that existed before this story shipped
+**When** the migration backing this story runs
+**Then** every pre-existing account is grandfathered as verified (backfilled from its `created_at`), so no existing user is locked out by this change
+
+**Given** local development or CI with no SMTP configured
+**When** a verification email would be sent
+**Then** the link is logged to the console instead of failing the request — verification is fully exercisable with zero mail configuration
 
 ## Epic 2: Document Ingestion & Library
 
