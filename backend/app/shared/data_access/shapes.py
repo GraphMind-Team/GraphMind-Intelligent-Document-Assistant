@@ -36,8 +36,10 @@ class WeaviatePassage:
             for stable ordering and citation back-references.
         text: The chunk's raw extracted text, the unit embedded and
             retrieved for grounded chat answers.
-        embedding: The vector embedding of `text`, used for similarity
-            search at query time.
+
+    Carries no `embedding` field: Weaviate vectorizes `text` server-side
+    via text2vec-weaviate, so no vector is ever computed in this process
+    or sent on the wire. See `weaviate_client._ensure_passage_collection`.
     """
 
     chunk_id: str
@@ -46,7 +48,6 @@ class WeaviatePassage:
     chapter: str
     chunk_index: int
     text: str
-    embedding: list[float]
 
 
 @dataclass(frozen=True)

@@ -12,7 +12,7 @@ concept of a user-facing conversation, and deliberately never will --
 chat/refusal-short-circuit logic is Epic 3's later addition to this same
 package, not something this story's extraction call needs or should grow.
 
-Retry mirrors `shared/embeddings/model.py` and `shared/data_access/
+Retry mirrors `shared/data_access/
 weaviate_client.py`'s treatment of transient provider failures: a fixed,
 small attempt budget (`_MAX_ATTEMPTS`), not exponential backoff/jitter --
 this call runs inside a background ingestion task with no user waiting
@@ -42,8 +42,8 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 # Chosen by measuring candidates from OpenRouter's live free-tier list
 # against this module's actual prompt: it returned correctly-shaped,
 # correctly-typed entities *and* relationships for English and Bulgarian
-# (this project supports Bulgarian documents -- see the multilingual
-# embedding model in `shared/embeddings/`), and was the fastest of the
+# (this project supports Bulgarian documents -- matching the multilingual
+# embedding model in `weaviate_client.EMBEDDING_MODEL`), and was the fastest of the
 # candidates that did. Rejected: `meta-llama/llama-3.3-70b-instruct:free`,
 # the previous default, which now 404s with "unavailable for free";
 # `openrouter/free`, which returned `entities` as bare strings instead of
@@ -140,6 +140,26 @@ _CHAT_RETRY_DELAY_SECONDS = 3.0
 # evaluation set exists (SM-2/SM-C1), same as `TOP_K_PASSAGES` and
 # `_MAX_PROMPT_CHARS` above were themselves re-tuned against real data
 # rather than left at their original guesses.
+#
+# !! NEEDS RE-MEASUREMENT AFTER THE MOVE TO SERVER-SIDE EMBEDDINGS !!
+# Every number above was measured against the old in-process model
+# (fastembed paraphrase-multilingual-MiniLM-L12-v2, 384-dim). Passages
+# and queries are now embedded by Weaviate under a *different* model
+# (`weaviate_client.EMBEDDING_MODEL`, arctic-embed-l-v2.0, 1024-dim), and
+# cosine distances are only comparable within one model -- a threshold
+# calibrated on one says nothing about the other. 0.75 is retained as a
+# starting point, NOT as a validated value.
+#
+# Both failure modes are silent, which is why this note is this loud: set
+# too low, every question refuses and the app looks like it has no data;
+# set too high, nothing ever refuses and FR-10's grounding guarantee is
+# gone while answers still look plausible. Neither raises anything.
+#
+# `scripts/eval_harness.py` is the instrument -- it runs the
+# `eval_questions.json` set with `use_history=False`, which is exactly
+# the single-question retrieval shape this constant is meant to describe.
+# Re-run it against re-indexed data and re-derive the on-topic /
+# off-topic gap the same way the numbers above were derived.
 RELEVANCE_THRESHOLD = 0.75
 
 # OD-8 (Story 3.4, FR-17): the bounded recent-turn window fed into both
@@ -149,7 +169,7 @@ RELEVANCE_THRESHOLD = 0.75
 # immediately above -- this module doesn't read these itself either (same
 # as RELEVANCE_THRESHOLD): `chat/service.py` fetches/bounds the window
 # using these two numbers, then threads the result into both the retrieval
-# query text (its own `embed_texts` call) and `generate_answer`'s
+# query text (passed to `search_passages`) and `generate_answer`'s
 # `history` param below.
 #
 # 3 turns / 2000 characters -- OD-8, resolved (epics.md) on Story 3.4's

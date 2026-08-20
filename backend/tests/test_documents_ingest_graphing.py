@@ -87,7 +87,6 @@ def _stub_pipeline(
     `ingest_document` would hit real Neo4j."""
     import app.documents.service as service_module
 
-    monkeypatch.setattr(service_module, "embed_texts", lambda texts: [[0.0] * 384 for _ in texts])
     fake_delete = Mock()
     monkeypatch.setattr(service_module, "delete_passages_for_document", fake_delete)
     monkeypatch.setattr(service_module, "write_passages", write_passages or Mock())

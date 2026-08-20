@@ -54,3 +54,26 @@ services:
         sync: false
       - key: SMTP_STARTTLS
         sync: false
+
+  # Frontend. A static site is files on Render's CDN, not a container, so
+  # unlike graphmind-api above it has no instance to spin down and no cold
+  # start -- `plan: free` costs nothing in latency here.
+  - type: web
+    name: graphmind-web
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    # SPA catch-all: without this a direct load or refresh on /login,
+    # /register, or any other client-side route 404s, since no file exists
+    # at that path. Same fix frontend/vercel.json applies on Vercel.
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      # Vite inlines VITE_* vars at BUILD time, not run time -- changing
+      # this requires a rebuild, not just a restart. Set it to the
+      # graphmind-api URL including the https:// scheme.
+      - key: VITE_API_BASE_URL
+        sync: false

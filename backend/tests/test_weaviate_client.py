@@ -119,7 +119,6 @@ def _fake_passage(chunk_index=0, chunk_id="chunk-0"):
         chapter="Chapter One",
         chunk_index=chunk_index,
         text="some passage text",
-        embedding=[0.1, 0.2, 0.3],
     )
 
 
@@ -261,6 +260,63 @@ def test_write_passages_creates_collection_when_missing(monkeypatch):
     fake_client.collections.create.assert_called_once()
 
 
+def test_passage_collection_vectorizes_only_text_server_side(monkeypatch):
+    """The collection's vector config is the crux of the move off
+    in-process embeddings, and every way of getting it wrong fails
+    *silently* -- as degraded retrieval, never as an error. So it is
+    pinned here rather than left to a manual check.
+
+    Three separate guarantees, each with its own silent failure mode:
+
+    - a `text2vec-weaviate` vectorizer at all (not `none`): without it
+      Weaviate stores whatever vector the client sends, and since
+      `write_passages` no longer sends one, every object would be stored
+      unvectorized and match nothing.
+    - `source_properties == ["text"]`: the default is to vectorize EVERY
+      text property, which would fold two UUID strings and a chapter
+      label into each passage's embedding.
+    - `vectorize_collection_name` off: otherwise the literal word
+      "Passage" is prepended to all of them.
+    """
+    from app.shared.data_access.weaviate_client import EMBEDDING_MODEL
+
+    fake_client, _ = _fake_client(exists=False)
+    monkeypatch.setattr(
+        "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: fake_client
+    )
+
+    write_passages([_fake_passage()])
+
+    create_kwargs = fake_client.collections.create.call_args.kwargs
+    # The modern `vector_config=`, not the deprecated `vectorizer_config=`.
+    assert "vectorizer_config" not in create_kwargs
+    vector_config = create_kwargs["vector_config"]
+
+    # Only `text` feeds the embedding -- no document_id/user_id/chapter.
+    assert vector_config.properties == ["text"]
+
+    vectorizer = vector_config.vectorizer
+    assert vectorizer.vectorizer.value == "text2vec-weaviate"
+    assert vectorizer.model == EMBEDDING_MODEL
+    assert vectorizer.vectorizeClassName is False
+
+
+def test_write_passages_does_not_send_a_client_side_vector(monkeypatch):
+    """A `vector=` on the insert would override the server-side
+    vectorizer for that object, silently reintroducing a second embedding
+    space that `near_text` queries could never match against."""
+    fake_client, fake_collection = _fake_client(exists=True)
+    fake_collection.data.insert_many.return_value = MagicMock(has_errors=False)
+    monkeypatch.setattr(
+        "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: fake_client
+    )
+
+    write_passages([_fake_passage()])
+
+    inserted = fake_collection.data.insert_many.call_args.args[0]
+    assert inserted[0].vector is None
+
+
 def test_ensure_passage_collection_is_only_checked_once_per_process(monkeypatch):
     """After the first confirmation, later writes must not re-check
     `exists()` at all -- for a document split into many batches, each one
@@ -346,7 +402,6 @@ def test_write_passages_rejects_a_mixed_document_id_or_user_id_batch():
             chapter="Chapter One",
             chunk_index=0,
             text="text",
-            embedding=[0.1],
         ),
         WeaviatePassage(
             chunk_id="chunk-1",
@@ -355,7 +410,6 @@ def test_write_passages_rejects_a_mixed_document_id_or_user_id_batch():
             chapter="Chapter One",
             chunk_index=1,
             text="text",
-            embedding=[0.1],
         ),
     ]
 
@@ -402,18 +456,18 @@ def _fake_weaviate_object(chunk_id, document_id="doc-1", chapter="Chapter One", 
 
 def test_search_passages_filters_on_user_id_and_returns_mapped_results(monkeypatch):
     fake_client, fake_collection = _fake_client(exists=True)
-    fake_collection.query.near_vector.return_value = MagicMock(
+    fake_collection.query.near_text.return_value = MagicMock(
         objects=[_fake_weaviate_object("chunk-0", distance=0.05), _fake_weaviate_object("chunk-1", distance=0.2)]
     )
     monkeypatch.setattr(
         "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: fake_client
     )
 
-    results = search_passages([0.1, 0.2, 0.3], "user-1", limit=8)
+    results = search_passages("what is the policy?", "user-1", limit=8)
 
-    fake_collection.query.near_vector.assert_called_once()
-    call_kwargs = fake_collection.query.near_vector.call_args.kwargs
-    assert call_kwargs["near_vector"] == [0.1, 0.2, 0.3]
+    fake_collection.query.near_text.assert_called_once()
+    call_kwargs = fake_collection.query.near_text.call_args.kwargs
+    assert call_kwargs["query"] == "what is the policy?"
     assert call_kwargs["limit"] == 8
     # Not just "a filters kwarg was passed" -- the actual tenancy guarantee
     # (FR-2/AD-2) is that it's scoped to THIS property, with THIS value. A
@@ -435,39 +489,39 @@ def test_search_passages_filters_on_user_id_and_returns_mapped_results(monkeypat
 
 def test_search_passages_returns_empty_list_for_no_matches(monkeypatch):
     fake_client, fake_collection = _fake_client(exists=True)
-    fake_collection.query.near_vector.return_value = MagicMock(objects=[])
+    fake_collection.query.near_text.return_value = MagicMock(objects=[])
     monkeypatch.setattr(
         "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: fake_client
     )
 
-    results = search_passages([0.1], "user-1")
+    results = search_passages("q", "user-1")
 
     assert results == []
 
 
 def test_search_passages_creates_collection_when_missing(monkeypatch):
     fake_client, fake_collection = _fake_client(exists=False)
-    fake_collection.query.near_vector.return_value = MagicMock(objects=[])
+    fake_collection.query.near_text.return_value = MagicMock(objects=[])
     monkeypatch.setattr(
         "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: fake_client
     )
 
-    search_passages([0.1], "user-1")
+    search_passages("q", "user-1")
 
     fake_client.collections.create.assert_called_once()
 
 
 def test_search_passages_default_limit_is_top_k_passages(monkeypatch):
     fake_client, fake_collection = _fake_client(exists=True)
-    fake_collection.query.near_vector.return_value = MagicMock(objects=[])
+    fake_collection.query.near_text.return_value = MagicMock(objects=[])
     monkeypatch.setattr(
         "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: fake_client
     )
 
-    search_passages([0.1], "user-1")
+    search_passages("q", "user-1")
 
     assert (
-        fake_collection.query.near_vector.call_args.kwargs["limit"]
+        fake_collection.query.near_text.call_args.kwargs["limit"]
         == weaviate_client_module.TOP_K_PASSAGES
     )
 
@@ -478,14 +532,14 @@ def test_search_passages_filters_on_document_ids_when_provided(monkeypatch):
     replace it, not OR it -- so scoping can only narrow retrieval, never
     widen it past the account's own tenancy boundary."""
     fake_client, fake_collection = _fake_client(exists=True)
-    fake_collection.query.near_vector.return_value = MagicMock(objects=[])
+    fake_collection.query.near_text.return_value = MagicMock(objects=[])
     monkeypatch.setattr(
         "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: fake_client
     )
 
-    search_passages([0.1], "user-1", document_ids=["doc-1", "doc-2"])
+    search_passages("q", "user-1", document_ids=["doc-1", "doc-2"])
 
-    filters = fake_collection.query.near_vector.call_args.kwargs["filters"]
+    filters = fake_collection.query.near_text.call_args.kwargs["filters"]
     assert filters.filters[0].target == "user_id"
     assert filters.filters[0].value == "user-1"
     assert filters.filters[1].target == "document_id"
@@ -498,13 +552,13 @@ def test_search_passages_omits_document_id_filter_when_empty_list(monkeypatch):
     the pre-Story-3.3 unscoped call -- FR-11's default is "search
     everything," and an empty list is how the frontend spells that."""
     fake_client, fake_collection = _fake_client(exists=True)
-    fake_collection.query.near_vector.return_value = MagicMock(objects=[])
+    fake_collection.query.near_text.return_value = MagicMock(objects=[])
     monkeypatch.setattr(
         "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: fake_client
     )
 
-    search_passages([0.1], "user-1", document_ids=[])
+    search_passages("q", "user-1", document_ids=[])
 
-    filters = fake_collection.query.near_vector.call_args.kwargs["filters"]
+    filters = fake_collection.query.near_text.call_args.kwargs["filters"]
     assert filters.target == "user_id"
     assert filters.value == "user-1"

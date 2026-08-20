@@ -73,18 +73,22 @@ def _session_factory(db_session):
 
 
 def _stub_embeddings(monkeypatch):
-    """`embed_texts` is stubbed here (rather than exercising the real
-    `fastembed` model) so these tests stay fast and deterministic -- the
-    real model is exercised separately in test_embeddings.py. Also stubs
-    `delete_passages_for_document` -- `ingest_document` calls it directly
-    (for real, not through `write_passages`) before its batch loop, so
-    every test that doesn't stub it would otherwise try a real Weaviate
-    connection, not just the ones that happen to mock `write_passages`."""
+    """Stubs `delete_passages_for_document` -- `ingest_document` calls it
+    directly (for real, not through `write_passages`) before its batch
+    loop, so every test that doesn't stub it would otherwise try a real
+    Weaviate connection, not just the ones that happen to mock
+    `write_passages`.
+
+    No longer stubs any embedding call: embeddings are computed by
+    Weaviate server-side (text2vec-weaviate), so `ingest_document` does no
+    embedding work in-process for a test to stub out. Kept under its
+    original name, and still called by every test here, because the
+    Weaviate-connection stubbing above is what those tests actually
+    depend on."""
     from unittest.mock import Mock
 
     import app.documents.service as service_module
 
-    monkeypatch.setattr(service_module, "embed_texts", lambda texts: [[0.0] * 384 for _ in texts])
     monkeypatch.setattr(service_module, "delete_passages_for_document", Mock())
 
 
@@ -137,7 +141,6 @@ def test_ingest_markdown_produces_passages_tagged_with_document_chapter_chunk_in
         assert passage.chunk_index == index
         assert passage.chapter
         assert passage.text.strip()
-        assert passage.embedding == [0.0] * 384
     assert {p.chapter for p in passages} == {"Chapter One", "Chapter Two"}
 
 
@@ -196,7 +199,6 @@ def test_ingest_writes_flat_shape_with_no_nested_dict(client, db_session, monkey
             "chapter",
             "chunk_index",
             "text",
-            "embedding",
         }
         for field_name in field_names:
             assert not isinstance(getattr(passage, field_name), dict)
@@ -381,12 +383,16 @@ def test_ingest_cleans_up_partially_written_passages_on_failure(client, db_sessi
 def test_ingest_embeds_and_writes_in_batches_not_all_chunks_at_once(
     client, db_session, monkeypatch
 ):
-    """A large document must not build one `embed_texts` call (and one
-    `vectors` list) covering every chunk before anything reaches Weaviate
-    -- that's the whole document's worth of 384-dim vectors alive in
-    Python memory simultaneously, the more likely OOM path on a 512MB
-    instance versus the batching already applied on the Weaviate
-    `insert_many` side. `parse_document` is stubbed to return more chunks
+    """A large document must reach Weaviate in batches, not as one call
+    carrying every chunk.
+
+    The original reason was Python-side memory (a whole document's worth
+    of 384-dim vectors alive at once). That's gone -- no vectors are built
+    in this process any more -- but batching still matters for two other
+    reasons, so the guarantee is still worth pinning: a single oversized
+    `insert_many` payload Weaviate may reject, and Weaviate Embeddings
+    request count, since each batch is one request against the free tier's
+    daily allowance. `parse_document` is stubbed to return more chunks
     than `PASSAGE_BATCH_SIZE` without needing a genuinely huge upload."""
     from unittest.mock import Mock
 
@@ -403,14 +409,6 @@ def test_ingest_embeds_and_writes_in_batches_not_all_chunks_at_once(
     ]
     monkeypatch.setattr(service_module, "parse_document", lambda file_type, content: fake_chunks)
 
-    embed_call_sizes = []
-
-    def _tracking_embed(texts):
-        embed_call_sizes.append(len(texts))
-        return [[0.0] * 384 for _ in texts]
-
-    monkeypatch.setattr(service_module, "embed_texts", _tracking_embed)
-
     fake_write_passages = Mock()
     monkeypatch.setattr(service_module, "write_passages", fake_write_passages)
 
@@ -424,10 +422,14 @@ def test_ingest_embeds_and_writes_in_batches_not_all_chunks_at_once(
     service_module.delete_passages_for_document.assert_called_once()
 
     # 3 batches: two full PASSAGE_BATCH_SIZE ones plus a small remainder --
-    # both embedding and writing happen per batch, not once for everything.
+    # writing happens per batch, not once for everything.
     batch_size = service_module.PASSAGE_BATCH_SIZE
-    assert embed_call_sizes == [batch_size, batch_size, 5]
     assert fake_write_passages.call_count == 3
+    assert [len(c.args[0]) for c in fake_write_passages.call_args_list] == [
+        batch_size,
+        batch_size,
+        5,
+    ]
     for call in fake_write_passages.call_args_list:
         assert len(call.args[0]) <= batch_size
     total_written = sum(len(call.args[0]) for call in fake_write_passages.call_args_list)
