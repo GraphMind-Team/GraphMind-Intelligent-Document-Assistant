@@ -311,4 +311,102 @@ describe('DocumentDetailPage', () => {
       expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
     })
   })
+
+  describe('preview', () => {
+    // The modal itself is covered in PreviewModal.test.jsx; what's tested
+    // here is the page's side of the wiring -- when the entry point is
+    // offered at all, which document it opens, and where focus lands
+    // afterwards.
+    function stubObjectUrls() {
+      vi.stubGlobal('URL', {
+        ...URL,
+        createObjectURL: vi.fn(() => 'blob:mock-object-url'),
+        revokeObjectURL: vi.fn(),
+      })
+    }
+
+    afterEach(() => {
+      vi.unstubAllGlobals()
+    })
+
+    it('offers no Preview entry point until the document is Ready', async () => {
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      vi.spyOn(documentsClient, 'getDocument').mockResolvedValue(UPLOADED_DOC)
+
+      renderDetail()
+
+      await screen.findByRole('heading', { name: 'vendor-agreement.pdf', level: 1 })
+      expect(screen.queryByRole('button', { name: 'Preview' })).not.toBeInTheDocument()
+      // Delete is still offered at every status -- this gate is Preview's
+      // alone, not the whole action row's.
+      expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
+    })
+
+    it('offers no Preview entry point for a Failed document either', async () => {
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      vi.spyOn(documentsClient, 'getDocument').mockResolvedValue({
+        ...UPLOADED_DOC,
+        status: 'Failed',
+        failed_reason: 'Could not read this document: unsupported encoding.',
+      })
+
+      renderDetail()
+
+      await screen.findByRole('heading', { name: 'vendor-agreement.pdf', level: 1 })
+      expect(screen.queryByRole('button', { name: 'Preview' })).not.toBeInTheDocument()
+    })
+
+    it('opens a preview of this document once it is Ready', async () => {
+      stubObjectUrls()
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      vi.spyOn(documentsClient, 'getDocument').mockResolvedValue({
+        ...UPLOADED_DOC,
+        status: 'Ready',
+        chapter_breakdown: { 'Chapter One': 5 },
+      })
+      const contentSpy = vi
+        .spyOn(documentsClient, 'getDocumentContent')
+        .mockResolvedValue(new Blob(['%PDF-1.4'], { type: 'application/pdf' }))
+      const user = userEvent.setup()
+
+      renderDetail()
+      await screen.findByRole('heading', { name: 'vendor-agreement.pdf', level: 1 })
+      await user.click(screen.getByRole('button', { name: 'Preview' }))
+
+      const dialog = await screen.findByRole('dialog', { name: 'vendor-agreement.pdf' })
+      expect(dialog).toBeInTheDocument()
+      // The document in the URL, not some other one.
+      expect(contentSpy).toHaveBeenCalledWith(expect.any(Function), 'doc-1')
+      expect(await within(dialog).findByTitle('vendor-agreement.pdf')).toBeInTheDocument()
+    })
+
+    it('returns focus to the Preview button after the preview is closed', async () => {
+      stubObjectUrls()
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      vi.spyOn(documentsClient, 'getDocument').mockResolvedValue({
+        ...UPLOADED_DOC,
+        status: 'Ready',
+        chapter_breakdown: { 'Chapter One': 5 },
+      })
+      vi.spyOn(documentsClient, 'getDocumentContent').mockResolvedValue(
+        new Blob(['%PDF-1.4'], { type: 'application/pdf' }),
+      )
+      const user = userEvent.setup()
+
+      renderDetail()
+      await screen.findByRole('heading', { name: 'vendor-agreement.pdf', level: 1 })
+      const previewButton = screen.getByRole('button', { name: 'Preview' })
+      await user.click(previewButton)
+      await screen.findByRole('dialog', { name: 'vendor-agreement.pdf' })
+
+      await user.click(screen.getByRole('button', { name: 'Close' }))
+
+      await waitFor(() =>
+        expect(screen.queryByRole('dialog', { name: 'vendor-agreement.pdf' })).not.toBeInTheDocument(),
+      )
+      // The modal restores this itself on unmount -- the page holds no ref
+      // of its own for it.
+      expect(screen.getByRole('button', { name: 'Preview' })).toHaveFocus()
+    })
+  })
 })
