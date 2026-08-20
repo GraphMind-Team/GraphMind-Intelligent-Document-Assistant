@@ -1,0 +1,56 @@
+services:
+  - type: web
+    name: graphmind-api
+    runtime: python
+    plan: free
+    region: frankfurt
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    # Migrations run at start, not build: Render's free tier has no
+    # preDeployCommand, and the build step runs before the release is live.
+    startCommand: alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      # Everything below is `sync: false` -- set the real values in the
+      # Render dashboard, never in this file (it is committed).
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: FRONTEND_ORIGIN
+        sync: false
+      # Safe here specifically because Render documents that a Web
+      # Service's container port "is not directly reachable via the public
+      # internet" -- every request arrives through Render's load balancer,
+      # so nobody can bypass it to hand us a spoofed X-Forwarded-For.
+      # That precondition is the one backend/.env.example demanded be
+      # confirmed before setting this to "*". Re-check if the hosting
+      # platform ever changes.
+      - key: TRUSTED_PROXY_HOSTS
+        value: "*"
+      - key: WEAVIATE_URL
+        sync: false
+      - key: WEAVIATE_API_KEY
+        sync: false
+      - key: NEO4J_URI
+        sync: false
+      - key: NEO4J_USERNAME
+        sync: false
+      - key: NEO4J_PASSWORD
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: SMTP_STARTTLS
+        sync: false
