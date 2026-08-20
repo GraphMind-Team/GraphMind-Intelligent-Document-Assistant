@@ -76,6 +76,19 @@ def test_login_wrong_email_and_wrong_password_give_identical_body(client):
     assert wrong_email.json() == wrong_password.json()
 
 
+def test_login_unaffected_by_email_verification_when_flag_off(client):
+    """Story 1.6 added a REQUIRE_EMAIL_VERIFICATION gate to authenticate_user
+    -- conftest.py defaults it to "false" for the whole suite specifically
+    so this file's other login tests (none of which verify an account)
+    keep passing unmodified. This pins that default explicitly; the gate
+    itself is exercised in test_auth_email_verification.py."""
+    client.post("/auth/register", json=_valid_register_payload())
+
+    response = client.post("/auth/login", json=_login_payload())
+
+    assert response.status_code == 200
+
+
 def test_login_normalizes_email_case(client):
     client.post("/auth/register", json=_valid_register_payload(email="Maria@Example.com"))
 

@@ -35,12 +35,16 @@ project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
 development_status:
-  epic-1: done
+  # Reopened 2026-08-20 for Story 1.6 (email verification), added after
+  # this epic's initial "done" -- see epics.md's Story 1.6 and
+  # spec-1-6-email-verification.md.
+  epic-1: in-progress
   1-1-running-project-skeleton: done
   1-2-design-token-foundation-and-dual-theme-rendering: done
   1-3-account-registration: done
   1-4-login-and-jwt-session: done
   1-5-authenticated-shell-and-tenancy-enforced-data-access: done
+  1-6-email-verification: review
   epic-1-retrospective: optional
 
   epic-2: done

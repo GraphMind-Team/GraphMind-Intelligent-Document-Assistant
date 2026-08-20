@@ -37,6 +37,18 @@ class User(Base):
     # every ORM insert needs the value regardless of the migration's
     # server_default, which only exists to backfill pre-5.2 Postgres rows.
     theme: Mapped[str] = mapped_column(String(5), nullable=False, default="light")
+    # Story 1.6: `None` means "not yet verified"; a timestamp means
+    # verified at that instant. A nullable timestamp, not a boolean --
+    # records *when*, which a boolean would throw away, and every existing
+    # account is meant to read as unverified until the migration's backfill
+    # runs (there is no "verified but we don't know when" state to invent a
+    # sentinel for). No Python-side non-None default needed the way
+    # `theme` has one: `None` is exactly what a freshly `create_all()`'d
+    # SQLite test row and a freshly migrated pre-1.6 Postgres row should
+    # both start as before anything sets it.
+    email_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
 
 
 class Document(Base):

@@ -21,16 +21,33 @@ def test_register_success(client):
     assert "password_hash" not in body
 
 
-def test_register_duplicate_email_returns_409(client):
+def _mark_verified(db_session, email):
+    """Story 1.6: a fresh registration's row starts unverified, and
+    registering again against an unverified email now reclaims that row
+    (see test_auth_email_verification.py) rather than 409ing -- the
+    genuine-duplicate case this file's tests below are pinning only
+    applies once the original owner has actually verified the address."""
+    from app.shared.models import User
+
+    user = db_session.query(User).filter_by(email=email).one()
+    user.email_verified_at = user.created_at
+    db_session.commit()
+
+
+def test_register_duplicate_email_returns_409(client, db_session):
     client.post("/auth/register", json=_valid_payload())
+    _mark_verified(db_session, "maria@example.com")
+
     response = client.post("/auth/register", json=_valid_payload(full_name="Someone Else"))
 
     assert response.status_code == 409
     assert response.json() == {"detail": "An account with this email already exists."}
 
 
-def test_register_duplicate_email_case_insensitive(client):
+def test_register_duplicate_email_case_insensitive(client, db_session):
     client.post("/auth/register", json=_valid_payload(email="Maria@Example.com"))
+    _mark_verified(db_session, "maria@example.com")
+
     response = client.post("/auth/register", json=_valid_payload(email="maria@example.com"))
 
     assert response.status_code == 409

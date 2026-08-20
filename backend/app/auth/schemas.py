@@ -70,6 +70,18 @@ class MeResponse(BaseModel):
     email: str
     created_at: datetime
     theme: str
+    # Story 1.6: `User` has no `email_verified` attribute -- `validation_alias`
+    # points this field at the ORM object's `email_verified_at` instead (the
+    # `from_attributes` lookup key), and the `mode="before"` validator below
+    # collapses that raw timestamp-or-None into a plain bool. Exposing a
+    # bool rather than the timestamp itself: nothing today needs *when*,
+    # just whether, and this is naturally what SettingsPage will render.
+    email_verified: bool = Field(default=False, validation_alias="email_verified_at")
+
+    @field_validator("email_verified", mode="before")
+    @classmethod
+    def _derive_email_verified(cls, value: object) -> bool:
+        return value is not None
 
 
 class UpdateThemeRequest(BaseModel):
@@ -113,3 +125,26 @@ class ChangePasswordRequest(BaseModel):
 
 class ChangePasswordResponse(BaseModel):
     detail: str = "Password updated."
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str = Field(min_length=1)
+
+
+class VerifyEmailResponse(BaseModel):
+    detail: str = "Email verified."
+
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+    # Mirrors RegisterRequest/LoginRequest's own normalization -- every
+    # consumer of an email field in this module agrees on the same casing.
+    @field_validator("email")
+    @classmethod
+    def _normalize_email(cls, value: str) -> str:
+        return value.strip().lower()
+
+
+class ResendVerificationResponse(BaseModel):
+    detail: str = "If that account exists and isn't verified yet, we've sent a new link."

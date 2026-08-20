@@ -23,6 +23,11 @@ import pytest
 
 os.environ.setdefault("DATABASE_URL", "postgresql+psycopg2://test:test@localhost:5432/test")
 os.environ.setdefault("JWT_SECRET", "test-secret-at-least-32-bytes-long-for-hs256")
+# Story 1.6: off by default so the ~80 existing `POST /auth/login` call
+# sites across the suite (none of which create a verified account) keep
+# passing unchanged. test_auth_email_verification.py turns this on
+# per-test via monkeypatch where it's actually exercising the gate.
+os.environ.setdefault("REQUIRE_EMAIL_VERIFICATION", "false")
 
 
 @pytest.fixture()
@@ -57,10 +62,27 @@ def db_session():
 
 
 @pytest.fixture()
-def client(db_session):
-    """A TestClient with `get_db_session` overridden to the SQLite fixture."""
-    from fastapi.testclient import TestClient
+def client(db_session, monkeypatch):
+    """A TestClient with `get_db_session` overridden to the SQLite fixture.
 
+    `auth.service.resend_verification` (Story 1.6) is the one code path in
+    this codebase that opens its own DB session from *inside* a background
+    task rather than through the `get_db_session` dependency (it has to --
+    the request's session is already closed by the time a background task
+    runs; see its docstring, and `documents/service.py::ingest_document`'s
+    identical reasoning). `app.dependency_overrides` only intercepts
+    `Depends(get_db_session)`, so without this, a resend-verification
+    request would fall through to the real `get_session_factory()` and try
+    to open a real Postgres connection. Monkeypatching `service
+    .get_session_factory` to a factory bound to this same in-memory SQLite
+    engine (a fresh `Session` per call, not `db_session` itself -- the
+    background task closes whatever it opens, and `db_session` must stay
+    open for the rest of the test) keeps it on the same fixture DB instead.
+    """
+    from fastapi.testclient import TestClient
+    from sqlalchemy.orm import sessionmaker
+
+    from app.auth import service as auth_service
     from app.main import app
     from app.shared.data_access import get_db_session
 
@@ -68,6 +90,9 @@ def client(db_session):
         yield db_session
 
     app.dependency_overrides[get_db_session] = _override_get_db_session
+    monkeypatch.setattr(
+        auth_service, "get_session_factory", lambda: sessionmaker(bind=db_session.get_bind())
+    )
     try:
         yield TestClient(app)
     finally:
@@ -90,6 +115,8 @@ def _fresh_rate_limiters(client):
         get_change_password_rate_limiter,
         get_login_rate_limiter,
         get_register_rate_limiter,
+        get_resend_verification_ip_rate_limiter,
+        get_resend_verification_rate_limiter,
     )
     from app.documents.rate_limiter import (
         get_upload_concurrency_limiter,
@@ -109,6 +136,16 @@ def _fresh_rate_limiters(client):
         window_seconds=60.0,
         detail="Too many password change attempts. Try again later.",
     )
+    resend_verification_limiter = RateLimiter(
+        max_attempts=5,
+        window_seconds=60.0,
+        detail="Too many verification email requests. Try again later.",
+    )
+    resend_verification_ip_limiter = RateLimiter(
+        max_attempts=20,
+        window_seconds=60.0,
+        detail="Too many verification email requests. Try again later.",
+    )
     upload_rate_limiter = RateLimiter(
         max_attempts=30, window_seconds=60.0, detail="Too many uploads. Try again in a minute."
     )
@@ -117,13 +154,25 @@ def _fresh_rate_limiters(client):
     app.dependency_overrides[get_login_rate_limiter] = lambda: login_limiter
     app.dependency_overrides[get_register_rate_limiter] = lambda: register_limiter
     app.dependency_overrides[get_change_password_rate_limiter] = lambda: change_password_limiter
+    app.dependency_overrides[get_resend_verification_rate_limiter] = lambda: resend_verification_limiter
+    app.dependency_overrides[get_resend_verification_ip_rate_limiter] = lambda: resend_verification_ip_limiter
     app.dependency_overrides[get_upload_rate_limiter] = lambda: upload_rate_limiter
     app.dependency_overrides[get_upload_concurrency_limiter] = lambda: upload_concurrency_limiter
-    yield login_limiter, register_limiter, change_password_limiter, upload_rate_limiter, upload_concurrency_limiter
+    yield (
+        login_limiter,
+        register_limiter,
+        change_password_limiter,
+        resend_verification_limiter,
+        resend_verification_ip_limiter,
+        upload_rate_limiter,
+        upload_concurrency_limiter,
+    )
     for dependency in (
         get_login_rate_limiter,
         get_register_rate_limiter,
         get_change_password_rate_limiter,
+        get_resend_verification_rate_limiter,
+        get_resend_verification_ip_rate_limiter,
         get_upload_rate_limiter,
         get_upload_concurrency_limiter,
     ):
@@ -156,3 +205,27 @@ def _stub_ingestion_pipeline(monkeypatch):
     fake_ingest_document = Mock()
     monkeypatch.setattr(service, "ingest_document", fake_ingest_document)
     return fake_ingest_document
+
+
+@pytest.fixture(autouse=True)
+def _stub_outbound_email(monkeypatch):
+    """Registration now schedules `auth.service.send_verification_email`
+    as a background task (Story 1.6), and `TestClient` runs background
+    tasks synchronously to completion before `client.post(...)` returns --
+    left un-stubbed, EVERY test that registers an account (not just this
+    story's own) would call real `smtplib` against `SMTP_HOST` (unset in
+    tests, so it would just log -- see `shared/email.send_email`'s console
+    fallback -- but that's still an unstubbed real code path every other
+    test would silently depend on). Patched at the point auth.service
+    imports it (`app.auth.service.send_email`), not at its definition in
+    `app.shared.email`, so this only affects calls made through
+    `auth.service` -- mirrors `_stub_ingestion_pipeline`'s own choice to
+    patch the consumer, not the shared module itself.
+    """
+    from unittest.mock import Mock
+
+    from app.auth import service
+
+    fake_send_email = Mock()
+    monkeypatch.setattr(service, "send_email", fake_send_email)
+    return fake_send_email

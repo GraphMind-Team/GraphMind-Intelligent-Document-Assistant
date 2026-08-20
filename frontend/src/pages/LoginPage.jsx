@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { resendVerification } from '../api/authClient'
 import { getRedirectTarget } from '../utils/authRedirect'
 
 // Login page (Story 1.4). Mirrors RegisterPage.jsx's structure/styling.
@@ -12,6 +13,11 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState(null)
+  // Story 1.6: set alongside `error` only when the login rejection was the
+  // "verify your email" 403 -- distinguishes that case from a plain wrong-
+  // password 401 so the resend action only ever shows where it's relevant.
+  const [needsVerification, setNeedsVerification] = useState(false)
+  const [resendState, setResendState] = useState('idle') // idle | sending | sent
   const [submitting, setSubmitting] = useState(false)
   const { login } = useAuth()
   const navigate = useNavigate()
@@ -20,14 +26,31 @@ export default function LoginPage() {
   async function handleSubmit(event) {
     event.preventDefault()
     setError(null)
+    setNeedsVerification(false)
+    setResendState('idle')
     setSubmitting(true)
     try {
       await login({ email, password })
       navigate(getRedirectTarget(location), { replace: true })
     } catch (err) {
       setError(err.message)
+      setNeedsVerification(err.status === 403)
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  async function handleResend() {
+    setResendState('sending')
+    try {
+      await resendVerification({ email })
+      setResendState('sent')
+    } catch {
+      // resend-verification always answers the same way regardless of
+      // outcome -- see RegisterPage.jsx's handleResend for why this must
+      // be a catch (showing "sent" without leaving the rejection, e.g. a
+      // 429, as an unhandled promise rejection).
+      setResendState('sent')
     }
   }
 
@@ -71,9 +94,28 @@ export default function LoginPage() {
           />
 
           {error && (
-            <p role="alert" className="mb-4 text-sm text-danger">
+            <p role="alert" className={`text-sm text-danger ${needsVerification ? 'mb-2' : 'mb-4'}`}>
               {error}
             </p>
+          )}
+
+          {needsVerification && (
+            <div className="mb-4">
+              {resendState === 'sent' ? (
+                <p className="text-sm text-text2">
+                  If that account exists and isn't verified yet, we've sent a new link.
+                </p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleResend}
+                  disabled={resendState === 'sending'}
+                  className="text-sm font-semibold text-link disabled:opacity-60"
+                >
+                  Resend verification email
+                </button>
+              )}
+            </div>
           )}
 
           <button
