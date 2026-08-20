@@ -14,10 +14,12 @@ import ChatSearchPanel from '../components/chat/ChatSearchPanel'
 const INITIAL_HISTORY_LIMIT = 3
 const SCROLL_HISTORY_LIMIT = 10
 
-// How long the mascot holds its 'idea' beat after an answer lands. Must
-// stay >= the gm-idea keyframes' duration in index.css, or the bulb is
-// unmounted mid-fade and vanishes with a snap instead of drifting out.
-const IDEA_HOLD_MS = 2000
+// How long the mascot holds a post-answer beat ('idea' or 'noAnswer')
+// before dropping back to idle. Both beats share the gm-idea envelope in
+// index.css, so one constant covers both; it must stay >= that
+// keyframes' duration, or the mascot is unmounted mid-fade and snaps out
+// instead of drifting out.
+const MASCOT_BEAT_HOLD_MS = 2000
 
 // One persisted `ChatHistoryMessageResponse` row -> the same message shape
 // `ChatMessage.jsx` already renders for a live turn (`askQuestion`'s
@@ -90,18 +92,32 @@ function ChatPageContent() {
   // timeout/abort) renders as a banner here, structurally separate from
   // `messages`, so it can never render as an answer or a refusal (AC12).
   const [error, setError] = useState(null)
-  // Purely decorative: drives the mascot's post-answer bulb and nothing
-  // else. Deliberately not derived from `messages` -- it is a moment in
-  // time, not a property of the transcript, so re-renders (a history page
-  // loading in, say) must not re-trigger it.
-  const [hasIdea, setHasIdea] = useState(false)
-  const ideaTimerRef = useRef(null)
+  // Purely decorative: drives the mascot's one post-answer beat and
+  // nothing else -- 'idea' for a grounded answer, 'noAnswer' for a notice
+  // (no documents / empty scope / no matching content), null the rest of
+  // the time. A single field rather than two booleans so the two beats
+  // can never both be "on" at once fighting over the mascot. Deliberately
+  // not derived from `messages` -- it is a moment in time, not a property
+  // of the transcript, so re-renders (a history page loading in, say)
+  // must not re-trigger it.
+  const [mascotBeat, setMascotBeat] = useState(null)
+  const mascotBeatTimerRef = useRef(null)
   const messageListRef = useRef(null)
 
   // The timer outlives the render that set it, so it has to be cancelled
   // on unmount -- otherwise navigating away mid-beat leaves a setState
   // aimed at a gone component.
-  useEffect(() => () => clearTimeout(ideaTimerRef.current), [])
+  useEffect(() => () => clearTimeout(mascotBeatTimerRef.current), [])
+
+  // Starts (or restarts) a beat and schedules its own return to idle.
+  // Restarting clears whatever timer was already running, so a beat from
+  // a stale, still-in-flight turn can never fire after a newer one has
+  // already taken over the mascot.
+  function triggerMascotBeat(beat) {
+    clearTimeout(mascotBeatTimerRef.current)
+    setMascotBeat(beat)
+    mascotBeatTimerRef.current = setTimeout(() => setMascotBeat(null), MASCOT_BEAT_HOLD_MS)
+  }
 
   // Story 3.4/AD-10: pagination state for revealing older history as the
   // user scrolls up. `historyCursor`/`hasMoreHistory` come straight off
@@ -309,17 +325,21 @@ function ChatPageContent() {
         // FR-10/UX-DR15: a designed refusal, not an empty-state notice --
         // its own message role so ChatMessage renders a real bubble,
         // never the plain notice paragraph the other two reasons use.
+        // No mascot beat either: AD-6/UX-DR15 already settled that a
+        // refusal is correct behavior, not a failure, so it gets none of
+        // the danger-adjacent treatment the 'noAnswer' beat below uses --
+        // only an actual empty-state notice does.
         setMessages((previous) => [...previous, { role: 'refusal' }])
       } else if (result.empty_reason) {
         setMessages((previous) => [...previous, { role: 'notice', reason: result.empty_reason }])
+        // The mascot's "nothing to show" cue: no documents, an empty
+        // scope, or no matching content -- not a refusal, just the
+        // signal that there was no information to find.
+        triggerMascotBeat('noAnswer')
       } else {
         setMessages((previous) => [...previous, { role: 'assistant', segments: result.segments }])
-        // Only a grounded answer earns the bulb. A refusal or an
-        // empty-state notice is not an idea, and lighting one up would
-        // read as celebrating a non-result (UX-DR15).
-        clearTimeout(ideaTimerRef.current)
-        setHasIdea(true)
-        ideaTimerRef.current = setTimeout(() => setHasIdea(false), IDEA_HOLD_MS)
+        // Only a grounded answer earns the idea beat.
+        triggerMascotBeat('idea')
       }
     } catch (err) {
       setError({ kind: err.isServiceError ? 'service' : 'other', message: err.message })
@@ -437,7 +457,7 @@ function ChatPageContent() {
               {/* The mascot mirrors the request state -- decorative
                   reinforcement of the "Thinking…" bubble, never the only
                   signal that something is in flight. */}
-              <RobotMascot state={isAsking ? 'thinking' : hasIdea ? 'idea' : 'idle'} />
+              <RobotMascot state={isAsking ? 'thinking' : mascotBeat ?? 'idle'} />
               <div className="flex w-full items-stretch gap-2">
                 <label htmlFor="chat-question" className="sr-only">
                   Ask a question about your documents

@@ -19,9 +19,20 @@
 //   'idea'     -- the payoff beat, held for one moment after a grounded
 //                 answer lands: the dot cloud is replaced by a bulb that
 //                 flickers on over the same two tail puffs, then fades
-//                 out. ChatPage owns the timing and drops back to 'idle';
-//                 IDEA_HOLD_MS there must stay >= gm-idea's duration in
-//                 index.css, or the bulb is cut off mid-fade.
+//                 out.
+//   'noAnswer' -- the other payoff beat, for a notice (no documents,
+//                 empty scope, no matching content): the same two tail
+//                 puffs, this time capped with a small glowing neon X
+//                 instead of a bulb -- "nothing to show", not a failure.
+//                 Deliberately never used for a refusal: AD-6/UX-DR15
+//                 already settled that a refusal is correct behavior, and
+//                 this state's neon-red-adjacent read would contradict
+//                 that, so it stays blue (--robot-a/--robot-eye, this
+//                 file's own locked palette) rather than --danger.
+//                 Both beats share the gm-idea pop/hold/fade envelope in
+//                 index.css; ChatPage owns the timing, and its
+//                 MASCOT_BEAT_HOLD_MS there must stay >= gm-idea's
+//                 duration, or the beat is cut off mid-fade.
 //
 // Every animation class is defined inside index.css's
 // `prefers-reduced-motion: no-preference` block, so a user who asked for
@@ -55,6 +66,7 @@ const IDEA_RAYS = [
 export function RobotFigure({ state = 'idle', className = 'w-[46px]' }) {
   const isThinking = state === 'thinking'
   const isIdea = state === 'idea'
+  const isNoAnswer = state === 'noAnswer'
 
   return (
     <div
@@ -80,6 +92,13 @@ export function RobotFigure({ state = 'idle', className = 'w-[46px]' }) {
             <clipPath id="gm-robot-visor-clip">
               <rect x="12" y="17" width="22" height="12" rx="6" />
             </clipPath>
+            {/* 'noAnswer' state: blurs the X's underglow copy into a neon
+                halo, the same two-layer trick (soft blurred color behind
+                a crisp bright core) that gives the reference glow its
+                bleed. */}
+            <filter id="gm-robot-neon-blur" x="-60%" y="-60%" width="220%" height="220%">
+              <feGaussianBlur stdDeviation="1.1" />
+            </filter>
           </defs>
 
           {/* --- Thinking bubble --- */}
@@ -151,6 +170,52 @@ export function RobotFigure({ state = 'idle', className = 'w-[46px]' }) {
                   {/* Screw cap, two bands. */}
                   <path d="M9.7 20.4h4.6M10.7 22.3h2.6" />
                 </g>
+              </g>
+            </g>
+          )}
+
+          {/* --- No-answer neon X --- */}
+          {/* Same shoulder anchor and tail puffs as the idea bulb, same
+              gm-idea pop/hold/fade envelope -- only what caps the tail
+              differs, so this reads as a sibling beat, not an unrelated
+              alarm. The X itself is two layers: a thicker, blurred,
+              dimmer copy of the mark behind a crisp bright core, which is
+              what gives a neon tube its bleed. Stays inside this file's
+              own locked --robot-* palette (--robot-a/--robot-eye) rather
+              than --danger -- see the state-list comment above for why. */}
+          {isNoAnswer && (
+            <g className="anim-idea">
+              <circle cx="38.5" cy="14" r="1.6" fill="var(--robot-b)" stroke="var(--robot-a)" strokeWidth="0.7" />
+              <circle cx="42" cy="9.5" r="2.2" fill="var(--robot-b)" stroke="var(--robot-a)" strokeWidth="0.7" />
+
+              <g transform="translate(41.2 -11.3) scale(.9)">
+                {/* Ambient bloom -- reuses the idea bulb's own "appear,
+                    bloom, settle" glow keyframes. That shape isn't
+                    bulb-specific, it's just what a burst of light does,
+                    so it works for this too. Static opacity matches the
+                    keyframes' own final frame (.14): under
+                    prefers-reduced-motion the class's animation never
+                    applies at all, so this attribute is the only thing
+                    that renders, and it has to already equal the
+                    animated rest state (UX-DR28). */}
+                <circle cx="12" cy="11.4" r="6.4" fill="var(--robot-a)" opacity=".14" className="anim-bulb-glow" />
+
+                {/* Neon underglow: thicker, blurred, dim. */}
+                <path
+                  d="M7.8 7.2 16.2 15.6 M16.2 7.2 7.8 15.6"
+                  stroke="var(--robot-a)"
+                  strokeWidth="4.4"
+                  strokeLinecap="round"
+                  opacity="0.55"
+                  filter="url(#gm-robot-neon-blur)"
+                />
+                {/* Crisp core, on top. */}
+                <path
+                  d="M7.8 7.2 16.2 15.6 M16.2 7.2 7.8 15.6"
+                  stroke="var(--robot-eye)"
+                  strokeWidth="2.1"
+                  strokeLinecap="round"
+                />
               </g>
             </g>
           )}

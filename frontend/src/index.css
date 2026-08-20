@@ -539,16 +539,19 @@ input:focus, textarea:focus, select:focus {
   40%           { transform: translateY(-4px); opacity: 1; }
 }
 
-/* The mascot's idea bulb (RobotMascot.jsx, state 'idea'). gm-idea is the
-   whole gesture's envelope -- it pops out of the robot's shoulder, holds,
-   then drifts up and fades -- while the three below light the bulb inside
-   it: the glass warms from unlit grey to brand blue with one flicker on
-   the way, a glow blooms behind it, and the rays shoot outward.
+/* The mascot's post-answer beats (RobotMascot.jsx, states 'idea' and
+   'noAnswer'). gm-idea is the whole gesture's envelope, shared by both --
+   it pops out of the robot's shoulder, holds, then drifts up and fades --
+   while the three below light the bulb inside it: the glass warms from
+   unlit grey to brand blue with one flicker on the way, a glow blooms
+   behind it, and the rays shoot outward. The 'noAnswer' X reuses the
+   envelope and gm-bulb-glow only; its own two layers are static.
    gm-bulb-* all END on the value the SVG already carries statically, so
-   the bulb's resting state is "lit": a reduced-motion user, who gets no
+   the resting state is "lit": a reduced-motion user, who gets no
    animation at all, sees a lit bulb appear and go rather than a dead one
    (UX-DR28). gm-idea's duration is the contract with ChatPage's
-   IDEA_HOLD_MS, which must not unmount the bulb before this finishes. */
+   MASCOT_BEAT_HOLD_MS, which must not unmount a beat before this
+   finishes. */
 @keyframes gm-idea {
   0%   { opacity: 0; transform: translateY(2px)  scale(.35); }
   16%  { opacity: 1; transform: translateY(0)    scale(1.1); }
