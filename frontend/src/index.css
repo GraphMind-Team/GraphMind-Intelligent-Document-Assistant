@@ -576,6 +576,19 @@ input:focus, textarea:focus, select:focus {
   100%    { opacity: 1; transform: scale(1); }
 }
 
+/* Click-sparkle twinkle (RobotMascot.jsx). Pops in with a little spin,
+   settles, holds, then shrinks back out -- three of these run at once
+   with staggered `animation-delay`s (set inline per star, the same
+   convention the thinking-cloud dots already use) so they twinkle in
+   sequence rather than flashing together as one blob. */
+@keyframes gm-sparkle {
+  0%   { opacity: 0; transform: scale(.2) rotate(-20deg); }
+  35%  { opacity: 1; transform: scale(1.15) rotate(8deg); }
+  55%  { opacity: 1; transform: scale(.95) rotate(-4deg); }
+  75%  { opacity: 1; transform: scale(1) rotate(0deg); }
+  100% { opacity: 0; transform: scale(.5) rotate(6deg); }
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .anim-float { animation: gm-float 4.5s var(--ease-out) infinite; }
   .anim-blink { animation: gm-blink 5.2s steps(1, end) infinite; transform-origin: center; }
@@ -595,6 +608,12 @@ input:focus, textarea:focus, select:focus {
   .anim-bulb       { animation: gm-bulb-on 1.15s var(--ease-out) both; }
   .anim-bulb-glow  { animation: gm-bulb-glow 1.25s var(--ease-out) both; transform-origin: 12px 11.4px; }
   .anim-bulb-rays  { animation: gm-bulb-rays 1.15s var(--ease-spring) both; transform-origin: 12px 11.4px; }
+
+  /* Click sparkles: each star scales/rotates about its own centre --
+     already local (0,0) in SPARKLE_PATH's own coordinate space, so unlike
+     the beats above no per-star transform-origin offset is needed, the
+     default origin (the element's own centre) is already correct. */
+  .anim-sparkle    { animation: gm-sparkle .9s var(--ease-spring) both; }
 
   /* Thinking state: the whole mascot bobs faster while a request is in
      flight -- the state cue is redundant with the visible "Thinking…"

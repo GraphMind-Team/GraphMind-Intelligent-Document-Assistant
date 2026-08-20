@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from 'react'
+
 // Robot mascot (Story 3.1, UX-DR5) -- the app's one piece of character,
 // redrawn for design system v2.
 //
@@ -34,6 +36,18 @@
 //                 MASCOT_BEAT_HOLD_MS there must stay >= gm-idea's
 //                 duration, or the beat is cut off mid-fade.
 //
+// Independent of `state`: clicking (or tapping) the mascot -- anywhere,
+// in any state -- twinkles three small blue sparkles into place, one on
+// each side of the head and one above it, then fades them out. Purely a
+// delight click with no informational payload (unlike the states above,
+// none of which are ever the *only* signal of something), so it is
+// deliberately mouse/touch-only: no tabIndex, no keyboard handler, and
+// the root stays `aria-hidden` exactly as before -- adding a real
+// interactive control here for zero functional gain would be accessibility
+// noise, not accessibility. Local to this component (`isSparkling`/
+// `sparkleId`), not state ChatPage owns, because a click has nothing to
+// do with the request lifecycle the other four states track.
+//
 // Every animation class is defined inside index.css's
 // `prefers-reduced-motion: no-preference` block, so a user who asked for
 // reduced motion gets the same robot, standing still (UX-DR28).
@@ -59,6 +73,31 @@ const IDEA_RAYS = [
   [19.7, 8.6, 22.1, 7.7],
 ]
 
+// A four-point "twinkle" sparkle, straight-edged so its symmetry is exact
+// rather than eyeballed through bezier handles: four tips 6 units from
+// centre (N/E/S/W) with the waist pulled in to 1.3 units at the diagonals.
+// Centred on (0, 0) so placing one is just a translate.
+const SPARKLE_PATH = 'M0 -6L1.3 -1.3 6 0 1.3 1.3 0 6 -1.3 1.3 -6 0 -1.3 -1.3Z'
+
+// Click-triggered sparkles: one on each side of the head, one above it.
+// Coordinates sit just outside the head/ear silhouette (head spans x
+// 8..38, ears reach x 4..42) so every sparkle flanks the character rather
+// than sitting on top of it. `scale`/`delay` vary so the three don't
+// blink in unison -- a slightly bigger lead sparkle above the head, two
+// smaller ones stepping in after it on either side.
+const SPARKLES = [
+  { x: 23, y: -4, scale: 1, delay: 0 },
+  { x: -2, y: 21, scale: 0.8, delay: 0.12 },
+  { x: 48, y: 21, scale: 0.8, delay: 0.24 },
+]
+
+// How long the click-sparkle group stays mounted: the last star's delay
+// (0.24s) plus the animation's own duration (0.9s), rounded up with a
+// small margin so the group never unmounts before its own fade-out
+// finishes (the same "duration must cover the CSS" contract MASCOT_BEAT_HOLD_MS
+// keeps with gm-idea in ChatPage).
+const SPARKLE_HOLD_MS = 1250
+
 // The character itself, decoupled from where it sits. `RobotMascot`
 // below anchors it to the chat composer; the landing page's hero renders
 // the same figure much larger, so there is exactly one robot in the
@@ -68,10 +107,29 @@ export function RobotFigure({ state = 'idle', className = 'w-[46px]' }) {
   const isIdea = state === 'idea'
   const isNoAnswer = state === 'noAnswer'
 
+  // Click sparkles. `sparkleId` doubles as "is a burst currently showing"
+  // (null when not) and as the burst's React `key` -- using it as the key
+  // forces a fresh mount, and therefore a fresh CSS animation, even on a
+  // rapid second click while the first burst is still fading. Bumping a
+  // boolean instead would leave the DOM node in place with the animation
+  // already at its held end state, so a spam-click would do nothing after
+  // the first.
+  const [sparkleId, setSparkleId] = useState(null)
+  const sparkleTimerRef = useRef(null)
+
+  useEffect(() => () => clearTimeout(sparkleTimerRef.current), [])
+
+  function handleSparkleClick() {
+    clearTimeout(sparkleTimerRef.current)
+    setSparkleId((id) => (id ?? 0) + 1)
+    sparkleTimerRef.current = setTimeout(() => setSparkleId(null), SPARKLE_HOLD_MS)
+  }
+
   return (
     <div
       aria-hidden="true"
-      className={[className, isThinking ? 'robot-thinking' : ''].join(' ')}
+      onClick={handleSparkleClick}
+      className={[className, isThinking ? 'robot-thinking' : '', 'cursor-pointer'].join(' ')}
     >
       <div className="anim-float">
         <svg viewBox="0 0 46 52" className="w-full overflow-visible">
@@ -220,6 +278,38 @@ export function RobotFigure({ state = 'idle', className = 'w-[46px]' }) {
             </g>
           )}
 
+          {/* --- Click sparkles --- */}
+          {/* Independent of `state`: three twinkles flanking the head,
+              triggered by a click anywhere on the mascot (see
+              handleSparkleClick). `key={sparkleId}` is what makes a rapid
+              second click restart the animation instead of doing nothing
+              -- it forces React to unmount and remount this whole group,
+              rather than leave the existing DOM nodes (whose CSS
+              animation has already run to its held end state) in place. */}
+          {sparkleId !== null && (
+            <g key={sparkleId}>
+              {/* Each star is a static placement `<g>` (an SVG `transform`
+                  attribute) wrapping the path that actually animates.
+                  They can't be the same element: `anim-sparkle`'s
+                  keyframes animate the CSS `transform` property, and an
+                  animated CSS transform replaces an SVG transform
+                  attribute on that element outright rather than composing
+                  with it -- put both on one node and the moment the
+                  animation starts, the translate placement is wiped and
+                  every star snaps to the same spot. */}
+              {SPARKLES.map(({ x, y, scale, delay }) => (
+                <g key={`${x}-${y}`} transform={`translate(${x} ${y}) scale(${scale})`}>
+                  <path
+                    d={SPARKLE_PATH}
+                    fill="var(--robot-a)"
+                    className="anim-sparkle drop-shadow-[0_0_3px_var(--robot-a)]"
+                    style={{ animationDelay: `${delay}s` }}
+                  />
+                </g>
+              ))}
+            </g>
+          )}
+
           {/* --- Antenna + beacon --- */}
           <path d="M23 12V7" stroke="var(--robot-a)" strokeWidth="2" strokeLinecap="round" />
           <circle cx="23" cy="5" r="3" fill="var(--robot-a)" className="anim-pulse" style={{ transformOrigin: '23px 5px' }} />
@@ -323,11 +413,17 @@ export function RobotFigure({ state = 'idle', className = 'w-[46px]' }) {
 
 // Chat-composer placement: small, left-aligned, overlapping the
 // composer's top edge inside a `relative`-wrapped composer row.
+//
+// Not `pointer-events-none`: the mascot's own click-sparkle handler
+// (RobotFigure) needs real clicks to land on it. Only the bottom ~6px of
+// its box overlaps the composer row underneath (the `-mb-[6px]` above),
+// and that sliver sits above the input's own top border, so this does
+// not meaningfully compete with the textarea for clicks.
 export default function RobotMascot({ state = 'idle' }) {
   return (
     <RobotFigure
       state={state}
-      className="pointer-events-none absolute left-4 bottom-full -mb-[6px] z-[2] w-[46px]"
+      className="absolute left-4 bottom-full -mb-[6px] z-[2] w-[46px]"
     />
   )
 }
