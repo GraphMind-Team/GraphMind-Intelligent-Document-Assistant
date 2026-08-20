@@ -5,6 +5,7 @@ import { askQuestion, getChatHistory } from '../api/chatClient'
 import ChatMessage from '../components/chat/ChatMessage'
 import RobotMascot from '../components/chat/RobotMascot'
 import DocumentsScopePanel from '../components/chat/DocumentsScopePanel'
+import ChatSearchPanel from '../components/chat/ChatSearchPanel'
 
 // UX-DR29/Story 3.4: initial page load renders only the 3 most recent
 // messages; each scroll-up page fetches 10 more. Two different numbers
@@ -12,6 +13,13 @@ import DocumentsScopePanel from '../components/chat/DocumentsScopePanel'
 // the user is actively scrolling back.
 const INITIAL_HISTORY_LIMIT = 3
 const SCROLL_HISTORY_LIMIT = 10
+
+// How long the mascot holds a post-answer beat ('idea' or 'noAnswer')
+// before dropping back to idle. Both beats share the gm-idea envelope in
+// index.css, so one constant covers both; it must stay >= that
+// keyframes' duration, or the mascot is unmounted mid-fade and snaps out
+// instead of drifting out.
+const MASCOT_BEAT_HOLD_MS = 2000
 
 // One persisted `ChatHistoryMessageResponse` row -> the same message shape
 // `ChatMessage.jsx` already renders for a live turn (`askQuestion`'s
@@ -30,6 +38,21 @@ function toUiMessage(row) {
     return { role: 'notice', reason: row.empty_reason }
   }
   return { role: 'assistant', segments: row.segments ?? [] }
+}
+
+// Every piece of user-visible text in one message, flattened for the
+// chat search filter. Notice/refusal/thinking bubbles have no text of
+// their own here (their copy lives in ChatMessage.jsx) -- they simply
+// never match a query, which is the honest outcome: there is nothing of
+// the user's to find in them.
+function messageSearchText(message) {
+  if (message.role === 'user') return message.text ?? ''
+  if (message.role === 'assistant') {
+    return (message.segments ?? [])
+      .map((segment) => segment.text ?? '')
+      .join(' ')
+  }
+  return ''
 }
 
 // Chat page (Story 3.1): a two-column grid -- flexible chat window (1fr) +
@@ -59,12 +82,42 @@ function ChatPageContent() {
   const { selectedDocumentIds } = useChatScope()
   const [messages, setMessages] = useState([])
   const [question, setQuestion] = useState('')
+  // Chat-history search (right column). Filters `messages` at render
+  // time only -- the thread state itself is never narrowed, so history
+  // paging, scroll restore and submit all keep working against the full
+  // list while a query is active.
+  const [chatSearch, setChatSearch] = useState('')
   const [isAsking, setIsAsking] = useState(false)
   // { kind: 'service' | 'other', message } -- a 503 (or client-side
   // timeout/abort) renders as a banner here, structurally separate from
   // `messages`, so it can never render as an answer or a refusal (AC12).
   const [error, setError] = useState(null)
+  // Purely decorative: drives the mascot's one post-answer beat and
+  // nothing else -- 'idea' for a grounded answer, 'noAnswer' for a notice
+  // (no documents / empty scope / no matching content), null the rest of
+  // the time. A single field rather than two booleans so the two beats
+  // can never both be "on" at once fighting over the mascot. Deliberately
+  // not derived from `messages` -- it is a moment in time, not a property
+  // of the transcript, so re-renders (a history page loading in, say)
+  // must not re-trigger it.
+  const [mascotBeat, setMascotBeat] = useState(null)
+  const mascotBeatTimerRef = useRef(null)
   const messageListRef = useRef(null)
+
+  // The timer outlives the render that set it, so it has to be cancelled
+  // on unmount -- otherwise navigating away mid-beat leaves a setState
+  // aimed at a gone component.
+  useEffect(() => () => clearTimeout(mascotBeatTimerRef.current), [])
+
+  // Starts (or restarts) a beat and schedules its own return to idle.
+  // Restarting clears whatever timer was already running, so a beat from
+  // a stale, still-in-flight turn can never fire after a newer one has
+  // already taken over the mascot.
+  function triggerMascotBeat(beat) {
+    clearTimeout(mascotBeatTimerRef.current)
+    setMascotBeat(beat)
+    mascotBeatTimerRef.current = setTimeout(() => setMascotBeat(null), MASCOT_BEAT_HOLD_MS)
+  }
 
   // Story 3.4/AD-10: pagination state for revealing older history as the
   // user scrolls up. `historyCursor`/`hasMoreHistory` come straight off
@@ -272,11 +325,21 @@ function ChatPageContent() {
         // FR-10/UX-DR15: a designed refusal, not an empty-state notice --
         // its own message role so ChatMessage renders a real bubble,
         // never the plain notice paragraph the other two reasons use.
+        // No mascot beat either: AD-6/UX-DR15 already settled that a
+        // refusal is correct behavior, not a failure, so it gets none of
+        // the danger-adjacent treatment the 'noAnswer' beat below uses --
+        // only an actual empty-state notice does.
         setMessages((previous) => [...previous, { role: 'refusal' }])
       } else if (result.empty_reason) {
         setMessages((previous) => [...previous, { role: 'notice', reason: result.empty_reason }])
+        // The mascot's "nothing to show" cue: no documents, an empty
+        // scope, or no matching content -- not a refusal, just the
+        // signal that there was no information to find.
+        triggerMascotBeat('noAnswer')
       } else {
         setMessages((previous) => [...previous, { role: 'assistant', segments: result.segments }])
+        // Only a grounded answer earns the idea beat.
+        triggerMascotBeat('idea')
       }
     } catch (err) {
       setError({ kind: err.isServiceError ? 'service' : 'other', message: err.message })
@@ -284,6 +347,19 @@ function ChatPageContent() {
       setIsAsking(false)
     }
   }
+
+  const chatSearchNeedle = chatSearch.trim().toLowerCase()
+  // Index carried alongside the message so the key stays tied to the
+  // message's position in the full thread, not to its position in the
+  // filtered view -- otherwise React would reuse a bubble's DOM node for
+  // a different message as the query changes.
+  const visibleMessages = messages
+    .map((message, index) => ({ message, index }))
+    .filter(
+      ({ message }) =>
+        chatSearchNeedle === '' ||
+        messageSearchText(message).toLowerCase().includes(chatSearchNeedle),
+    )
 
   return (
     <>
@@ -295,7 +371,7 @@ function ChatPageContent() {
       <div className="grid grid-cols-[1fr_260px] gap-[20px] max-[900px]:grid-cols-1">
         <div
           className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-card-bg shadow-card"
-          style={{ minHeight: '520px', maxHeight: '72vh' }}
+          style={{ minHeight: '520px', height: 'calc(100vh - 140px)' }}
         >
           {/* aria-atomic="false": only the newly-appended message is
               announced, not a full re-read of the thread every turn
@@ -362,10 +438,10 @@ function ChatPageContent() {
             onScroll={handleMessageListScroll}
             className="flex flex-1 flex-col gap-3 overflow-y-auto p-5"
           >
-            {messages.map((message, index) => (
-              <ChatMessage key={index} message={message} />
+            {visibleMessages.map(({ message, index }) => (
+              <ChatMessage key={index} message={message} highlight={chatSearchNeedle} />
             ))}
-            {isAsking && <ChatMessage message={{ role: 'thinking' }} />}
+            {isAsking && !chatSearchNeedle && <ChatMessage message={{ role: 'thinking' }} />}
           </div>
 
           {error && (
@@ -381,7 +457,7 @@ function ChatPageContent() {
               {/* The mascot mirrors the request state -- decorative
                   reinforcement of the "Thinking…" bubble, never the only
                   signal that something is in flight. */}
-              <RobotMascot state={isAsking ? 'thinking' : 'idle'} />
+              <RobotMascot state={isAsking ? 'thinking' : mascotBeat ?? 'idle'} />
               <div className="flex w-full items-stretch gap-2">
                 <label htmlFor="chat-question" className="sr-only">
                   Ask a question about your documents
@@ -442,7 +518,17 @@ function ChatPageContent() {
           </form>
         </div>
 
-        <DocumentsScopePanel authFetch={authFetch} />
+        {/* Right column: search above the scope panel, same 20px gutter
+            as the grid's own so the two panels read as one stack. */}
+        <div className="flex min-w-0 flex-col gap-[20px] self-start">
+          <ChatSearchPanel
+            value={chatSearch}
+            onChange={setChatSearch}
+            resultCount={visibleMessages.length}
+            totalCount={messages.length}
+          />
+          <DocumentsScopePanel authFetch={authFetch} />
+        </div>
       </div>
     </>
   )

@@ -1,4 +1,5 @@
 import CitationChip from './CitationChip'
+import highlightMatches from './highlightMatches'
 
 const NOTICE_COPY = {
   no_documents: 'No documents are available to search yet.',
@@ -32,7 +33,12 @@ const REFUSAL_COPY = 'No supporting evidence found in your documents for this qu
 // bg-surface/border/corner treatment) so it can never be mistaken for
 // either a grounded answer or the refusal bubble below, both of which are
 // real bubbles.
-export default function ChatMessage({ message }) {
+// `highlight` is the active chat-search query, already lowercased and
+// trimmed by ChatPage ('' when the search is idle). Only the message's
+// own words are marked -- the fixed notice/refusal copy below is
+// GraphMind's wording, not something the user searched their own
+// conversation for.
+export default function ChatMessage({ message, highlight = '' }) {
   if (message.role === 'user') {
     return (
       <div className="anim-rise ml-auto max-w-[70%] self-end rounded-[20px_20px_6px_20px] bg-[image:var(--grad-brand)] px-4 py-2.5 text-[14px] text-white shadow-[var(--glow)]">
@@ -40,7 +46,7 @@ export default function ChatMessage({ message }) {
             (UX-DR5) alone; a screen reader gets none of that, so without
             this prefix two turns read as one undifferentiated stream. */}
         <span className="sr-only">You: </span>
-        {message.text}
+        {highlightMatches(message.text, highlight)}
       </div>
     )
   }
@@ -96,13 +102,16 @@ export default function ChatMessage({ message }) {
     )
   }
 
-  // 'assistant'
+  // 'assistant'. `bg-card-bg` is the base color; `--grad-brand-soft`
+  // layers a faint brand-blue ombre over it (the same token `.btn-ghost`
+  // uses), so the answer bubble reads as "GraphMind" at a glance without
+  // needing a border-color trick.
   return (
-    <div className="anim-rise mr-auto max-w-[78%] self-start rounded-[20px_20px_20px_6px] border border-border bg-card-bg px-4 py-3 text-[14px] leading-[1.6] text-text shadow-card">
+    <div className="anim-rise mr-auto max-w-[78%] self-start rounded-[20px_20px_20px_6px] border border-border bg-card-bg bg-[image:var(--grad-brand-soft)] px-4 py-3 text-[14px] leading-[1.6] text-text shadow-card">
       <span className="sr-only">GraphMind: </span>
       {message.segments.map((segment, index) => (
         <span key={index}>
-          {segment.text}
+          {highlightMatches(segment.text, highlight)}
           {segment.citations.map((citation, citationIndex) => (
             <CitationChip
               key={citationIndex}

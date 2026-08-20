@@ -24,6 +24,16 @@ export default function ProfileCard() {
   // itself triggers authFetch's own logout) is surfaced the same way a
   // failed save is (role="alert"), rather than silently leaving the form
   // blank with no indication why or how to retry.
+  // Visible "Saved!" confirmation clears itself after a few seconds --
+  // long enough to notice, not glued to the form forever the way the
+  // sr-only announcement below effectively is (it only fires once per
+  // save, but has no reason to time out since it's silent).
+  useEffect(() => {
+    if (status !== 'saved') return
+    const timer = setTimeout(() => setStatus(null), 3000)
+    return () => clearTimeout(timer)
+  }, [status])
+
   useEffect(() => {
     let cancelled = false
     authFetch('/auth/me')
@@ -92,7 +102,7 @@ export default function ProfileCard() {
         <button
           type="submit"
           disabled={loading || saving || fullName.trim() === ''}
-          className="self-start rounded-md border border-border px-3 py-1.5 text-sm text-text disabled:opacity-50"
+          className="self-start rounded-md border border-border px-3 py-1.5 text-sm text-text transition-colors hover:border-primary hover:bg-primary/10 hover:text-primary disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-transparent disabled:hover:text-text"
         >
           {saving ? 'Saving...' : 'Save'}
         </button>
@@ -100,6 +110,9 @@ export default function ProfileCard() {
       <p className="sr-only" aria-live="polite">
         {status === 'saving' ? 'Saving profile...' : status === 'saved' ? 'Profile saved.' : ''}
       </p>
+      {status === 'saved' && (
+        <p className="mt-3 text-sm text-success">Saved!</p>
+      )}
       {error && (
         <p role="alert" className="mt-3 text-sm text-danger">
           {error}

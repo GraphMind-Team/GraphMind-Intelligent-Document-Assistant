@@ -172,7 +172,7 @@ export default function LandingPage() {
           <div className="anim-rise relative mx-auto w-full max-w-[420px]">
             <div className="rounded-2xl border border-border bg-card-bg p-6 shadow-modal">
               <div className="flex items-start gap-4">
-                <RobotFigure className="w-[72px] shrink-0" />
+                <RobotFigure state="thinking" className="mt-[28px] w-[72px] shrink-0" />
                 <div className="min-w-0 flex-1 space-y-3">
                   <p className="ml-auto w-fit max-w-full rounded-[20px_20px_6px_20px] bg-[image:var(--grad-brand)] px-4 py-2.5 text-[13.5px] text-white shadow-[var(--glow)]">
                     Who owns the migration project?

@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from 'react'
+
 // Robot mascot (Story 3.1, UX-DR5) -- the app's one piece of character,
 // redrawn for design system v2.
 //
@@ -12,9 +14,39 @@
 // `state`:
 //   'idle'     -- slow bob, occasional blink, a wave on the arm.
 //   'thinking' -- faster bob, a scan line sweeping the visor, faster
-//                 beacon. Purely decorative reinforcement: the request's
+//                 beacon, and a thought bubble beside the head whose
+//                 three dots ripple. Purely decorative reinforcement: the request's
 //                 real status is the visible "Thinking…" bubble and its
 //                 aria-live announcement in ChatPage, never this.
+//   'idea'     -- the payoff beat, held for one moment after a grounded
+//                 answer lands: the dot cloud is replaced by a bulb that
+//                 flickers on over the same two tail puffs, then fades
+//                 out.
+//   'noAnswer' -- the other payoff beat, for a notice (no documents,
+//                 empty scope, no matching content): the same two tail
+//                 puffs, this time capped with a small glowing neon X
+//                 instead of a bulb -- "nothing to show", not a failure.
+//                 Deliberately never used for a refusal: AD-6/UX-DR15
+//                 already settled that a refusal is correct behavior, and
+//                 this state's neon-red-adjacent read would contradict
+//                 that, so it stays blue (--robot-a/--robot-eye, this
+//                 file's own locked palette) rather than --danger.
+//                 Both beats share the gm-idea pop/hold/fade envelope in
+//                 index.css; ChatPage owns the timing, and its
+//                 MASCOT_BEAT_HOLD_MS there must stay >= gm-idea's
+//                 duration, or the beat is cut off mid-fade.
+//
+// Independent of `state`: clicking (or tapping) the mascot -- anywhere,
+// in any state -- twinkles three small blue sparkles into place, one on
+// each side of the head and one above it, then fades them out. Purely a
+// delight click with no informational payload (unlike the states above,
+// none of which are ever the *only* signal of something), so it is
+// deliberately mouse/touch-only: no tabIndex, no keyboard handler, and
+// the root stays `aria-hidden` exactly as before -- adding a real
+// interactive control here for zero functional gain would be accessibility
+// noise, not accessibility. Local to this component (`isSparkling`/
+// `sparkleId`), not state ChatPage owns, because a click has nothing to
+// do with the request lifecycle the other four states track.
 //
 // Every animation class is defined inside index.css's
 // `prefers-reduced-motion: no-preference` block, so a user who asked for
@@ -28,17 +60,76 @@
 // tokens rather than literal rgba: those are the only two values in this
 // namespace with a dark-theme override (a blue-tinted shadow reads as a
 // color cast on a dark surface), and RobotMascot.test.jsx enforces it.
+
+// The bulb's rays, as [x1, y1, x2, y2] on a circle centred at the glass
+// (12, 11.4) in the bulb's own 24x24 space: inner radius 8.2 clears the
+// glass's 6.2 with a visible gap, outer 10.8 keeps them inside the box.
+// Listed rather than hand-drawn so the fan stays even.
+const IDEA_RAYS = [
+  [12, 3.2, 12, 0.6],
+  [7.3, 4.7, 5.8, 2.6],
+  [16.7, 4.7, 18.2, 2.6],
+  [4.3, 8.6, 1.9, 7.7],
+  [19.7, 8.6, 22.1, 7.7],
+]
+
+// A four-point "twinkle" sparkle, straight-edged so its symmetry is exact
+// rather than eyeballed through bezier handles: four tips 6 units from
+// centre (N/E/S/W) with the waist pulled in to 1.3 units at the diagonals.
+// Centred on (0, 0) so placing one is just a translate.
+const SPARKLE_PATH = 'M0 -6L1.3 -1.3 6 0 1.3 1.3 0 6 -1.3 1.3 -6 0 -1.3 -1.3Z'
+
+// Click-triggered sparkles: one on each side of the head, one above it.
+// Coordinates sit just outside the head/ear silhouette (head spans x
+// 8..38, ears reach x 4..42) so every sparkle flanks the character rather
+// than sitting on top of it. `scale`/`delay` vary so the three don't
+// blink in unison -- a slightly bigger lead sparkle above the head, two
+// smaller ones stepping in after it on either side.
+const SPARKLES = [
+  { x: 23, y: -4, scale: 1, delay: 0 },
+  { x: -2, y: 21, scale: 0.8, delay: 0.12 },
+  { x: 48, y: 21, scale: 0.8, delay: 0.24 },
+]
+
+// How long the click-sparkle group stays mounted: the last star's delay
+// (0.24s) plus the animation's own duration (0.9s), rounded up with a
+// small margin so the group never unmounts before its own fade-out
+// finishes (the same "duration must cover the CSS" contract MASCOT_BEAT_HOLD_MS
+// keeps with gm-idea in ChatPage).
+const SPARKLE_HOLD_MS = 1250
+
 // The character itself, decoupled from where it sits. `RobotMascot`
 // below anchors it to the chat composer; the landing page's hero renders
 // the same figure much larger, so there is exactly one robot in the
 // codebase rather than a marketing copy that drifts from the product one.
 export function RobotFigure({ state = 'idle', className = 'w-[46px]' }) {
   const isThinking = state === 'thinking'
+  const isIdea = state === 'idea'
+  const isNoAnswer = state === 'noAnswer'
+
+  // Click sparkles. `sparkleId` doubles as "is a burst currently showing"
+  // (null when not) and as the burst's React `key` -- using it as the key
+  // forces a fresh mount, and therefore a fresh CSS animation, even on a
+  // rapid second click while the first burst is still fading. Bumping a
+  // boolean instead would leave the DOM node in place with the animation
+  // already at its held end state, so a spam-click would do nothing after
+  // the first.
+  const [sparkleId, setSparkleId] = useState(null)
+  const sparkleTimerRef = useRef(null)
+
+  useEffect(() => () => clearTimeout(sparkleTimerRef.current), [])
+
+  function handleSparkleClick() {
+    clearTimeout(sparkleTimerRef.current)
+    setSparkleId((id) => (id ?? 0) + 1)
+    sparkleTimerRef.current = setTimeout(() => setSparkleId(null), SPARKLE_HOLD_MS)
+  }
 
   return (
     <div
       aria-hidden="true"
-      className={[className, isThinking ? 'robot-thinking' : ''].join(' ')}
+      onClick={handleSparkleClick}
+      className={[className, isThinking ? 'robot-thinking' : '', 'cursor-pointer'].join(' ')}
     >
       <div className="anim-float">
         <svg viewBox="0 0 46 52" className="w-full overflow-visible">
@@ -59,7 +150,165 @@ export function RobotFigure({ state = 'idle', className = 'w-[46px]' }) {
             <clipPath id="gm-robot-visor-clip">
               <rect x="12" y="17" width="22" height="12" rx="6" />
             </clipPath>
+            {/* 'noAnswer' state: blurs the X's underglow copy into a neon
+                halo, the same two-layer trick (soft blurred color behind
+                a crisp bright core) that gives the reference glow its
+                bleed. */}
+            <filter id="gm-robot-neon-blur" x="-60%" y="-60%" width="220%" height="220%">
+              <feGaussianBlur stdDeviation="1.1" />
+            </filter>
           </defs>
+
+          {/* --- Thinking bubble --- */}
+          {/* A little "thought cloud" that pops in beside the head while a
+              request is in flight, with three dots rising in sequence --
+              the same three-dot idiom as the "Thinking…" bubble in the
+              transcript, so the two read as one state. Drawn outside the
+              viewBox (the svg is `overflow-visible`) so adding it costs the
+              mascot's layout box nothing. Decorative only: the wrapper is
+              `aria-hidden`, and the real status stays the aria-live
+              announcement in ChatPage. */}
+          {isThinking && (
+            <g className="anim-rise">
+              {/* Tail: two puffs stepping up from the shoulder. */}
+              <circle cx="38.5" cy="14" r="1.6" fill="var(--robot-b)" stroke="var(--robot-a)" strokeWidth="0.7" />
+              <circle cx="42" cy="9.5" r="2.2" fill="var(--robot-b)" stroke="var(--robot-a)" strokeWidth="0.7" />
+              {/* Cloud body. */}
+              <rect x="41" y="-8" width="22" height="14" rx="7" fill="var(--robot-b)" stroke="var(--robot-a)" strokeWidth="0.9" />
+              {/* Dots -- staggered so they ripple left to right. */}
+              {[47, 52, 57].map((cx, i) => (
+                <circle
+                  key={cx}
+                  cx={cx}
+                  cy="-1"
+                  r="1.7"
+                  fill="var(--robot-visor)"
+                  className="anim-dot"
+                  style={{ transformOrigin: `${cx}px -1px`, animationDelay: `${i * 0.16}s` }}
+                />
+              ))}
+            </g>
+          )}
+
+          {/* --- Idea bulb --- */}
+          {/* The same two tail puffs the thought cloud uses, so the beat
+              reads as the thought *becoming* an idea rather than as a
+              second, unrelated bubble. The bulb itself is drawn in its own
+              24x24 space and placed by one transform: scale .9 with the
+              glass centre landing on (52, -1), exactly where the dot
+              cloud's centre was.
+
+              `currentColor` on every stroke is the whole trick -- gm-bulb-on
+              animates `color` on the group, so one property flickers the
+              glass, filament, cap and rays together. */}
+          {isIdea && (
+            <g className="anim-idea">
+              <circle cx="38.5" cy="14" r="1.6" fill="var(--robot-b)" stroke="var(--robot-a)" strokeWidth="0.7" />
+              <circle cx="42" cy="9.5" r="2.2" fill="var(--robot-b)" stroke="var(--robot-a)" strokeWidth="0.7" />
+
+              <g transform="translate(41.2 -11.3) scale(.9)" className="anim-bulb text-accent">
+                {/* Glow -- a filled disc behind the glass that blooms on
+                    the flick and settles to a low haze. Filled, not
+                    stroked, so it reads as light, not another outline. */}
+                <circle cx="12" cy="11.4" r="6.4" fill="currentColor" opacity=".14" className="anim-bulb-glow" />
+
+                <g fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <g className="anim-bulb-rays">
+                    {IDEA_RAYS.map(([x1, y1, x2, y2]) => (
+                      <line key={`${x1}-${y1}`} x1={x1} y1={y1} x2={x2} y2={y2} />
+                    ))}
+                  </g>
+                  {/* Glass + shoulders: a 6.2 arc closed by two short
+                      curves stepping down to the cap. */}
+                  <path d="M8.4 16.5a6.2 6.2 0 1 1 7.2 0c-.7.5-1.1 1.1-1.2 1.9h-4.8c-.1-.8-.5-1.4-1.2-1.9Z" />
+                  {/* Highlight -- the one detail that stops the glass
+                      reading as a flat ring. */}
+                  <path d="M9.1 10.9a3.4 3.4 0 0 1 1.5-2.5" strokeWidth="1.3" opacity=".75" />
+                  <path d="M10.7 18.4c0-1.8.5-2.7 1.3-2.7s1.3.9 1.3 2.7" strokeWidth="1.3" />
+                  {/* Screw cap, two bands. */}
+                  <path d="M9.7 20.4h4.6M10.7 22.3h2.6" />
+                </g>
+              </g>
+            </g>
+          )}
+
+          {/* --- No-answer neon X --- */}
+          {/* Same shoulder anchor and tail puffs as the idea bulb, same
+              gm-idea pop/hold/fade envelope -- only what caps the tail
+              differs, so this reads as a sibling beat, not an unrelated
+              alarm. The X itself is two layers: a thicker, blurred,
+              dimmer copy of the mark behind a crisp bright core, which is
+              what gives a neon tube its bleed. Stays inside this file's
+              own locked --robot-* palette (--robot-a/--robot-eye) rather
+              than --danger -- see the state-list comment above for why. */}
+          {isNoAnswer && (
+            <g className="anim-idea">
+              <circle cx="38.5" cy="14" r="1.6" fill="var(--robot-b)" stroke="var(--robot-a)" strokeWidth="0.7" />
+              <circle cx="42" cy="9.5" r="2.2" fill="var(--robot-b)" stroke="var(--robot-a)" strokeWidth="0.7" />
+
+              <g transform="translate(41.2 -11.3) scale(.9)">
+                {/* Ambient bloom -- reuses the idea bulb's own "appear,
+                    bloom, settle" glow keyframes. That shape isn't
+                    bulb-specific, it's just what a burst of light does,
+                    so it works for this too. Static opacity matches the
+                    keyframes' own final frame (.14): under
+                    prefers-reduced-motion the class's animation never
+                    applies at all, so this attribute is the only thing
+                    that renders, and it has to already equal the
+                    animated rest state (UX-DR28). */}
+                <circle cx="12" cy="11.4" r="6.4" fill="var(--robot-a)" opacity=".14" className="anim-bulb-glow" />
+
+                {/* Neon underglow: thicker, blurred, dim. */}
+                <path
+                  d="M7.8 7.2 16.2 15.6 M16.2 7.2 7.8 15.6"
+                  stroke="var(--robot-a)"
+                  strokeWidth="4.4"
+                  strokeLinecap="round"
+                  opacity="0.55"
+                  filter="url(#gm-robot-neon-blur)"
+                />
+                {/* Crisp core, on top. */}
+                <path
+                  d="M7.8 7.2 16.2 15.6 M16.2 7.2 7.8 15.6"
+                  stroke="var(--robot-eye)"
+                  strokeWidth="2.1"
+                  strokeLinecap="round"
+                />
+              </g>
+            </g>
+          )}
+
+          {/* --- Click sparkles --- */}
+          {/* Independent of `state`: three twinkles flanking the head,
+              triggered by a click anywhere on the mascot (see
+              handleSparkleClick). `key={sparkleId}` is what makes a rapid
+              second click restart the animation instead of doing nothing
+              -- it forces React to unmount and remount this whole group,
+              rather than leave the existing DOM nodes (whose CSS
+              animation has already run to its held end state) in place. */}
+          {sparkleId !== null && (
+            <g key={sparkleId}>
+              {/* Each star is a static placement `<g>` (an SVG `transform`
+                  attribute) wrapping the path that actually animates.
+                  They can't be the same element: `anim-sparkle`'s
+                  keyframes animate the CSS `transform` property, and an
+                  animated CSS transform replaces an SVG transform
+                  attribute on that element outright rather than composing
+                  with it -- put both on one node and the moment the
+                  animation starts, the translate placement is wiped and
+                  every star snaps to the same spot. */}
+              {SPARKLES.map(({ x, y, scale, delay }) => (
+                <g key={`${x}-${y}`} transform={`translate(${x} ${y}) scale(${scale})`}>
+                  <path
+                    d={SPARKLE_PATH}
+                    fill="var(--robot-a)"
+                    className="anim-sparkle drop-shadow-[0_0_3px_var(--robot-a)]"
+                    style={{ animationDelay: `${delay}s` }}
+                  />
+                </g>
+              ))}
+            </g>
+          )}
 
           {/* --- Antenna + beacon --- */}
           <path d="M23 12V7" stroke="var(--robot-a)" strokeWidth="2" strokeLinecap="round" />
@@ -164,11 +413,17 @@ export function RobotFigure({ state = 'idle', className = 'w-[46px]' }) {
 
 // Chat-composer placement: small, left-aligned, overlapping the
 // composer's top edge inside a `relative`-wrapped composer row.
+//
+// Not `pointer-events-none`: the mascot's own click-sparkle handler
+// (RobotFigure) needs real clicks to land on it. Only the bottom ~6px of
+// its box overlaps the composer row underneath (the `-mb-[6px]` above),
+// and that sliver sits above the input's own top border, so this does
+// not meaningfully compete with the textarea for clicks.
 export default function RobotMascot({ state = 'idle' }) {
   return (
     <RobotFigure
       state={state}
-      className="pointer-events-none absolute left-4 bottom-full -mb-[6px] z-[2] w-[46px]"
+      className="absolute left-4 bottom-full -mb-[6px] z-[2] w-[46px]"
     />
   )
 }
