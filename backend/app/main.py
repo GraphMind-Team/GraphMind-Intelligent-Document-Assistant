@@ -114,7 +114,23 @@ TRUSTED_PROXY_HOSTS = os.environ.get("TRUSTED_PROXY_HOSTS", "127.0.0.1")
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=TRUSTED_PROXY_HOSTS)
 
 # Local frontend dev server origin (Vite default port).
-FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "http://localhost:5173")
+#
+# `.strip() or <default>`, not `os.environ.get(KEY, <default>)`: the
+# two-arg form returns its default only when the key is ABSENT, so a key
+# that exists but is empty yields `""` -- and `allow_origins=[""]` matches
+# no origin at all, silently rejecting every cross-origin request
+# including the localhost one this default exists to permit. That is not a
+# hypothetical: deploying the backend before the frontend URL exists means
+# setting this blank on purpose, which is exactly the state that produces
+# it. The failure surfaces only in a browser, as a CORS error naming an
+# origin that looks correct in the dashboard, with the server logging
+# nothing -- so it is worth spending a `.strip()` to make blank behave
+# like unset.
+#
+# `.rstrip("/")` for the neighbouring trap: a browser's `Origin` header is
+# scheme://host[:port] with no trailing slash, so a pasted
+# "https://example.com/" would never match either, and fails identically.
+FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "").strip().rstrip("/") or "http://localhost:5173"
 
 app.add_middleware(
     CORSMiddleware,
