@@ -96,9 +96,12 @@ export default function ChatMessage({ message }) {
     )
   }
 
-  // 'assistant'
+  // 'assistant'. `bg-card-bg` is the base color; `--grad-brand-soft`
+  // layers a faint brand-blue ombre over it (the same token `.btn-ghost`
+  // uses), so the answer bubble reads as "GraphMind" at a glance without
+  // needing a border-color trick.
   return (
-    <div className="anim-rise mr-auto max-w-[78%] self-start rounded-[20px_20px_20px_6px] border border-border bg-card-bg px-4 py-3 text-[14px] leading-[1.6] text-text shadow-card">
+    <div className="anim-rise mr-auto max-w-[78%] self-start rounded-[20px_20px_20px_6px] border border-border bg-card-bg bg-[image:var(--grad-brand-soft)] px-4 py-3 text-[14px] leading-[1.6] text-text shadow-card">
       <span className="sr-only">GraphMind: </span>
       {message.segments.map((segment, index) => (
         <span key={index}>
