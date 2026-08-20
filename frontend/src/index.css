@@ -61,9 +61,17 @@
   --warning: #B45309;
   --danger: #D22B2B;
 
-  /* Citation chip -- 11.5px bold is normal text by WCAG, so this pair
-     must clear 4.5:1, not 3:1. #0B5FA5 on #E0F2FE clears ~6.1:1. */
-  --citation: #E0F2FE;
+  /* Citation chip -- bold, and now at the answer bubble's own 14px, so
+     this pair is normal text by WCAG and must clear 4.5:1, not 3:1.
+     #0B5FA5 on #F0F9FF clears 6.17:1.
+
+     Sky-50 rather than the sky-100 it used to be. Once the answer bubble
+     picked up --grad-brand-soft, the old #E0F2FE sat at 1.01:1 against
+     it -- the plate was not standing out by lightness at all, it was
+     standing out by HUE, a cyan patch against the gradient's violet end.
+     Moving toward white makes it read as a soft highlight instead, and
+     buys the text contrast on the way. */
+  --citation: #F0F9FF;
   --citation-text: #0B5FA5;
 
   /* Robot mascot -- its own locked namespace (v1 rule kept: nothing else
