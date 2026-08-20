@@ -51,7 +51,7 @@ def test_get_content_returns_the_callers_own_bytes_with_correct_media_type(clien
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/pdf")
-    assert response.headers["content-disposition"] == "inline"
+    assert response.headers["content-disposition"].startswith("inline")
     assert response.content == pdf_bytes
 
 
@@ -144,6 +144,69 @@ def test_get_content_unknown_id_is_the_same_404_as_a_cross_tenant_id(client):
     assert unknown.status_code == 404
     assert unknown.status_code == cross_tenant.status_code
     assert unknown.json() == cross_tenant.json()
+
+
+def test_get_content_is_nosniff_and_uncached(client):
+    """The two headers that make serving user-uploaded bytes inline safe.
+
+    `nosniff` stops a browser from sniffing past the declared media type and
+    deciding an uploaded document is HTML worth executing; `no-store` keeps
+    per-tenant bytes out of shared caches and off disk. Neither is load
+    bearing while auth is Bearer-only (a direct navigation 401s first) --
+    they are what keeps this route safe if auth ever moves to a cookie.
+    """
+    token = _register_and_login(
+        client,
+        full_name="Maria Ivanova",
+        email="maria-content-headers@example.com",
+        password="password12345",
+    )
+    uploaded = _upload(
+        client,
+        token,
+        filename="page.html",
+        content=b"<html><body><script>alert(1)</script></body></html>",
+        content_type="text/html",
+    )
+
+    response = client.get(f"/documents/{uploaded['id']}/content", headers=_auth_headers(token))
+
+    assert response.status_code == 200
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["cache-control"] == "private, no-store"
+
+
+def test_get_content_disposition_encodes_a_hostile_filename(client):
+    """A filename is client-supplied input, not a trusted string.
+
+    Interpolated raw into `Content-Disposition` it would let a CR/LF split
+    the header, and would mangle any non-ASCII name besides -- so the
+    filename goes out RFC 5987 percent-encoded, never verbatim.
+    """
+    token = _register_and_login(
+        client,
+        full_name="Maria Ivanova",
+        email="maria-content-filename@example.com",
+        password="password12345",
+    )
+    uploaded = _upload(
+        client,
+        token,
+        filename='отчёт "final".pdf',
+        content=b"%PDF-1.4 fake pdf bytes",
+        content_type="application/pdf",
+    )
+
+    response = client.get(f"/documents/{uploaded['id']}/content", headers=_auth_headers(token))
+
+    assert response.status_code == 200
+    disposition = response.headers["content-disposition"]
+    assert disposition.startswith("inline; filename*=UTF-8''")
+    # Percent-encoded, so neither the quote nor any non-ASCII byte reaches
+    # the header verbatim.
+    assert '"' not in disposition
+    assert disposition.isascii()
+    assert "%D0%BE%D1%82%D1%87" in disposition
 
 
 def test_get_content_requires_authentication(client):

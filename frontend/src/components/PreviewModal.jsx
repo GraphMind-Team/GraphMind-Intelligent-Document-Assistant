@@ -14,8 +14,16 @@ const BACKDROP_STYLE = {
     'repeating-linear-gradient(45deg, rgba(255,255,255,0.06) 0px, rgba(255,255,255,0.06) 1px, transparent 1px, transparent 10px)',
 }
 
+// Diverges from UploadModal.jsx's otherwise-identical copy by including
+// `iframe`: this is the only modal whose content lives in one. Without it
+// the trap array was a single Close button -- first and last at once, so
+// every Tab was preventDefault'd straight back to Close and a keyboard
+// user could never reach, let alone scroll, the document being previewed.
+// The scroll container carries `tabIndex={0}` for the same reason on the
+// markdown path, where there's no iframe to land on, and is picked up here
+// by the trailing `[tabindex]` clause.
 const FOCUSABLE_SELECTOR =
-  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  'a[href], iframe, button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 // Preview modal: fetches a document's raw bytes (via authFetch, since a
 // plain <iframe src> can't carry the Authorization header the backend
@@ -49,13 +57,15 @@ export default function PreviewModal({ documentId, filename, fileType, onClose }
         // the app's own DOM" constraint); PDF and HTML both need a real
         // URL to hand to an iframe.
         if (fileType === 'markdown') {
-          blob.text().then((text) => {
+          // Returned, not fire-and-forget: an unreturned inner promise
+          // rejects outside this chain, so a decode failure left `status`
+          // on 'loading' forever with nothing rendered and nothing thrown.
+          return blob.text().then((text) => {
             if (!cancelled) {
               setTextContent(text)
               setStatus('ready')
             }
           })
-          return
         }
         createdUrl = URL.createObjectURL(blob)
         setObjectUrl(createdUrl)
@@ -139,8 +149,16 @@ export default function PreviewModal({ documentId, filename, fileType, onClose }
           </button>
         </div>
 
-        <div className="flex-1 overflow-auto p-4">
-          {status === 'loading' && <p className="text-sm text-text2">Loading preview...</p>}
+        {/* tabIndex/aria-label: a scrollable region that isn't focusable
+            can't be scrolled by keyboard at all. Load-bearing on the
+            markdown path in particular, where the text sits directly in
+            this container rather than in a focusable iframe. */}
+        <div tabIndex={0} aria-label="Document preview" className="flex-1 overflow-auto p-4">
+          {status === 'loading' && (
+            <p role="status" className="text-sm text-text2">
+              Loading preview...
+            </p>
+          )}
 
           {status === 'error' && (
             <p role="alert" className="text-sm text-danger">

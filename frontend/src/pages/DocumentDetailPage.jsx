@@ -70,7 +70,6 @@ export default function DocumentDetailPage() {
   const deleteBoundaryTextId = 'delete-document-boundary'
 
   const [isPreviewOpen, setIsPreviewOpen] = useState(false)
-  const previewButtonRef = useRef(null)
 
   useEffect(() => {
     if (isConfirmingDelete) cancelDeleteButtonRef.current?.focus()
@@ -175,7 +174,6 @@ export default function DocumentDetailPage() {
                     too -- a UX choice, not a backend restriction. */}
                 {doc.status === 'Ready' && (
                   <button
-                    ref={previewButtonRef}
                     type="button"
                     onClick={() => setIsPreviewOpen(true)}
                     className="rounded-md border border-border bg-surface2 px-3 py-1.5 text-xs font-semibold text-primary"

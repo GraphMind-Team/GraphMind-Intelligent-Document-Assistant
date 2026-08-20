@@ -134,8 +134,7 @@ export async function getDocumentContent(authFetch, documentId) {
     throw new Error(message || `Failed to load document content (${response.status}).`)
   }
 
-  const blob = await response.blob()
-  return blob
+  return response.blob()
 }
 
 // Deletes one document by id (Story 2.7): its Weaviate passages and its

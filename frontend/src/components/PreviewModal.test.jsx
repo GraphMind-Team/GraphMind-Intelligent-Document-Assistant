@@ -59,6 +59,54 @@ describe('PreviewModal accessibility', () => {
     previewButton.remove()
   })
 
+  it('lets Tab reach the previewed document and keeps focus inside the dialog', async () => {
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    vi.spyOn(documentsClient, 'getDocumentContent').mockResolvedValue(
+      new Blob(['%PDF-1.4'], { type: 'application/pdf' }),
+    )
+    const user = userEvent.setup()
+
+    render(<PreviewModal documentId="doc-1" filename="report.pdf" fileType="pdf" onClose={vi.fn()} />)
+
+    const frame = await screen.findByTitle('report.pdf')
+    const closeButton = screen.getByRole('button', { name: /close/i })
+    expect(closeButton).toHaveFocus()
+
+    // The regression this guards: with only the Close button in the trap's
+    // focusable set, it was both first and last, so every Tab was
+    // preventDefault'd back onto it and the document being previewed was
+    // unreachable -- and unscrollable -- by keyboard.
+    await user.tab()
+    expect(screen.getByLabelText('Document preview')).toHaveFocus()
+
+    // Shift+Tab off the first stop wraps to the *last* one, which is now
+    // the preview iframe rather than the Close button it used to be --
+    // proof the previewed document is inside the trap, not excluded from
+    // it. Asserted this way round because it runs entirely through the
+    // component's own handler: real browsers put iframes in the tab
+    // sequence, but userEvent's simulated tab order skips them, so a plain
+    // `user.tab()` can never land on one here.
+    closeButton.focus()
+    await user.tab({ shift: true })
+    expect(frame).toHaveFocus()
+
+    // ...and Tab off that last stop wraps back inside, never out to the
+    // page behind the modal.
+    await user.tab()
+    expect(closeButton).toHaveFocus()
+  })
+
+  it('announces the loading state through a live region', async () => {
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    // Never settles: holds the component on its loading state so the live
+    // region is what's asserted, not the transition off it.
+    vi.spyOn(documentsClient, 'getDocumentContent').mockReturnValue(new Promise(() => {}))
+
+    render(<PreviewModal documentId="doc-1" filename="report.pdf" fileType="pdf" onClose={vi.fn()} />)
+
+    expect(screen.getByRole('status')).toHaveTextContent(/loading preview/i)
+  })
+
   it('closes on Escape', async () => {
     useAuth.mockReturnValue({ authFetch: vi.fn() })
     vi.spyOn(documentsClient, 'getDocumentContent').mockResolvedValue(
@@ -130,7 +178,6 @@ describe('PreviewModal content rendering', () => {
     const frame = await screen.findByTitle('page.html')
     expect(frame.tagName).toBe('IFRAME')
     expect(frame).toHaveAttribute('sandbox', '')
-    expect(frame).not.toHaveAttribute('sandbox', expect.stringContaining('allow-scripts'))
   })
 
   it('shows an alert with the error message when the fetch fails', async () => {
@@ -142,6 +189,24 @@ describe('PreviewModal content rendering', () => {
     render(<PreviewModal documentId="doc-1" filename="report.pdf" fileType="pdf" onClose={vi.fn()} />)
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Document not found.')
+  })
+
+  it('surfaces an error instead of hanging when the markdown body cannot be decoded', async () => {
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    // Resolves to a blob whose `.text()` rejects -- the one failure that
+    // happens *after* the fetch succeeded, and the only path where the
+    // component awaits a second promise. Unreturned, that rejection landed
+    // outside the chain and left the modal on "Loading preview..." forever.
+    vi.spyOn(documentsClient, 'getDocumentContent').mockResolvedValue({
+      text: () => Promise.reject(new Error('Could not decode this document.')),
+    })
+
+    render(
+      <PreviewModal documentId="doc-1" filename="notes.md" fileType="markdown" onClose={vi.fn()} />,
+    )
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not decode this document.')
+    expect(screen.queryByText(/loading preview/i)).not.toBeInTheDocument()
   })
 
   it('revokes the created object URL on unmount', async () => {

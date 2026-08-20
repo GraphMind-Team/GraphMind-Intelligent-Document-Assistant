@@ -13,6 +13,7 @@ synthetic.
 """
 
 import uuid
+from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Response, UploadFile
 from sqlalchemy.orm import Session
@@ -161,13 +162,33 @@ def get_document_content(
     `content` bytes on purpose: this is the one place that's meant to
     expose them, media-typed from `file_type` so the browser renders
     (`Content-Disposition: inline`) rather than downloads.
+
+    The three extra headers are what make serving *user-uploaded* bytes
+    inline safe rather than merely convenient:
+
+    * `X-Content-Type-Options: nosniff` -- the body is whatever the user
+      uploaded, so a browser that sniffs past `media_type` could decide a
+      document is HTML and run it. Authentication is Bearer-only today, so
+      a direct browser navigation to this URL 401s before any of this
+      matters; nosniff is what keeps that true if auth ever moves to a
+      cookie, where the same URL would become a stored-XSS vector.
+    * `Cache-Control: private, no-store` -- these are per-tenant bytes and
+      have no business sitting in a shared cache or on disk.
+    * RFC 5987 `filename*` rather than a bare `filename="..."` -- the value
+      is the client-supplied upload filename, so interpolating it raw would
+      let a CR/LF in a filename inject headers, and would mangle every
+      non-ASCII name besides. `quote` percent-encodes both away.
     """
     document = service.get_document(db, current_user, document_id)
     media_type = _FILE_TYPE_TO_MEDIA_TYPE.get(document.file_type, "application/octet-stream")
     return Response(
         content=document.content,
         media_type=media_type,
-        headers={"Content-Disposition": "inline"},
+        headers={
+            "Content-Disposition": f"inline; filename*=UTF-8''{quote(document.filename)}",
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-store",
+        },
     )
 
 
