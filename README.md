@@ -2,6 +2,10 @@
 
 Intelligent Document Q&A with Knowledge Graphs
 
+**Live:** [graphmind-web.onrender.com](https://graphmind-web.onrender.com/)
+
+> Hosted on Render's free tier — the backend spins down after 15 minutes idle, so the first request after a period of inactivity can take up to a minute.
+
 GraphMind is a document question-answering assistant that combines vector retrieval with knowledge-graph traversal. Users upload documents; the system builds a per-user knowledge graph alongside a vector index, then answers questions with grounded, cited answers — and explicitly declines to answer when the uploaded documents do not support a claim.
 
 ## Problem
