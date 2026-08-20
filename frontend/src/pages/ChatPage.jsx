@@ -13,6 +13,11 @@ import DocumentsScopePanel from '../components/chat/DocumentsScopePanel'
 const INITIAL_HISTORY_LIMIT = 3
 const SCROLL_HISTORY_LIMIT = 10
 
+// How long the mascot holds its 'idea' beat after an answer lands. Must
+// stay >= the gm-idea keyframes' duration in index.css, or the bulb is
+// unmounted mid-fade and vanishes with a snap instead of drifting out.
+const IDEA_HOLD_MS = 2000
+
 // One persisted `ChatHistoryMessageResponse` row -> the same message shape
 // `ChatMessage.jsx` already renders for a live turn (`askQuestion`'s
 // response, shaped by ChatPage's own handleSubmit below) -- a returning
@@ -64,7 +69,18 @@ function ChatPageContent() {
   // timeout/abort) renders as a banner here, structurally separate from
   // `messages`, so it can never render as an answer or a refusal (AC12).
   const [error, setError] = useState(null)
+  // Purely decorative: drives the mascot's post-answer bulb and nothing
+  // else. Deliberately not derived from `messages` -- it is a moment in
+  // time, not a property of the transcript, so re-renders (a history page
+  // loading in, say) must not re-trigger it.
+  const [hasIdea, setHasIdea] = useState(false)
+  const ideaTimerRef = useRef(null)
   const messageListRef = useRef(null)
+
+  // The timer outlives the render that set it, so it has to be cancelled
+  // on unmount -- otherwise navigating away mid-beat leaves a setState
+  // aimed at a gone component.
+  useEffect(() => () => clearTimeout(ideaTimerRef.current), [])
 
   // Story 3.4/AD-10: pagination state for revealing older history as the
   // user scrolls up. `historyCursor`/`hasMoreHistory` come straight off
@@ -277,6 +293,12 @@ function ChatPageContent() {
         setMessages((previous) => [...previous, { role: 'notice', reason: result.empty_reason }])
       } else {
         setMessages((previous) => [...previous, { role: 'assistant', segments: result.segments }])
+        // Only a grounded answer earns the bulb. A refusal or an
+        // empty-state notice is not an idea, and lighting one up would
+        // read as celebrating a non-result (UX-DR15).
+        clearTimeout(ideaTimerRef.current)
+        setHasIdea(true)
+        ideaTimerRef.current = setTimeout(() => setHasIdea(false), IDEA_HOLD_MS)
       }
     } catch (err) {
       setError({ kind: err.isServiceError ? 'service' : 'other', message: err.message })
@@ -381,7 +403,7 @@ function ChatPageContent() {
               {/* The mascot mirrors the request state -- decorative
                   reinforcement of the "Thinking…" bubble, never the only
                   signal that something is in flight. */}
-              <RobotMascot state={isAsking ? 'thinking' : 'idle'} />
+              <RobotMascot state={isAsking ? 'thinking' : hasIdea ? 'idea' : 'idle'} />
               <div className="flex w-full items-stretch gap-2">
                 <label htmlFor="chat-question" className="sr-only">
                   Ask a question about your documents

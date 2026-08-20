@@ -16,6 +16,12 @@
 //                 three dots ripple. Purely decorative reinforcement: the request's
 //                 real status is the visible "Thinking…" bubble and its
 //                 aria-live announcement in ChatPage, never this.
+//   'idea'     -- the payoff beat, held for one moment after a grounded
+//                 answer lands: the dot cloud is replaced by a bulb that
+//                 flickers on over the same two tail puffs, then fades
+//                 out. ChatPage owns the timing and drops back to 'idle';
+//                 IDEA_HOLD_MS there must stay >= gm-idea's duration in
+//                 index.css, or the bulb is cut off mid-fade.
 //
 // Every animation class is defined inside index.css's
 // `prefers-reduced-motion: no-preference` block, so a user who asked for
@@ -29,12 +35,26 @@
 // tokens rather than literal rgba: those are the only two values in this
 // namespace with a dark-theme override (a blue-tinted shadow reads as a
 // color cast on a dark surface), and RobotMascot.test.jsx enforces it.
+
+// The bulb's rays, as [x1, y1, x2, y2] on a circle centred at the glass
+// (12, 11.4) in the bulb's own 24x24 space: inner radius 8.2 clears the
+// glass's 6.2 with a visible gap, outer 10.8 keeps them inside the box.
+// Listed rather than hand-drawn so the fan stays even.
+const IDEA_RAYS = [
+  [12, 3.2, 12, 0.6],
+  [7.3, 4.7, 5.8, 2.6],
+  [16.7, 4.7, 18.2, 2.6],
+  [4.3, 8.6, 1.9, 7.7],
+  [19.7, 8.6, 22.1, 7.7],
+]
+
 // The character itself, decoupled from where it sits. `RobotMascot`
 // below anchors it to the chat composer; the landing page's hero renders
 // the same figure much larger, so there is exactly one robot in the
 // codebase rather than a marketing copy that drifts from the product one.
 export function RobotFigure({ state = 'idle', className = 'w-[46px]' }) {
   const isThinking = state === 'thinking'
+  const isIdea = state === 'idea'
 
   return (
     <div
@@ -90,6 +110,48 @@ export function RobotFigure({ state = 'idle', className = 'w-[46px]' }) {
                   style={{ transformOrigin: `${cx}px -1px`, animationDelay: `${i * 0.16}s` }}
                 />
               ))}
+            </g>
+          )}
+
+          {/* --- Idea bulb --- */}
+          {/* The same two tail puffs the thought cloud uses, so the beat
+              reads as the thought *becoming* an idea rather than as a
+              second, unrelated bubble. The bulb itself is drawn in its own
+              24x24 space and placed by one transform: scale .9 with the
+              glass centre landing on (52, -1), exactly where the dot
+              cloud's centre was.
+
+              `currentColor` on every stroke is the whole trick -- gm-bulb-on
+              animates `color` on the group, so one property flickers the
+              glass, filament, cap and rays together. */}
+          {isIdea && (
+            <g className="anim-idea">
+              <circle cx="38.5" cy="14" r="1.6" fill="var(--robot-b)" stroke="var(--robot-a)" strokeWidth="0.7" />
+              <circle cx="42" cy="9.5" r="2.2" fill="var(--robot-b)" stroke="var(--robot-a)" strokeWidth="0.7" />
+
+              <g transform="translate(41.2 -11.3) scale(.9)" className="anim-bulb text-accent">
+                {/* Glow -- a filled disc behind the glass that blooms on
+                    the flick and settles to a low haze. Filled, not
+                    stroked, so it reads as light, not another outline. */}
+                <circle cx="12" cy="11.4" r="6.4" fill="currentColor" opacity=".14" className="anim-bulb-glow" />
+
+                <g fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <g className="anim-bulb-rays">
+                    {IDEA_RAYS.map(([x1, y1, x2, y2]) => (
+                      <line key={`${x1}-${y1}`} x1={x1} y1={y1} x2={x2} y2={y2} />
+                    ))}
+                  </g>
+                  {/* Glass + shoulders: a 6.2 arc closed by two short
+                      curves stepping down to the cap. */}
+                  <path d="M8.4 16.5a6.2 6.2 0 1 1 7.2 0c-.7.5-1.1 1.1-1.2 1.9h-4.8c-.1-.8-.5-1.4-1.2-1.9Z" />
+                  {/* Highlight -- the one detail that stops the glass
+                      reading as a flat ring. */}
+                  <path d="M9.1 10.9a3.4 3.4 0 0 1 1.5-2.5" strokeWidth="1.3" opacity=".75" />
+                  <path d="M10.7 18.4c0-1.8.5-2.7 1.3-2.7s1.3.9 1.3 2.7" strokeWidth="1.3" />
+                  {/* Screw cap, two bands. */}
+                  <path d="M9.7 20.4h4.6M10.7 22.3h2.6" />
+                </g>
+              </g>
             </g>
           )}
 
