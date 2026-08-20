@@ -21,6 +21,17 @@ being guarded against there: a source spamming a specific victim's inbox
 with verification emails, not grinding many different accounts (which
 would call for an IP-only key, like register).
 
+`resend_verification` also gets a second, IP-only limiter alongside the
+(IP, email) one -- the pair key alone bounds spam against any *one*
+victim's inbox, but puts no ceiling on a single source rotating through
+many different target emails, each getting its own fresh 5/window budget
+under the pair key. The IP-only limiter closes that: `register`'s exact
+reasoning ("one source hammering many different emails"), applied here
+because that's a real, separate attack shape resend-verification is
+equally exposed to. Its ceiling is set higher than the pair limiter's so
+it never gets in the way of someone legitimately retrying a resend for
+their own one address -- it only bites a source spraying many addresses.
+
 `login` follows up with `limiter.reset(...)` on success so legitimate
 repeat logins don't erode the same budget as failed guesses; `register`
 has no equivalent -- a given email can only register once, so there's no
@@ -37,6 +48,7 @@ __all__ = [
     "get_register_rate_limiter",
     "get_change_password_rate_limiter",
     "get_resend_verification_rate_limiter",
+    "get_resend_verification_ip_rate_limiter",
 ]
 
 _default_login_limiter = RateLimiter(detail="Too many login attempts. Try again later.")
@@ -46,6 +58,13 @@ _default_change_password_limiter = RateLimiter(
 )
 _default_resend_verification_limiter = RateLimiter(
     detail="Too many verification email requests. Try again later."
+)
+# Wider ceiling than the pair limiter above -- see this module's docstring
+# for why one source rotating target emails needs its own, separate cap.
+_default_resend_verification_ip_limiter = RateLimiter(
+    max_attempts=20,
+    window_seconds=60.0,
+    detail="Too many verification email requests. Try again later.",
 )
 
 
@@ -63,3 +82,7 @@ def get_change_password_rate_limiter() -> RateLimiter:
 
 def get_resend_verification_rate_limiter() -> RateLimiter:
     return _default_resend_verification_limiter
+
+
+def get_resend_verification_ip_rate_limiter() -> RateLimiter:
+    return _default_resend_verification_ip_limiter

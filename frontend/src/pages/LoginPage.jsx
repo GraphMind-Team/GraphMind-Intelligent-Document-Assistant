@@ -44,7 +44,12 @@ export default function LoginPage() {
     setResendState('sending')
     try {
       await resendVerification({ email })
-    } finally {
+      setResendState('sent')
+    } catch {
+      // resend-verification always answers the same way regardless of
+      // outcome -- see RegisterPage.jsx's handleResend for why this must
+      // be a catch (showing "sent" without leaving the rejection, e.g. a
+      // 429, as an unhandled promise rejection).
       setResendState('sent')
     }
   }

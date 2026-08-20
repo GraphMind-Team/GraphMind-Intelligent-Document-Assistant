@@ -115,6 +115,7 @@ def _fresh_rate_limiters(client):
         get_change_password_rate_limiter,
         get_login_rate_limiter,
         get_register_rate_limiter,
+        get_resend_verification_ip_rate_limiter,
         get_resend_verification_rate_limiter,
     )
     from app.documents.rate_limiter import (
@@ -140,6 +141,11 @@ def _fresh_rate_limiters(client):
         window_seconds=60.0,
         detail="Too many verification email requests. Try again later.",
     )
+    resend_verification_ip_limiter = RateLimiter(
+        max_attempts=20,
+        window_seconds=60.0,
+        detail="Too many verification email requests. Try again later.",
+    )
     upload_rate_limiter = RateLimiter(
         max_attempts=30, window_seconds=60.0, detail="Too many uploads. Try again in a minute."
     )
@@ -149,6 +155,7 @@ def _fresh_rate_limiters(client):
     app.dependency_overrides[get_register_rate_limiter] = lambda: register_limiter
     app.dependency_overrides[get_change_password_rate_limiter] = lambda: change_password_limiter
     app.dependency_overrides[get_resend_verification_rate_limiter] = lambda: resend_verification_limiter
+    app.dependency_overrides[get_resend_verification_ip_rate_limiter] = lambda: resend_verification_ip_limiter
     app.dependency_overrides[get_upload_rate_limiter] = lambda: upload_rate_limiter
     app.dependency_overrides[get_upload_concurrency_limiter] = lambda: upload_concurrency_limiter
     yield (
@@ -156,6 +163,7 @@ def _fresh_rate_limiters(client):
         register_limiter,
         change_password_limiter,
         resend_verification_limiter,
+        resend_verification_ip_limiter,
         upload_rate_limiter,
         upload_concurrency_limiter,
     )
@@ -164,6 +172,7 @@ def _fresh_rate_limiters(client):
         get_register_rate_limiter,
         get_change_password_rate_limiter,
         get_resend_verification_rate_limiter,
+        get_resend_verification_ip_rate_limiter,
         get_upload_rate_limiter,
         get_upload_concurrency_limiter,
     ):

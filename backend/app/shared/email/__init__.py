@@ -77,6 +77,19 @@ def send_email(*, to: str, subject: str, body: str) -> None:
     username = os.environ.get("SMTP_USERNAME", "").strip()
     password = os.environ.get("SMTP_PASSWORD", "").strip()
 
+    if not from_addr:
+        # A blank `From` header isn't a bug this function should mail out
+        # and let the relay reject silently -- most relays refuse it
+        # outright, and the only symptom would otherwise be a caller's
+        # generic "failed to send" log line with no indication *why*.
+        # Raising here gives that same caller (see
+        # `auth/service.py::send_verification_email`'s try/except) a
+        # specific, actionable message instead.
+        raise ValueError(
+            "SMTP_HOST is set but neither SMTP_FROM nor SMTP_USERNAME is -- "
+            "at least one is required to set the message's From address."
+        )
+
     message = EmailMessage()
     message["Subject"] = subject
     message["From"] = from_addr

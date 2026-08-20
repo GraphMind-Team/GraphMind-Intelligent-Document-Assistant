@@ -51,6 +51,29 @@ describe('RegisterPage (Story 1.6: check-your-inbox state)', () => {
     ).toBeInTheDocument()
   })
 
+  it('still confirms "sent" when the resend request itself fails (e.g. rate-limited)', async () => {
+    // Regression test: handleResend used to setResendState('sent') in a
+    // `finally` block, which let the rejection keep propagating as an
+    // unhandled promise rejection after already showing "sent". This
+    // pins the fixed behavior -- a rejected resend (a 429 from the rate
+    // limiter is a real, reachable case since the button stays clickable)
+    // must resolve cleanly to the same "sent" confirmation, not leak an
+    // unhandled rejection.
+    vi.spyOn(authClient, 'registerAccount').mockResolvedValue({ id: '1', email: 'maria@example.com' })
+    vi.spyOn(authClient, 'resendVerification').mockRejectedValue(
+      new Error('Too many verification email requests. Try again later.'),
+    )
+    const user = userEvent.setup()
+
+    renderRegisterPage()
+    await submitRegisterForm(user)
+    await user.click(await screen.findByRole('button', { name: /resend verification email/i }))
+
+    expect(
+      await screen.findByText(/if that account exists and isn't verified yet/i),
+    ).toBeInTheDocument()
+  })
+
   it('shows the error and stays on the form when registration fails', async () => {
     vi.spyOn(authClient, 'registerAccount').mockRejectedValue(
       new Error('An account with this email already exists.'),

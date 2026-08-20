@@ -8,6 +8,7 @@ from app.auth.rate_limiter import (
     get_change_password_rate_limiter,
     get_login_rate_limiter,
     get_register_rate_limiter,
+    get_resend_verification_ip_rate_limiter,
     get_resend_verification_rate_limiter,
 )
 from app.auth.schemas import (
@@ -147,16 +148,21 @@ def resend_verification(
     request: Request,
     background_tasks: BackgroundTasks,
     limiter: RateLimiter = Depends(get_resend_verification_rate_limiter),
+    ip_limiter: RateLimiter = Depends(get_resend_verification_ip_rate_limiter),
 ) -> ResendVerificationResponse:
-    # Keyed like login (IP, email) -- see rate_limiter.py's module
-    # docstring. Always answers the same fixed 202 body regardless of
-    # whether the account exists or is already verified (service.
-    # resend_verification enforces that silently) -- this response must
-    # not become an account-enumeration oracle. No `db` dependency here --
-    # unlike verify_email above, the actual send happens in a background
-    # task (service.resend_verification opens its own session), since an
-    # SMTP round trip must not hold this response open.
+    # Two limiters, two attack shapes -- see rate_limiter.py's module
+    # docstring. The (IP, email) pair check bounds spam against any one
+    # victim's inbox; the IP-only check (register's own shape) bounds a
+    # single source rotating through many target emails, which the pair
+    # key alone doesn't cap. Always answers the same fixed 202 body
+    # regardless of whether the account exists or is already verified
+    # (service.resend_verification enforces that silently) -- this
+    # response must not become an account-enumeration oracle. No `db`
+    # dependency here -- unlike verify_email above, the actual send happens
+    # in a background task (service.resend_verification opens its own
+    # session), since an SMTP round trip must not hold this response open.
     client_ip = request.client.host if request.client else "unknown"
+    ip_limiter.check(client_ip)
     limiter.check(client_ip, data.email)
     background_tasks.add_task(service.resend_verification, data.email)
     return ResendVerificationResponse()

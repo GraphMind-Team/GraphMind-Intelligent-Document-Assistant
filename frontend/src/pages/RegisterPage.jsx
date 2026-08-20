@@ -34,10 +34,14 @@ export default function RegisterPage() {
     setResendState('sending')
     try {
       await resendVerification({ email })
-    } finally {
+      setResendState('sent')
+    } catch {
       // resend-verification always answers the same way regardless of
       // outcome (it never reveals account existence) -- "sent" is the
-      // honest thing to show either way, mirroring VerifyEmailPage.
+      // honest thing to show either way, mirroring VerifyEmailPage. Must
+      // be a catch, not a finally that lets the rejection keep propagating
+      // (e.g. a 429 from the rate limiter) -- that would both show "sent"
+      // *and* leave an unhandled promise rejection behind.
       setResendState('sent')
     }
   }

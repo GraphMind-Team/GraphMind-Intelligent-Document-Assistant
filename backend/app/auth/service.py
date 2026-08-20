@@ -85,8 +85,32 @@ def register_user(db: Session, data: RegisterRequest) -> User:
     # data.email is already stripped+lowercased by RegisterRequest's
     # validator, so this and any other consumer of the schema agree on the
     # same casing.
-    if repository.get_user_by_email(db, data.email) is not None:
-        raise HTTPException(status_code=409, detail="An account with this email already exists.")
+    existing = repository.get_user_by_email(db, data.email)
+    if existing is not None:
+        if existing.email_verified_at is not None:
+            raise HTTPException(
+                status_code=409, detail="An account with this email already exists."
+            )
+
+        # Story 1.6: an *unverified* row is exactly the problem this story
+        # exists to fix -- nobody has ever proven they control that inbox,
+        # so treating it as a permanently claimed account would let a
+        # typo'd or malicious registration lock the real owner out of
+        # their own address forever (a 409 with no recourse). Instead,
+        # reclaim it in place: overwrite the name/password with this
+        # registration's own values and leave `email_verified_at` NULL
+        # (unchanged) -- whoever next proves control of the inbox by
+        # clicking a verify link (this one, sent below, or an older one
+        # for the same user id -- both still work, since neither is
+        # single-use-tracked beyond `email_verified_at` itself) is the one
+        # who actually gets the account, which is the same guarantee a
+        # brand-new registration gives. `created_at` is deliberately left
+        # untouched -- this is the same row, not a new account.
+        user = repository.update_user_profile(db, existing, data.full_name)
+        user = repository.update_user_password(db, user, hash_password(data.password))
+        db.commit()
+        db.refresh(user)
+        return user
 
     user = User(
         full_name=data.full_name,
@@ -100,7 +124,10 @@ def register_user(db: Session, data: RegisterRequest) -> User:
     except IntegrityError:
         # Defense-in-depth against a concurrent registration racing the
         # pre-check above -- the DB-level unique constraint on email caught
-        # what the pre-check missed.
+        # what the pre-check missed. Only reachable for a genuinely new
+        # email now (the existing-row branch above already handles the
+        # "someone else got there first, but it's unverified" case without
+        # touching the insert path at all).
         db.rollback()
         raise HTTPException(
             status_code=409, detail="An account with this email already exists."

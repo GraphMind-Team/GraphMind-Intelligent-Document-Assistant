@@ -228,6 +228,80 @@ def test_resend_verification_rate_limited_after_five_attempts(client):
     assert response.json() == {"detail": "Too many verification email requests. Try again later."}
 
 
+def test_resend_verification_ip_rate_limited_across_rotating_emails(client):
+    """The (IP, email) pair limiter alone caps spam against one victim's
+    inbox, but puts no ceiling on a single source rotating through many
+    different target emails -- each gets its own fresh 5/window budget
+    under the pair key. This pins the second, IP-only limiter that closes
+    that gap: 20 requests from the same client, each for a distinct email
+    (so the pair limiter never itself fires), still trips a 429."""
+    for i in range(20):
+        response = client.post(
+            "/auth/resend-verification", json={"email": f"rotating-{i}@example.com"}
+        )
+        assert response.status_code == 202
+
+    response = client.post("/auth/resend-verification", json={"email": "rotating-20@example.com"})
+    assert response.status_code == 429
+    assert response.json() == {"detail": "Too many verification email requests. Try again later."}
+
+
+def test_register_on_unverified_email_reclaims_the_account(client, db_session, _stub_outbound_email):
+    """An unverified row is a placeholder nobody has proven control of yet
+    -- a second registration attempt against the same address (a typo'd
+    original, a malicious squat, or just the real owner trying again)
+    updates the existing row's name/password in place rather than
+    permanently locking the address behind a 409 no one can ever clear."""
+    first = client.post(
+        "/auth/register",
+        json=_valid_register_payload(full_name="Wrong Person", password="original-password-123"),
+    )
+    assert first.status_code == 201
+    first_id = first.json()["id"]
+    first_created_at = first.json()["created_at"]
+
+    second = client.post(
+        "/auth/register",
+        json=_valid_register_payload(full_name="Maria Ivanova", password="my-actual-password-456"),
+    )
+
+    assert second.status_code == 201
+    assert second.json()["id"] == first_id  # same row, reclaimed -- not a new account
+    assert second.json()["created_at"] == first_created_at
+    assert second.json()["full_name"] == "Maria Ivanova"
+
+    from app.shared.models import User
+
+    row = db_session.query(User).filter_by(email="maria@example.com").one()
+    assert row.email_verified_at is None
+    # A second verification email was sent for the reclaimed registration.
+    assert _stub_outbound_email.call_count == 2
+
+    # The old password no longer works; the new one does.
+    old_login = client.post("/auth/login", json=_login_payload(password="original-password-123"))
+    assert old_login.status_code == 401
+
+    new_login = client.post("/auth/login", json=_login_payload(password="my-actual-password-456"))
+    assert new_login.status_code == 200
+
+
+def test_register_on_verified_email_still_returns_409(client, db_session):
+    """The reclaim behavior above only applies while the row is
+    unverified -- once a real owner has proven control of the inbox, the
+    address is genuinely taken and register must still refuse it."""
+    from app.shared.models import User
+
+    client.post("/auth/register", json=_valid_register_payload())
+    user = db_session.query(User).filter_by(email="maria@example.com").one()
+    user.email_verified_at = user.created_at
+    db_session.commit()
+
+    response = client.post("/auth/register", json=_valid_register_payload(full_name="Someone Else"))
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "An account with this email already exists."}
+
+
 def test_login_succeeds_for_backfilled_verified_at(client, db_session, monkeypatch):
     """Mirrors the migration's backfill shape (`email_verified_at` set to
     `created_at` for every pre-1.6 row) -- confirms such an account isn't

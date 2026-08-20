@@ -108,4 +108,26 @@ describe('LoginPage email-verification gate (Story 1.6)', () => {
       await screen.findByText(/if that account exists and isn't verified yet/i),
     ).toBeInTheDocument()
   })
+
+  it('still confirms "sent" when the resend request itself fails (e.g. rate-limited)', async () => {
+    // Regression test -- see RegisterPage.test.jsx's identical case for
+    // why this matters: handleResend must catch a rejected resend, not
+    // let it escape as an unhandled promise rejection after already
+    // showing "sent".
+    const rejection = new Error('Please verify your email address before logging in.')
+    rejection.status = 403
+    useAuth.mockReturnValue({ login: vi.fn().mockRejectedValue(rejection) })
+    vi.spyOn(authClient, 'resendVerification').mockRejectedValue(
+      new Error('Too many verification email requests. Try again later.'),
+    )
+    const user = userEvent.setup()
+
+    renderLoginPage('/login')
+    await submitLoginForm(user)
+    await user.click(await screen.findByRole('button', { name: /resend verification email/i }))
+
+    expect(
+      await screen.findByText(/if that account exists and isn't verified yet/i),
+    ).toBeInTheDocument()
+  })
 })

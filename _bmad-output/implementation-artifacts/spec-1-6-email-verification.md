@@ -3,7 +3,7 @@ title: 'Story 1.6: Verify my email address before I can log in'
 type: 'feature'
 created: '2026-08-20'
 status: 'in-progress'
-review_loop_iteration: 0
+review_loop_iteration: 1
 context: []
 provenance: 'authored-before-implementation'
 ---
@@ -64,32 +64,39 @@ provenance: 'authored-before-implementation'
 ## Spec Change Log
 
 - **Initial version**, authored ahead of implementation (no review round yet).
+- **Review round 1** (2026-08-20), post-implementation code review found four issues, all addressed:
+  1. `RegisterPage.jsx`/`LoginPage.jsx`'s `handleResend` showed "sent" from a `finally` block but let a rejected `resendVerification` call (reachable via the rate limiter's 429) keep propagating as an unhandled promise rejection. Fixed to a `try`/`catch`, matching `VerifyEmailPage.jsx`'s own handler.
+  2. `POST /auth/resend-verification` was keyed only by (IP, email), which bounds spam against one victim's inbox but put no ceiling on a single source rotating through many target emails. Added a second, IP-only limiter (`get_resend_verification_ip_rate_limiter`, 20/min) alongside the existing pair limiter -- mirrors `register`'s own IP-only reasoning for the same attack shape.
+  3. `shared/email.send_email` had zero direct test coverage (only ever exercised indirectly through `auth.service.send_verification_email`, and `conftest.py`'s autouse `_stub_outbound_email` patches that call site out in every other test). Added `backend/tests/test_shared_email.py`. Writing that coverage surfaced a real bug: with `SMTP_HOST` set but neither `SMTP_FROM` nor `SMTP_USERNAME`, the message's `From` header was silently blank. `send_email` now raises a clear `ValueError` instead of mailing out a header most relays would reject anyway.
+  4. `register_user` returned a permanent 409 for any duplicate email, including one that was never verified -- letting a typo'd or malicious registration permanently squat an address the real owner could never reclaim, which undercuts this story's own stated problem statement. Registering against an *unverified* email now reclaims that row in place (new name/password, `email_verified_at` stays untouched, `created_at` stays untouched) instead of 409ing; a *verified* email still 409s unchanged. See `service.register_user`'s updated docstring and `test_auth_email_verification.py`'s `test_register_on_unverified_email_reclaims_the_account`/`test_register_on_verified_email_still_returns_409`.
 
 ## Code Map
 
 - `backend/app/shared/models.py` -- edit: `User.email_verified_at`
 - `backend/alembic/versions/21fe494be69e_add_email_verified_at_to_users.py` -- new: adds the column, backfills every existing row from `created_at`
-- `backend/app/shared/email/__init__.py` -- new: `send_email` (stdlib `smtplib`, console fallback)
-- `backend/app/auth/service.py` -- edit: `EMAIL_VERIFICATION_TOKEN_TYPE`, `create_email_verification_token`, `decode_email_verification_token`, the `typ` guard added to `decode_access_token`, `send_verification_email`, `verify_email`, `resend_verification`, `_require_email_verification`, the gate added to `authenticate_user`
-- `backend/app/auth/repository.py` -- edit: `mark_email_verified`
+- `backend/app/shared/email/__init__.py` -- new: `send_email` (stdlib `smtplib`, console fallback); review round 1 adds a `ValueError` guard when no `From` address is configured
+- `backend/app/auth/service.py` -- edit: `EMAIL_VERIFICATION_TOKEN_TYPE`, `create_email_verification_token`, `decode_email_verification_token`, the `typ` guard added to `decode_access_token`, `send_verification_email`, `verify_email`, `resend_verification`, `_require_email_verification`, the gate added to `authenticate_user`; review round 1's `register_user` reclaim-unverified-row path
+- `backend/app/auth/repository.py` -- edit: `mark_email_verified` (round 1 reuses existing `update_user_profile`/`update_user_password` for the reclaim path -- no new repository function needed)
 - `backend/app/auth/schemas.py` -- edit: `VerifyEmailRequest/Response`, `ResendVerificationRequest/Response`, `MeResponse.email_verified`
-- `backend/app/auth/routes.py` -- edit: `register` schedules the verification email; new `POST /auth/verify-email`, `POST /auth/resend-verification`
-- `backend/app/auth/rate_limiter.py` -- edit: `get_resend_verification_rate_limiter`
+- `backend/app/auth/routes.py` -- edit: `register` schedules the verification email; new `POST /auth/verify-email`, `POST /auth/resend-verification`; round 1 adds the second `ip_limiter` check to `resend_verification`
+- `backend/app/auth/rate_limiter.py` -- edit: `get_resend_verification_rate_limiter`; round 1 adds `get_resend_verification_ip_rate_limiter`
 - `backend/.env.example` -- edit: `SMTP_*`, `REQUIRE_EMAIL_VERIFICATION`, `EMAIL_VERIFICATION_TOKEN_EXPIRE_HOURS`
 - `backend/scripts/isolation_proof.py` -- edit: `PUBLIC_ALLOWLIST_PATHS` gains `/auth/verify-email`, `/auth/resend-verification`
 - `frontend/src/api/authClient.js` -- edit: `verifyEmail`, `resendVerification`, `loginAccount` now attaches `error.status`
 - `frontend/src/pages/VerifyEmailPage.jsx` -- new
 - `frontend/src/App.jsx` -- edit: `/verify-email` route, outside both route guards
-- `frontend/src/pages/RegisterPage.jsx` -- edit: check-your-inbox success state, resend action
-- `frontend/src/pages/LoginPage.jsx` -- edit: 403 handling, resend action
-- `backend/tests/conftest.py` -- edit: `REQUIRE_EMAIL_VERIFICATION` default, resend limiter added to the fixture, `_stub_outbound_email`, `client` fixture's `get_session_factory` patch for `resend_verification`'s background-task session
-- `backend/tests/test_auth_email_verification.py` -- new
+- `frontend/src/pages/RegisterPage.jsx` -- edit: check-your-inbox success state, resend action; round 1 fixes `handleResend`'s error handling
+- `frontend/src/pages/LoginPage.jsx` -- edit: 403 handling, resend action; round 1 fixes `handleResend`'s error handling
+- `backend/tests/conftest.py` -- edit: `REQUIRE_EMAIL_VERIFICATION` default, resend limiter added to the fixture, `_stub_outbound_email`, `client` fixture's `get_session_factory` patch for `resend_verification`'s background-task session; round 1 adds the IP-only resend limiter to the same fixture
+- `backend/tests/test_auth_email_verification.py` -- new; round 1 adds reclaim-on-register and IP-limiter coverage
+- `backend/tests/test_auth_registration.py` -- round 1 edit: the two duplicate-email tests now mark the first account verified first, since an unverified duplicate is a reclaim (201), not a 409
 - `backend/tests/test_auth_login.py` -- edit: one pinning test for the flag-off default
-- `backend/tests/test_documents_upload.py` -- edit: `_fresh_rate_limiters` tuple unpacking updated for the new limiter
+- `backend/tests/test_documents_upload.py` -- edit: `_fresh_rate_limiters` tuple unpacking updated for the new limiter; round 1 widens it again for the IP-only resend limiter
+- `backend/tests/test_shared_email.py` -- new (round 1): direct `send_email` coverage
 - `backend/tests/test_isolation_proof.py` -- unaffected directly; covered by the `PUBLIC_ALLOWLIST_PATHS` update above
 - `frontend/src/pages/VerifyEmailPage.test.jsx` -- new
-- `frontend/src/pages/RegisterPage.test.jsx` -- new
-- `frontend/src/pages/LoginPage.test.jsx` -- edit: 403/resend coverage
+- `frontend/src/pages/RegisterPage.test.jsx` -- new; round 1 adds a resend-rejection regression test
+- `frontend/src/pages/LoginPage.test.jsx` -- edit: 403/resend coverage; round 1 adds a resend-rejection regression test
 
 ## Tasks & Acceptance
 
