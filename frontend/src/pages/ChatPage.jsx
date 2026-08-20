@@ -5,6 +5,7 @@ import { askQuestion, getChatHistory } from '../api/chatClient'
 import ChatMessage from '../components/chat/ChatMessage'
 import RobotMascot from '../components/chat/RobotMascot'
 import DocumentsScopePanel from '../components/chat/DocumentsScopePanel'
+import ChatSearchPanel from '../components/chat/ChatSearchPanel'
 
 // UX-DR29/Story 3.4: initial page load renders only the 3 most recent
 // messages; each scroll-up page fetches 10 more. Two different numbers
@@ -37,6 +38,21 @@ function toUiMessage(row) {
   return { role: 'assistant', segments: row.segments ?? [] }
 }
 
+// Every piece of user-visible text in one message, flattened for the
+// chat search filter. Notice/refusal/thinking bubbles have no text of
+// their own here (their copy lives in ChatMessage.jsx) -- they simply
+// never match a query, which is the honest outcome: there is nothing of
+// the user's to find in them.
+function messageSearchText(message) {
+  if (message.role === 'user') return message.text ?? ''
+  if (message.role === 'assistant') {
+    return (message.segments ?? [])
+      .map((segment) => segment.text ?? '')
+      .join(' ')
+  }
+  return ''
+}
+
 // Chat page (Story 3.1): a two-column grid -- flexible chat window (1fr) +
 // fixed 260px documents-in-scope panel, 20px gutter (UX-DR9). Collapses to
 // a single column below 900px so the fixed-width columns (this page's
@@ -64,6 +80,11 @@ function ChatPageContent() {
   const { selectedDocumentIds } = useChatScope()
   const [messages, setMessages] = useState([])
   const [question, setQuestion] = useState('')
+  // Chat-history search (right column). Filters `messages` at render
+  // time only -- the thread state itself is never narrowed, so history
+  // paging, scroll restore and submit all keep working against the full
+  // list while a query is active.
+  const [chatSearch, setChatSearch] = useState('')
   const [isAsking, setIsAsking] = useState(false)
   // { kind: 'service' | 'other', message } -- a 503 (or client-side
   // timeout/abort) renders as a banner here, structurally separate from
@@ -307,6 +328,19 @@ function ChatPageContent() {
     }
   }
 
+  const chatSearchNeedle = chatSearch.trim().toLowerCase()
+  // Index carried alongside the message so the key stays tied to the
+  // message's position in the full thread, not to its position in the
+  // filtered view -- otherwise React would reuse a bubble's DOM node for
+  // a different message as the query changes.
+  const visibleMessages = messages
+    .map((message, index) => ({ message, index }))
+    .filter(
+      ({ message }) =>
+        chatSearchNeedle === '' ||
+        messageSearchText(message).toLowerCase().includes(chatSearchNeedle),
+    )
+
   return (
     <>
       <header className="mb-5">
@@ -384,10 +418,10 @@ function ChatPageContent() {
             onScroll={handleMessageListScroll}
             className="flex flex-1 flex-col gap-3 overflow-y-auto p-5"
           >
-            {messages.map((message, index) => (
+            {visibleMessages.map(({ message, index }) => (
               <ChatMessage key={index} message={message} />
             ))}
-            {isAsking && <ChatMessage message={{ role: 'thinking' }} />}
+            {isAsking && !chatSearchNeedle && <ChatMessage message={{ role: 'thinking' }} />}
           </div>
 
           {error && (
@@ -464,7 +498,17 @@ function ChatPageContent() {
           </form>
         </div>
 
-        <DocumentsScopePanel authFetch={authFetch} />
+        {/* Right column: search above the scope panel, same 20px gutter
+            as the grid's own so the two panels read as one stack. */}
+        <div className="flex min-w-0 flex-col gap-[20px] self-start">
+          <ChatSearchPanel
+            value={chatSearch}
+            onChange={setChatSearch}
+            resultCount={visibleMessages.length}
+            totalCount={messages.length}
+          />
+          <DocumentsScopePanel authFetch={authFetch} />
+        </div>
       </div>
     </>
   )
