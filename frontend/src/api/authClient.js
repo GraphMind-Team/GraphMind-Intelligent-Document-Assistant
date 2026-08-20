@@ -48,7 +48,49 @@ export async function loginAccount({ email, password }) {
 
   if (!response.ok) {
     const message = formatDetail(data?.detail)
-    throw new Error(message || `Login failed (${response.status}).`)
+    const error = new Error(message || `Login failed (${response.status}).`)
+    // Story 1.6: LoginPage needs to tell "verify your email" (403) apart
+    // from "wrong credentials" (401) to decide whether to offer a resend
+    // button -- attached rather than string-matching the message, which
+    // would silently break if the backend's wording ever changes.
+    error.status = response.status
+    throw error
+  }
+
+  return data
+}
+
+// Story 1.6. Same shape as registerAccount/loginAccount above -- POST,
+// throw the backend's `detail` on failure.
+export async function verifyEmail({ token }) {
+  const response = await fetch(`${API_BASE_URL}/auth/verify-email`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  })
+
+  const data = await response.json().catch(() => null)
+
+  if (!response.ok) {
+    const message = formatDetail(data?.detail)
+    throw new Error(message || `Verification failed (${response.status}).`)
+  }
+
+  return data
+}
+
+export async function resendVerification({ email }) {
+  const response = await fetch(`${API_BASE_URL}/auth/resend-verification`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  })
+
+  const data = await response.json().catch(() => null)
+
+  if (!response.ok) {
+    const message = formatDetail(data?.detail)
+    throw new Error(message || `Failed to resend verification email (${response.status}).`)
   }
 
   return data

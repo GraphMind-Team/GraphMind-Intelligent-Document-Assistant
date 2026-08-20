@@ -79,7 +79,7 @@ A visitor can create an account and log in. Realizes entry state for UJ-1, UJ-2.
 **Consequences (testable):**
 - Passwords are stored hashed (bcrypt_sha256), never in plaintext.
 - A valid session is represented as a JWT sent with every subsequent request.
-- [ASSUMPTION: No password reset or email verification in v1 — matches course brief's minimal-schema direction to protect the 20-day timeline.]
+- ~~[ASSUMPTION: No password reset or email verification in v1 — matches course brief's minimal-schema direction to protect the 20-day timeline.]~~ *(Email verification pulled forward into scope, 2026-08-20, as Story 1.6 — same "pulled forward once the DoD gate closed" precedent as FR-17 below. Password reset remains out of v1 scope, unchanged. See `epics.md` Story 1.6.)*
 
 #### FR-2: Server-side tenancy filtering
 The system enforces `user_id` filtering on every read/write to the vector index and the Knowledge Graph, independent of any client-supplied value.
@@ -265,7 +265,7 @@ A user can permanently delete their own account from User Settings.
 - Clickable citations that open/highlight the source passage inline, suggested follow-up questions, document search/filtering, project/category grouping beyond chapters, hybrid BM25+vector search, raw-context inspection panel, conversation export *(all v2/v3 backlog per course brief, prioritized in `addendum.md`)*.
 - ~~Conversational memory/follow-ups~~ *(pulled forward into scope as FR-17, 2026-08-18, now that v1's Definition-of-Done gate — Epic 6 — is closed. Same precedent as FR-14/FR-15 being pulled forward from the v2 backlog earlier. See `epics.md`'s FR-17, OD-8, AD-10, UX-DR29.)*
 - Account recovery/undo window after account deletion *(§4.7 FR-16)*.
-- Password reset / email verification *[ASSUMPTION, §4.1 FR-1]*.
+- ~~Password reset / email verification~~ *(email verification pulled forward into scope as part of FR-1, 2026-08-20, Story 1.6; password reset remains out of scope, unchanged)* *[ASSUMPTION, §4.1 FR-1]*.
 
 ## 7. Success Metrics
 
@@ -287,7 +287,7 @@ A user can permanently delete their own account from User Settings.
 
 ## 9. Assumptions Index
 
-- §4.1 FR-1 — No password reset or email verification in v1.
+- ~~§4.1 FR-1 — No password reset or email verification in v1.~~ *(Superseded 2026-08-20: email verification shipped as Story 1.6, pulled forward once the DoD gate closed. Password reset remains a valid open assumption/out-of-scope item.)*
 - §4.2 FR-5 — Exact extraction entity/relationship type list deferred to architecture.
 - §4.2 FR-5 — Entity identity-resolution/merge mechanism deferred to architecture.
 - §7 SM-1 — 80% accuracy target is a placeholder pending a real Evaluation Set baseline.

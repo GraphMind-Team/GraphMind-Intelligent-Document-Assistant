@@ -6,6 +6,7 @@ a connection directly.
 """
 
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -46,6 +47,18 @@ def update_user_profile(db: Session, user: User, full_name: str) -> User:
 
 def update_user_password(db: Session, user: User, password_hash: str) -> User:
     user.password_hash = password_hash
+    db.flush()
+    return user
+
+
+def mark_email_verified(db: Session, user: User) -> User:
+    """Story 1.6: stamps `email_verified_at` with the current time. Only
+    ever called from `service.verify_email`, which already guards this
+    against a re-verify (an already-verified `user` never reaches here) --
+    this function itself doesn't re-check, matching this module's existing
+    convention of trusting the caller to enforce the business rule and
+    doing only the write here."""
+    user.email_verified_at = datetime.now(timezone.utc)
     db.flush()
     return user
 

@@ -4,6 +4,7 @@ import PublicOnlyRoute from './components/PublicOnlyRoute'
 import Shell from './components/Shell'
 import RegisterPage from './pages/RegisterPage'
 import LoginPage from './pages/LoginPage'
+import VerifyEmailPage from './pages/VerifyEmailPage'
 import LandingPage from './pages/LandingPage'
 import HealthPage from './pages/HealthPage'
 import DocumentsPage from './pages/DocumentsPage'
@@ -37,6 +38,12 @@ function App() {
             visitors makes the product's own logo a broken link for
             them. It adapts its calls to action instead. */}
         <Route path="/" element={<LandingPage />} />
+
+        {/* Story 1.6: reached only by clicking an emailed verify link, so
+            it sits outside both guards below -- PublicOnlyRoute would
+            bounce a visitor who happens to still have a session, and
+            ProtectedRoute would bounce the (normal) logged-out case. */}
+        <Route path="/verify-email" element={<VerifyEmailPage />} />
 
         {/* Already-authenticated visitors get sent into the shell instead
             of seeing a register/login form they don't need. */}
