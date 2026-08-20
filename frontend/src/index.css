@@ -487,6 +487,20 @@ input:focus, textarea:focus, select:focus {
   background-color: color-mix(in srgb, var(--accent) 60%, transparent);
 }
 
+/* Search hit inside a chat bubble. Tinted from currentColor rather than
+   a fixed token: the same mark sits on the user bubble's brand gradient
+   (white text) and on the assistant bubble's light fill (dark text), and
+   any fixed background would fail one of the two. Colour is left to
+   inherit so the mark never restates the sender's own text colour --
+   the wash is the only cue, and the browser default mark styling (black
+   on yellow) is fully overridden. */
+.chat-mark {
+  background-color: color-mix(in srgb, currentColor 22%, transparent);
+  color: inherit;
+  border-radius: 4px;
+  padding: 0 2px;
+}
+
 /* ============================================================
    Keyframes. Declared unconditionally (a @keyframes block with no
    consumer is inert); every consumer class below sits inside the

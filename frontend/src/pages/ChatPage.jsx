@@ -419,7 +419,7 @@ function ChatPageContent() {
             className="flex flex-1 flex-col gap-3 overflow-y-auto p-5"
           >
             {visibleMessages.map(({ message, index }) => (
-              <ChatMessage key={index} message={message} />
+              <ChatMessage key={index} message={message} highlight={chatSearchNeedle} />
             ))}
             {isAsking && !chatSearchNeedle && <ChatMessage message={{ role: 'thinking' }} />}
           </div>
