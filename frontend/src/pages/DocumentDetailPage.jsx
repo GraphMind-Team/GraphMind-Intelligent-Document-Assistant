@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { deleteDocument, getDocument } from '../api/documentsClient'
+import PreviewModal from '../components/PreviewModal'
 import StatusPill from '../components/StatusPill'
 import {
   DELETE_BOUNDARY_TEXT,
@@ -67,6 +68,9 @@ export default function DocumentDetailPage() {
   const deleteButtonRef = useRef(null)
   const cancelDeleteButtonRef = useRef(null)
   const deleteBoundaryTextId = 'delete-document-boundary'
+
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false)
+  const previewButtonRef = useRef(null)
 
   useEffect(() => {
     if (isConfirmingDelete) cancelDeleteButtonRef.current?.focus()
@@ -164,20 +168,36 @@ export default function DocumentDetailPage() {
           <div className="rounded-xl border border-border bg-card-bg p-[26px]">
             <div className="flex items-start justify-between gap-3">
               <h1 className="text-[18px] font-bold text-primary">{doc.filename}</h1>
-              {/* Story 2.7: Document Detail's own entry point to the same
-                  delete action DocumentCard.jsx's trash icon offers.
-                  "Danger: same shape as secondary, danger-colored text"
-                  (DESIGN.md) -- not a filled-red button until the
-                  confirmation step below. */}
-              <button
-                ref={deleteButtonRef}
-                type="button"
-                aria-expanded={isConfirmingDelete}
-                onClick={openDeleteConfirm}
-                className="shrink-0 rounded-md border border-border bg-surface2 px-3 py-1.5 text-xs font-semibold text-danger"
-              >
-                Delete
-              </button>
+              <div className="flex shrink-0 items-center gap-2">
+                {/* Only offered once a document is Ready: a Pending/Failed
+                    document has no reliably-parsed content worth
+                    previewing, even though the raw bytes exist earlier
+                    too -- a UX choice, not a backend restriction. */}
+                {doc.status === 'Ready' && (
+                  <button
+                    ref={previewButtonRef}
+                    type="button"
+                    onClick={() => setIsPreviewOpen(true)}
+                    className="rounded-md border border-border bg-surface2 px-3 py-1.5 text-xs font-semibold text-primary"
+                  >
+                    Preview
+                  </button>
+                )}
+                {/* Story 2.7: Document Detail's own entry point to the same
+                    delete action DocumentCard.jsx's trash icon offers.
+                    "Danger: same shape as secondary, danger-colored text"
+                    (DESIGN.md) -- not a filled-red button until the
+                    confirmation step below. */}
+                <button
+                  ref={deleteButtonRef}
+                  type="button"
+                  aria-expanded={isConfirmingDelete}
+                  onClick={openDeleteConfirm}
+                  className="rounded-md border border-border bg-surface2 px-3 py-1.5 text-xs font-semibold text-danger"
+                >
+                  Delete
+                </button>
+              </div>
             </div>
 
             {isConfirmingDelete && (
@@ -305,6 +325,15 @@ export default function DocumentDetailPage() {
           </div>
         )
       })()}
+
+      {isPreviewOpen && doc && (
+        <PreviewModal
+          documentId={documentId}
+          filename={doc.filename}
+          fileType={doc.file_type}
+          onClose={() => setIsPreviewOpen(false)}
+        />
+      )}
     </div>
   )
 }

@@ -120,6 +120,24 @@ export async function getDocument(authFetch, documentId) {
   return data
 }
 
+// One document's raw bytes, for the preview modal. `authFetch` (not a bare
+// `<iframe src>`) because the endpoint requires the same Authorization
+// header every other document route does -- an iframe/img src can't carry
+// one, so the caller fetches the bytes itself and turns them into an
+// object URL. Same 404-for-not-yours-or-missing shape as getDocument.
+export async function getDocumentContent(authFetch, documentId) {
+  const response = await authFetch(`/documents/${encodeURIComponent(documentId)}/content`)
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => null)
+    const message = formatDetail(data?.detail)
+    throw new Error(message || `Failed to load document content (${response.status}).`)
+  }
+
+  const blob = await response.blob()
+  return blob
+}
+
 // Deletes one document by id (Story 2.7): its Weaviate passages and its
 // row are both gone on success, through the same backend call that
 // applies AD-2's tenancy scoping -- another account's document id (or a

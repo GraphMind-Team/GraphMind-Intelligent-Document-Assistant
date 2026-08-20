@@ -140,6 +140,37 @@ def get_document(
     return DocumentResponse.model_validate(document)
 
 
+_FILE_TYPE_TO_MEDIA_TYPE = {
+    "pdf": "application/pdf",
+    "markdown": "text/markdown",
+    "html": "text/html",
+}
+
+
+@router.get("/{document_id}/content")
+def get_document_content(
+    document_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """Streams one document's raw uploaded bytes, for the preview feature.
+
+    Same tenancy-scoped 404 as `get_document` above (reuses it directly) --
+    a cross-tenant or nonexistent id is indistinguishable here too. Unlike
+    every other route in this module, the response body here is the raw
+    `content` bytes on purpose: this is the one place that's meant to
+    expose them, media-typed from `file_type` so the browser renders
+    (`Content-Disposition: inline`) rather than downloads.
+    """
+    document = service.get_document(db, current_user, document_id)
+    media_type = _FILE_TYPE_TO_MEDIA_TYPE.get(document.file_type, "application/octet-stream")
+    return Response(
+        content=document.content,
+        media_type=media_type,
+        headers={"Content-Disposition": "inline"},
+    )
+
+
 @router.delete("/{document_id}", status_code=204)
 def delete_document(
     document_id: uuid.UUID,
