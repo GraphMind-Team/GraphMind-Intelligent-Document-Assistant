@@ -4,11 +4,14 @@ outcomes ("no_documents", "no_answer", "refusal"), the exact 503 point for an
 LLM-wrapper failure, cross-tenant isolation of citation resolution, and a
 full success path resolving real `{chapter, document_filename}` citations.
 
-`embed_texts`/`search_passages`/`generate_answer` are mocked at their
+`search_passages`/`generate_answer` are mocked at their
 `app.chat.service`-bound names (the module-level names that module imported
-them under), mirroring `test_documents_parse_and_index.py`'s
-`_stub_embeddings` convention -- this file never touches a real embedding
-model, Weaviate, or OpenRouter.
+them under) -- this file never touches a real Weaviate or OpenRouter.
+
+There is no embedding call to mock: `search_passages` now takes the query
+*text* and Weaviate embeds it server-side, so the retrieval query is
+observable directly as that function's first argument. Tests that used to
+assert on an `embed_texts` call assert on it there instead.
 
 Story 3.4/FR-17 adds conversational-memory coverage at the bottom of this
 file: persistence round-tripping (and the one documented non-persisted
@@ -51,10 +54,6 @@ def _upload(client, token, filename="report.pdf", content=b"%PDF-1.4 fake pdf by
     )
     assert response.status_code == 201, response.text
     return response.json()
-
-
-def _stub_embed(monkeypatch):
-    monkeypatch.setattr(chat_service_module, "embed_texts", lambda texts: [[0.0] * 384 for _ in texts])
 
 
 def _passage(
@@ -121,7 +120,6 @@ def test_ask_rejects_over_length_question_with_422(client):
 
 def test_ask_zero_passages_returns_no_documents_reason(client, db_session, monkeypatch):
     token = _register_and_login(client, full_name="Maria", email="maria-chat-3@example.com", password="password12345")
-    _stub_embed(monkeypatch)
     monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: [])
 
     response = client.post("/chat/ask", headers=_auth_headers(token), json={"question": "Anything in my docs?"})
@@ -145,7 +143,6 @@ def test_ask_zero_passages_returns_no_documents_reason(client, db_session, monke
 def test_ask_generation_producing_no_answerable_segments_returns_no_answer_reason(client, db_session, monkeypatch):
     token = _register_and_login(client, full_name="Maria", email="maria-chat-4@example.com", password="password12345")
     document = _upload(client, token)
-    _stub_embed(monkeypatch)
     monkeypatch.setattr(
         chat_service_module, "search_passages", lambda *a, **k: [_passage(document["id"])]
     )
@@ -178,7 +175,6 @@ def test_ask_refuses_when_every_passage_is_below_the_relevance_threshold(client,
         client, full_name="Maria", email="maria-chat-refusal-1@example.com", password="password12345"
     )
     document = _upload(client, token)
-    _stub_embed(monkeypatch)
     passages = [
         _passage(document["id"], distance=RELEVANCE_THRESHOLD + 0.2),
         _passage(document["id"], chunk_id="chunk-1", chunk_index=1, distance=RELEVANCE_THRESHOLD + 0.4),
@@ -206,7 +202,6 @@ def test_ask_proceeds_when_at_least_one_passage_clears_the_threshold(client, mon
         client, full_name="Maria", email="maria-chat-refusal-2@example.com", password="password12345"
     )
     document = _upload(client, token)
-    _stub_embed(monkeypatch)
     passages = [
         _passage(document["id"], distance=RELEVANCE_THRESHOLD + 0.1),
         _passage(document["id"], chunk_id="chunk-1", chunk_index=1, distance=RELEVANCE_THRESHOLD - 0.1),
@@ -235,7 +230,6 @@ def test_ask_treats_exact_threshold_distance_as_relevant(client, monkeypatch):
         client, full_name="Maria", email="maria-chat-refusal-3@example.com", password="password12345"
     )
     document = _upload(client, token)
-    _stub_embed(monkeypatch)
     passages = [_passage(document["id"], distance=RELEVANCE_THRESHOLD)]
     monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: passages)
     generate_answer_mock = Mock(
@@ -266,7 +260,6 @@ def test_ask_refuses_when_every_passage_has_no_distance_metadata(client, monkeyp
         client, full_name="Maria", email="maria-chat-refusal-4@example.com", password="password12345"
     )
     document = _upload(client, token)
-    _stub_embed(monkeypatch)
     passages = [_passage(document["id"], distance=None)]
     monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: passages)
     generate_answer_mock = Mock()
@@ -285,7 +278,6 @@ def test_ask_refuses_when_every_passage_has_no_distance_metadata(client, monkeyp
 def test_ask_llm_wrapper_failure_surfaces_as_exactly_503(client, monkeypatch):
     token = _register_and_login(client, full_name="Maria", email="maria-chat-5@example.com", password="password12345")
     document = _upload(client, token)
-    _stub_embed(monkeypatch)
     monkeypatch.setattr(
         chat_service_module, "search_passages", lambda *a, **k: [_passage(document["id"])]
     )
@@ -304,7 +296,6 @@ def test_ask_llm_wrapper_failure_surfaces_as_exactly_503(client, monkeypatch):
 def test_ask_success_resolves_real_chapter_and_filename_citations(client, monkeypatch):
     token = _register_and_login(client, full_name="Maria", email="maria-chat-6@example.com", password="password12345")
     document = _upload(client, token, filename="Vendor_Agreement_2026.pdf")
-    _stub_embed(monkeypatch)
     passages = [_passage(document["id"], chapter="Chapter 4")]
     monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: passages)
     monkeypatch.setattr(
@@ -345,7 +336,6 @@ def test_ask_deduplicates_repeated_chapter_and_filename_citations(client, monkey
     two identical ones side by side."""
     token = _register_and_login(client, full_name="Maria", email="maria-chat-dedup@example.com", password="password12345")
     document = _upload(client, token, filename="Vendor_Agreement_2026.pdf")
-    _stub_embed(monkeypatch)
     passages = [
         _passage(document["id"], chapter="Chapter 4", chunk_id="chunk-a", chunk_index=0, text="first chunk"),
         _passage(document["id"], chapter="Chapter 4", chunk_id="chunk-b", chunk_index=1, text="second chunk"),
@@ -392,7 +382,6 @@ def test_ask_does_not_duplicate_a_chunk_index_when_the_model_repeats_a_passage_n
         client, full_name="Maria", email="maria-chat-repeat@example.com", password="password12345"
     )
     document = _upload(client, token, filename="Vendor_Agreement_2026.pdf")
-    _stub_embed(monkeypatch)
     passages = [_passage(document["id"], chapter="Chapter 4", chunk_index=7)]
     monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: passages)
     monkeypatch.setattr(
@@ -427,7 +416,6 @@ def test_ask_keeps_separate_citations_for_different_chapters_of_one_document(cli
         client, full_name="Maria", email="maria-chat-chapters@example.com", password="password12345"
     )
     document = _upload(client, token, filename="Vendor_Agreement_2026.pdf")
-    _stub_embed(monkeypatch)
     passages = [
         _passage(document["id"], chapter="Chapter 4", chunk_id="chunk-a", chunk_index=0),
         _passage(document["id"], chapter="Chapter 9", chunk_id="chunk-b", chunk_index=5),
@@ -489,11 +477,10 @@ def test_ask_scopes_retrieval_to_the_authenticated_users_id(client, monkeypatch)
     token = login_response.json()["access_token"]
 
     document = _upload(client, token)
-    _stub_embed(monkeypatch)
 
     captured = {}
 
-    def _fake_search_passages(query_vector, user_id_arg, **kwargs):
+    def _fake_search_passages(query_text, user_id_arg, **kwargs):
         captured["user_id"] = user_id_arg
         return [_passage(document["id"])]
 
@@ -521,11 +508,10 @@ def test_ask_passes_document_ids_scope_to_search_passages(client, monkeypatch):
         client, full_name="Maria", email="maria-chat-scope-1@example.com", password="password12345"
     )
     document = _upload(client, token)
-    _stub_embed(monkeypatch)
 
     captured = {}
 
-    def _fake_search_passages(query_vector, user_id_arg, **kwargs):
+    def _fake_search_passages(query_text, user_id_arg, **kwargs):
         captured["document_ids"] = kwargs.get("document_ids")
         return [_passage(document["id"])]
 
@@ -570,11 +556,10 @@ def test_ask_omitted_document_ids_defaults_to_empty_scope_list(client, monkeypat
     token = _register_and_login(
         client, full_name="Maria", email="maria-chat-scope-2@example.com", password="password12345"
     )
-    _stub_embed(monkeypatch)
 
     captured = {}
 
-    def _fake_search_passages(query_vector, user_id_arg, **kwargs):
+    def _fake_search_passages(query_text, user_id_arg, **kwargs):
         captured["document_ids"] = kwargs.get("document_ids")
         return []
 
@@ -600,7 +585,6 @@ def test_ask_scoped_to_documents_with_no_passages_returns_empty_scope_not_no_doc
         client, full_name="Maria", email="maria-chat-scope-3@example.com", password="password12345"
     )
     document = _upload(client, token)
-    _stub_embed(monkeypatch)
     monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: [])
 
     response = client.post(
@@ -637,7 +621,6 @@ def test_ask_cross_tenant_citation_is_dropped_not_leaked(client, monkeypatch):
     )
     document_a = _upload(client, token_a, filename="account-a-only.pdf")
 
-    _stub_embed(monkeypatch)
     passages = [_passage(document_a["id"])]
     monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: passages)
     monkeypatch.setattr(
@@ -720,7 +703,6 @@ def test_ask_persists_user_and_assistant_messages_on_success(client, db_session,
         client, full_name="Maria", email="maria-chat-persist-1@example.com", password="password12345"
     )
     document = _upload(client, token, filename="Vendor_Agreement_2026.pdf")
-    _stub_embed(monkeypatch)
     passages = [_passage(document["id"], chapter="Chapter 4")]
     monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: passages)
     monkeypatch.setattr(
@@ -762,7 +744,6 @@ def test_ask_persists_a_refusal_as_a_message_too(client, db_session, monkeypatch
         client, full_name="Maria", email="maria-chat-persist-2@example.com", password="password12345"
     )
     document = _upload(client, token)
-    _stub_embed(monkeypatch)
     passages = [_passage(document["id"], distance=RELEVANCE_THRESHOLD + 0.5)]
     monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: passages)
     generate_answer_mock = Mock()
@@ -788,7 +769,6 @@ def test_ask_does_not_persist_any_message_on_llm_wrapper_failure(client, db_sess
         client, full_name="Maria", email="maria-chat-persist-3@example.com", password="password12345"
     )
     document = _upload(client, token)
-    _stub_embed(monkeypatch)
     monkeypatch.setattr(
         chat_service_module, "search_passages", lambda *a, **k: [_passage(document["id"])]
     )
@@ -804,21 +784,22 @@ def test_ask_does_not_persist_any_message_on_llm_wrapper_failure(client, db_sess
     assert db_session.query(ChatMessage).count() == 0
 
 
-def test_ask_fresh_conversation_calls_embed_texts_with_exactly_the_question(client, monkeypatch):
+def test_ask_fresh_conversation_retrieves_with_exactly_the_question(client, monkeypatch):
     """Boundaries: "a fresh conversation with zero prior turns behaves
     identically to today's stateless flow" -- asserted on the actual
-    `embed_texts` call, not just the response shape."""
+    retrieval query, not just the response shape. Post-text2vec-weaviate
+    that query is the string handed to `search_passages`; it used to be
+    the list handed to `embed_texts`."""
     token = _register_and_login(
         client, full_name="Maria", email="maria-chat-history-1@example.com", password="password12345"
     )
     captured = {}
 
-    def _fake_embed_texts(texts):
-        captured["texts"] = texts
-        return [[0.0] * 384 for _ in texts]
+    def _capturing_search(query_text, *a, **k):
+        captured["texts"] = [query_text]
+        return []
 
-    monkeypatch.setattr(chat_service_module, "embed_texts", _fake_embed_texts)
-    monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: [])
+    monkeypatch.setattr(chat_service_module, "search_passages", _capturing_search)
 
     response = client.post(
         "/chat/ask", headers=_auth_headers(token), json={"question": "First question ever?"}
@@ -833,7 +814,6 @@ def test_ask_fresh_conversation_calls_generate_answer_with_falsy_history(client,
         client, full_name="Maria", email="maria-chat-history-2@example.com", password="password12345"
     )
     document = _upload(client, token)
-    _stub_embed(monkeypatch)
     monkeypatch.setattr(
         chat_service_module, "search_passages", lambda *a, **k: [_passage(document["id"])]
     )
@@ -870,12 +850,11 @@ def test_ask_threads_prior_question_into_retrieval_query_text(client, db_session
     )
     captured = {}
 
-    def _fake_embed_texts(texts):
-        captured["texts"] = texts
-        return [[0.0] * 384 for _ in texts]
+    def _capturing_search(query_text, *a, **k):
+        captured["texts"] = [query_text]
+        return []
 
-    monkeypatch.setattr(chat_service_module, "embed_texts", _fake_embed_texts)
-    monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: [])
+    monkeypatch.setattr(chat_service_module, "search_passages", _capturing_search)
 
     response = client.post(
         "/chat/ask", headers=_auth_headers(token), json={"question": "What about its refund window?"}
@@ -905,7 +884,6 @@ def test_ask_threads_full_prior_turn_into_generate_answer_history(client, db_ses
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
     document = _upload(client, token)
-    _stub_embed(monkeypatch)
     monkeypatch.setattr(
         chat_service_module, "search_passages", lambda *a, **k: [_passage(document["id"])]
     )
@@ -947,7 +925,6 @@ def test_ask_history_window_capped_at_three_turns(client, db_session, monkeypatc
             created_at=base + timedelta(seconds=i),
         )
     document = _upload(client, token)
-    _stub_embed(monkeypatch)
     monkeypatch.setattr(
         chat_service_module, "search_passages", lambda *a, **k: [_passage(document["id"])]
     )
@@ -989,10 +966,9 @@ def test_ask_scope_change_mid_conversation_retrieves_only_current_scope(client, 
         answer_text="Document A says X.",
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
-    _stub_embed(monkeypatch)
     captured = {}
 
-    def _fake_search_passages(query_vector, user_id_arg, **kwargs):
+    def _fake_search_passages(query_text, user_id_arg, **kwargs):
         captured["document_ids"] = kwargs.get("document_ids")
         return []
 
@@ -1045,15 +1021,11 @@ def test_ask_scope_change_with_multiple_prior_turns_still_respects_current_scope
     )
     captured = {}
 
-    def _fake_embed_texts(texts):
-        captured["embed_texts"] = texts
-        return [[0.0] * 384 for _ in texts]
-
-    def _fake_search_passages(query_vector, user_id_arg, **kwargs):
+    def _fake_search_passages(query_text, user_id_arg, **kwargs):
+        captured["query_text"] = query_text
         captured["document_ids"] = kwargs.get("document_ids")
         return []
 
-    monkeypatch.setattr(chat_service_module, "embed_texts", _fake_embed_texts)
     monkeypatch.setattr(chat_service_module, "search_passages", _fake_search_passages)
 
     response = client.post(
@@ -1070,7 +1042,7 @@ def test_ask_scope_change_with_multiple_prior_turns_still_respects_current_scope
     # A) still threads through unaffected -- both prior questions appear
     # in the retrieval query text, proving scope-narrowing on this turn
     # didn't also silently drop the multi-turn history window.
-    query_text = captured["embed_texts"][0]
+    query_text = captured["query_text"]
     assert "What does document A say about pricing?" in query_text
     assert "What about delivery?" in query_text
     assert "What about warranty?" in query_text
@@ -1098,14 +1070,11 @@ def test_ask_with_use_history_false_skips_the_history_read_entirely(client, db_s
     document = _upload(client, token)
     captured = {}
 
-    def _fake_embed_texts(texts):
-        captured["texts"] = texts
-        return [[0.0] * 384 for _ in texts]
+    def _capturing_search(query_text, *a, **k):
+        captured["texts"] = [query_text]
+        return [_passage(document["id"])]
 
-    monkeypatch.setattr(chat_service_module, "embed_texts", _fake_embed_texts)
-    monkeypatch.setattr(
-        chat_service_module, "search_passages", lambda *a, **k: [_passage(document["id"])]
-    )
+    monkeypatch.setattr(chat_service_module, "search_passages", _capturing_search)
     generate_answer_mock = Mock(
         return_value=AnswerResult(
             segments=[AnswerSegment(text="An answer.", passage_numbers=[1])],
@@ -1141,7 +1110,6 @@ def test_ask_still_persists_the_turn_when_use_history_is_false(client, db_sessio
         client, full_name="Maria", email="maria-chat-nohistory-2@example.com", password="password12345"
     )
     user_id = uuid.UUID(client.get("/auth/me", headers=_auth_headers(token)).json()["id"])
-    _stub_embed(monkeypatch)
     monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: [])
 
     from app.shared.models import User

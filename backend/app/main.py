@@ -12,7 +12,6 @@ as a confusing runtime error.
 
 import logging
 import os
-import threading
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -34,7 +33,6 @@ from app.documents.routes import router as documents_router
 from app.kg.routes import router as kg_router
 from app.shared.data_access.neo4j_client import close_neo4j_driver, ensure_ready as ensure_neo4j_ready
 from app.shared.data_access.weaviate_client import close_weaviate_client, ensure_ready
-from app.shared.embeddings import embed_texts
 
 logger = logging.getLogger(__name__)
 
@@ -52,41 +50,6 @@ def _validate_env() -> None:
 
 
 _validate_env()
-
-
-def _warm_embedding_model() -> None:
-    """Loads the fastembed model ahead of the first real caller.
-
-    `embed_texts` lazily constructs -- and, on a cold instance, downloads
-    (~120MB) -- the model on first call; `model.py`'s singleton has no
-    warmup hook of its own. Without this, `chat/service.py`'s
-    `ask_question` is the first caller today, paying that cost inline on
-    top of `generate_answer`'s ~32s measured LLM latency and inside
-    `chatClient.js`'s 130s client-side timeout -- the one path with no
-    margin left against it.
-
-    Run in a daemon thread by `lifespan`, NOT inline like the Weaviate and
-    Neo4j warmups above. Those are quick network round-trips; this one can
-    be a multi-minute download on a cold instance with an ephemeral
-    filesystem (the free-tier deployment target -- nothing persists the
-    model cache between boots, so every cold boot re-downloads). Inline,
-    that download would hold the app before `lifespan` yields, so uvicorn
-    accepts no traffic and the platform's health check can time out before
-    the app is ever reachable -- turning a latency optimisation into a
-    deploy failure. `model.py`'s singleton is already double-checked-
-    locking specifically for concurrent threadpool callers, so a request
-    arriving mid-warmup blocks on that same lock and gets the one model
-    instance rather than building a second.
-
-    Swallows everything, like its two siblings: a failed warmup only means
-    the first real embed call pays the cost this would have absorbed, not
-    that embedding is broken -- and on a daemon thread there is no caller
-    left to propagate to anyway.
-    """
-    try:
-        embed_texts(["warmup"])
-    except Exception:
-        logger.exception("Embedding model warmup failed -- first request will pay the cold-start cost")
 
 
 @asynccontextmanager
@@ -114,13 +77,12 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Neo4j not ready at startup -- ingestion will degrade to Failed")
 
-    # Same best-effort intent as the two above, but deliberately NOT inline:
-    # see `_warm_embedding_model`'s docstring for why this one is the only
-    # startup step that must not block `yield`.
-    threading.Thread(
-        target=_warm_embedding_model, name="embedding-warmup", daemon=True
-    ).start()
-
+    # There is deliberately no embedding-model warmup here any more. The
+    # app used to load fastembed's multilingual MiniLM in a daemon thread
+    # at startup, which cost ~554MB resident and OOM-restarted the service
+    # on Render's 512MB free instance on *every* boot -- whether or not
+    # anyone ever asked a question. Weaviate now embeds server-side
+    # (text2vec-weaviate), so this process holds no model to warm.
     yield
 
     close_weaviate_client()

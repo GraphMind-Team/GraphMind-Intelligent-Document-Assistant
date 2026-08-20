@@ -25,16 +25,25 @@ from pypdf import PdfReader
 # chunk_index is sequential across the whole document, not reset per
 # chapter.
 #
-# Sized against the embedding model's 512-token input limit
-# (shared/embeddings/model.py), not picked independently of it: English
-# text tokenizes at roughly 1.3 tokens/word, but this model is
-# multilingual, and Cyrillic (Bulgarian) text can tokenize considerably
-# denser under a shared multilingual vocabulary -- 250 words leaves real
-# headroom under 512 tokens even at a pessimistic ~2 tokens/word, rather
-# than assuming the English ratio holds for every document. Getting this
-# wrong is silent, not an error: the model truncates instead of failing,
-# so an oversized chunk just means the tail of its (stored, citable) text
-# was never actually seen by its own embedding.
+# Sized against the embedding model's input limit, not picked
+# independently of it: English text tokenizes at roughly 1.3 tokens/word,
+# but the model is multilingual, and Cyrillic (Bulgarian) text can
+# tokenize considerably denser under a shared multilingual vocabulary --
+# 250 words leaves real headroom even at a pessimistic ~2 tokens/word,
+# rather than assuming the English ratio holds for every document.
+# Getting this wrong is silent, not an error: the model truncates instead
+# of failing, so an oversized chunk just means the tail of its (stored,
+# citable) text was never actually seen by its own embedding.
+#
+# The limit this was originally sized against was 512 tokens, from the
+# in-process fastembed model. Embedding moved to Weaviate
+# (text2vec-weaviate / arctic-embed-l-v2.0, see
+# `weaviate_client.EMBEDDING_MODEL`), whose context window is far larger,
+# so 250 words is now comfortably inside it rather than near the edge.
+# Left unchanged deliberately: `CHUNK_OVERLAP_WORDS` below, citation
+# granularity, and Story 2.4's extraction concatenation are all tuned
+# around this size, so growing it is a retrieval-quality decision to make
+# on its own evidence, not a free consequence of the bigger window.
 _CHUNK_WORD_COUNT = 250
 
 # Public (not `_`-prefixed), for the same reason `weaviate_client

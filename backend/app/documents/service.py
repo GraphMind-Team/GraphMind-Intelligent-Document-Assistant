@@ -31,7 +31,6 @@ from app.shared.data_access.weaviate_client import (
     delete_passages_for_document,
     write_passages,
 )
-from app.shared.embeddings import embed_texts
 from app.shared.llm_client import extract_entities_and_relationships
 from app.shared.models import Document, User
 
@@ -331,14 +330,13 @@ def ingest_document(
     safety net; a known, accepted gap from Story 2.3 (would need a
     heartbeat/lease or a startup reconciliation pass to close).
 
-    Embeds and writes in batches of `PASSAGE_BATCH_SIZE` rather than
-    embedding every chunk up front into one `vectors` list: a large
-    document (the 20MB upload cap) can run to thousands of chunks, and
-    holding every chunk's 384-dim vector in memory simultaneously before
-    the first one even reaches Weaviate is the more likely OOM path on a
-    512MB instance -- the batched `write_passages` call on the Weaviate
-    side alone doesn't help if everything already piled up in Python
-    memory before any of it got sent.
+    Writes in batches of `PASSAGE_BATCH_SIZE`. No vectors are computed
+    here any more -- Weaviate embeds each passage's `text` server-side on
+    insert -- so this loop now only bounds the size of a single
+    `insert_many` payload, not Python-side vector memory. It also bounds
+    Weaviate Embeddings request count: one batch is one billed request
+    against the free tier's 2,000/day, so a 1,000-chunk document costs 10
+    requests rather than 1,000.
     """
     session_factory = session_factory or get_session_factory()
     db = session_factory()
@@ -386,7 +384,6 @@ def ingest_document(
             delete_passages_for_document(document_id_str, user_id_str)
             for batch_start in range(0, len(chunks), PASSAGE_BATCH_SIZE):
                 batch = chunks[batch_start : batch_start + PASSAGE_BATCH_SIZE]
-                vectors = embed_texts([chunk.text for chunk in batch])
                 passages = [
                     WeaviatePassage(
                         chunk_id=str(
@@ -397,9 +394,8 @@ def ingest_document(
                         chapter=chunk.chapter,
                         chunk_index=chunk.chunk_index,
                         text=chunk.text,
-                        embedding=vector,
                     )
-                    for chunk, vector in zip(batch, vectors, strict=True)
+                    for chunk in batch
                 ]
                 write_passages(passages)
 

@@ -1,7 +1,7 @@
 """Outbound email (Story 1.6: account email verification).
 
 Cross-cutting infra, alongside `shared/llm_client/` and
-`shared/embeddings/` -- feature modules (e.g. `auth/service.py`) call
+`shared/llm_client/` -- feature modules (e.g. `auth/service.py`) call
 `send_email` here rather than talking to SMTP directly, matching AD-2's
 "no raw infra access outside `shared/`" precedent for Weaviate/Neo4j.
 

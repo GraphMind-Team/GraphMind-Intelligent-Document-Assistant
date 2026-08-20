@@ -98,18 +98,22 @@
   evidence: Story 2.1 review (blind-hunter) noted the endpoint returns every document for a user with no `limit`/`offset`. Not a problem yet (fresh accounts, few documents), but epics.md explicitly leaves document count per user unbounded, so this will matter before Story 2.2's real list UI ships.
 
 - source_spec: `_bmad-output/planning-artifacts/epics.md` (Story 2.3: Parse and index documents into the vector store)
+  status: CLOSED -- obsolete. The app no longer runs an embedding model, so there is no
+    model-weight cache to lose across a cold start. Embeddings moved to Weaviate
+    (text2vec-weaviate); `shared/embeddings/` and the `fastembed` dependency were deleted.
   summary: >
-    Render's free tier has an ephemeral filesystem -- `fastembed`'s on-disk model-weight cache
-    (`shared/embeddings/model.py`) doesn't survive a restart/redeploy/spin-down. Every time the
-    instance comes back cold, the first ingestion after that pays a model download before it can
-    embed anything (~0.22GB for `paraphrase-multilingual-MiniLM-L12-v2`, the model actually
-    shipped -- swapped in during review from the smaller English-only `all-MiniLM-L6-v2`,
-    ~0.09GB, specifically so Bulgarian documents get real embeddings), so production ingestion
-    latency will be periodically, and correctly, spiky -- not a bug if/when this is noticed later.
-  evidence: Chosen deliberately over `sentence-transformers`/`torch` (which wouldn't fit the
-    512MB free-tier instance at all) during Story 2.3's planning review. Verification for that
-    story is local (persistent disk), so this won't surface in testing -- worth this recorded
-    line so a later cold-start latency spike isn't debugged as a mystery.
+    (Original, kept for history.) Render's free tier has an ephemeral filesystem --
+    `fastembed`'s on-disk model-weight cache (`shared/embeddings/model.py`) doesn't survive a
+    restart/redeploy/spin-down. Every time the instance comes back cold, the first ingestion
+    after that pays a model download before it can embed anything.
+  evidence: >
+    Closed not because the cold-start latency was fixed but because the whole approach was
+    abandoned: the first real deploy OOM-restarted the 512MB instance. Measured, the model
+    needed ~554MB resident on top of a ~143MB app (~697MB total) and no batch-size, thread, or
+    ONNX-arena tuning moved the load floor -- it was ~185MB over the cap before serving a
+    single request. `paraphrase-multilingual-MiniLM-L12-v2` was already the smallest
+    multilingual model fastembed offers, and already quantized, so there was nothing smaller to
+    swap to while keeping Bulgarian support. After the move the app imports at 143MB.
 
 - source_spec: `_bmad-output/planning-artifacts/epics.md` (Story 2.3: Parse and index documents into the vector store)
   resolved: 2026-08-14 -- `spec-2-3-parse-and-index-documents-into-the-vector-store.md` written.

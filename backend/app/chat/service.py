@@ -22,7 +22,6 @@ from app.chat.schemas import (
     CitationResponse,
 )
 from app.shared.data_access.weaviate_client import TOP_K_PASSAGES, search_passages
-from app.shared.embeddings import embed_texts
 from app.shared.llm_client import (
     HISTORY_MAX_TURNS,
     RELEVANCE_THRESHOLD,
@@ -86,7 +85,7 @@ def ask_question(
     topical/entity words" reasoning) and `generate_answer`'s `history`
     param (full Q+A, citations stripped). An empty window (a fresh
     conversation) makes both of those identical to the pre-3.4 call
-    shape -- `embed_texts([question])` and `generate_answer(question,
+    shape -- `search_passages(question, ...)` and `generate_answer(question,
     passages)` unchanged -- rather than merely behaviorally equivalent.
     Retrieval's `document_ids` scope is never touched by history: this
     turn's own `document_ids` argument is the only thing that ever
@@ -154,15 +153,14 @@ def ask_question(
         # current question -- keeps the embedding on-topic rather than
         # diluted with prior answer prose. Deliberately NOT built when
         # `history` is empty (see below) so a fresh conversation's
-        # `embed_texts` call is the exact pre-3.4 `[question]` list, not
+        # retrieval query is the exact pre-3.4 bare `question`, not
         # merely an empty join that happens to look the same.
         query_text = "\n".join(turn.question for turn in history) + "\n" + question
     else:
         query_text = question
-    query_vector = embed_texts([query_text])[0]
     scoped_ids = [str(document_id) for document_id in document_ids]
     passages = search_passages(
-        query_vector, str(current_user.id), limit=TOP_K_PASSAGES, document_ids=scoped_ids or None
+        query_text, str(current_user.id), limit=TOP_K_PASSAGES, document_ids=scoped_ids or None
     )
 
     if not passages:
