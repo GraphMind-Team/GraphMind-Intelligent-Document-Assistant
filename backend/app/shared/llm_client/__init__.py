@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 import httpx
 
 from app.shared.data_access.shapes import WeaviateSearchResult
+from app.shared.env import env_str
 
 logger = logging.getLogger(__name__)
 
@@ -383,13 +384,13 @@ def _call_openrouter(text: str) -> str:
     `extract_entities_and_relationships`'s retry loop can treat "the
     network failed" and "the response body was garbage" uniformly via the
     same `_RetryableExtractionError`."""
-    api_key = os.environ.get("OPENROUTER_API_KEY")
+    api_key = env_str("OPENROUTER_API_KEY")
     if not api_key:
         raise RuntimeError(
             "Missing required environment variable: OPENROUTER_API_KEY. "
             "See backend/.env.example."
         )
-    model = os.environ.get("OPENROUTER_MODEL", DEFAULT_MODEL)
+    model = env_str("OPENROUTER_MODEL", DEFAULT_MODEL)
 
     try:
         response = httpx.post(
@@ -841,7 +842,7 @@ def _call_openrouter_for_chat(system_prompt: str, question: str) -> str:
     the raw message content -- not parsed here, mirrors `_call_openrouter`'s
     split so the retry loop can treat "the network failed" and "the
     response body was garbage" uniformly via `_RetryableChatError`."""
-    api_key = os.environ.get("OPENROUTER_API_KEY")
+    api_key = env_str("OPENROUTER_API_KEY")
     if not api_key:
         raise RuntimeError(
             "Missing required environment variable: OPENROUTER_API_KEY. "
@@ -850,7 +851,7 @@ def _call_openrouter_for_chat(system_prompt: str, question: str) -> str:
     # Independent of OPENROUTER_MODEL (extraction's own override, above) --
     # lets a faster model be swapped in for chat generation later purely via
     # configuration, without touching extraction's separately-tuned choice.
-    model = os.environ.get("OPENROUTER_CHAT_MODEL", DEFAULT_MODEL)
+    model = env_str("OPENROUTER_CHAT_MODEL", DEFAULT_MODEL)
 
     try:
         response = httpx.post(

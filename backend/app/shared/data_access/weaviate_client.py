@@ -28,6 +28,7 @@ from weaviate.classes.query import Filter, MetadataQuery
 from weaviate.client import WeaviateClient
 
 from app.shared.data_access.shapes import WeaviatePassage, WeaviateSearchResult
+from app.shared.env import env_str
 
 logger = logging.getLogger(__name__)
 
@@ -86,8 +87,8 @@ def get_weaviate_client() -> WeaviateClient:
     if _client_instance is None:
         with _client_lock:
             if _client_instance is None:  # re-check: lost the race, not the need
-                url = os.environ.get("WEAVIATE_URL")
-                api_key = os.environ.get("WEAVIATE_API_KEY")
+                url = env_str("WEAVIATE_URL")
+                api_key = env_str("WEAVIATE_API_KEY")
                 if not url or not api_key:
                     raise RuntimeError(
                         "Missing required environment variable(s): WEAVIATE_URL, "
