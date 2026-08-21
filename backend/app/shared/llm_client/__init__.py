@@ -541,7 +541,9 @@ _CHAT_SYSTEM_PROMPT_TEMPLATE = (
     "answer. Every segment's \"passage_numbers\" must list every passage (by "
     "its number below) that supports that segment's claim -- never leave "
     "this list empty for a claim-bearing segment. Use only information "
-    "present in the passages; do not invent facts. If the passages do not "
+    "present in the passages; do not invent facts. Write every \"text\" "
+    "value in the same language as the question below, regardless of what "
+    "language the passages themselves are written in. If the passages do not "
     'support any answer at all, respond with {{"segments": []}}.\n\n{history}{passages}'
 )
 
