@@ -1,29 +1,19 @@
 import { forwardRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import CitationChip from './CitationChip'
 import highlightMatches from './highlightMatches'
 
-const NOTICE_COPY = {
-  no_documents: 'No documents are available to search yet.',
-  // Story 3.3/FR-11: distinct from no_documents -- the library isn't
-  // empty, the documents currently in scope just have no matching
-  // content. DEFAULT_NOTICE_COPY below would otherwise cover this, but
-  // the user narrowed the scope themselves and deserves honest copy that
-  // says so, not the generic fallback.
-  empty_scope: 'No content found in the documents you selected.',
-  no_answer: 'GraphMind could not generate an answer for this question.',
+// Story 3.3/FR-11: `empty_scope` is distinct from `no_documents` -- the
+// library isn't empty, the documents currently in scope just have no
+// matching content. The default notice copy (translation key
+// `chat.message.defaultNotice`) below would otherwise cover this, but the
+// user narrowed the scope themselves and deserves honest copy that says
+// so, not the generic fallback.
+const NOTICE_KEYS = {
+  no_documents: 'chat.message.noDocuments',
+  empty_scope: 'chat.message.emptyScope',
+  no_answer: 'chat.message.noAnswer',
 }
-
-// Falls back rather than rendering `undefined` if the backend ever adds a
-// new empty_reason before this map is updated to match -- an outdated
-// frontend build should degrade to generic copy, not a blank notice bubble.
-// (Story 3.2's refusal is not such a case: it has its own `role: 'refusal'`
-// message, set in ChatPage.jsx, and never reaches this map.)
-const DEFAULT_NOTICE_COPY = 'GraphMind has nothing to show for this question.'
-
-// UX-DR19: plain, declarative, no apology/hedging/emoji. Fixed here rather
-// than sourced from the backend, matching NOTICE_COPY's convention of
-// keeping exact required wording in the frontend.
-const REFUSAL_COPY = 'No supporting evidence found in your documents for this question.'
 
 // One message bubble (Story 3.1, UX-DR5): user messages are right-aligned
 // with the primary fill and a sharp trailing corner; assistant messages are
@@ -56,6 +46,7 @@ const REFUSAL_COPY = 'No supporting evidence found in your documents for this qu
 // bubble -- every branch below attaches `ref` to its own root element for
 // that reason.
 const ChatMessage = forwardRef(function ChatMessage({ message, highlight = '', isActiveMatch = false }, ref) {
+  const { t } = useTranslation()
   const activeMatchClass = isActiveMatch ? ' outline outline-2 outline-accent outline-offset-2' : ''
 
   if (message.role === 'user') {
@@ -67,16 +58,17 @@ const ChatMessage = forwardRef(function ChatMessage({ message, highlight = '', i
         {/* Sighted users get the sender cue from alignment/fill/corner
             (UX-DR5) alone; a screen reader gets none of that, so without
             this prefix two turns read as one undifferentiated stream. */}
-        <span className="sr-only">You: </span>
+        <span className="sr-only">{t('chat.message.youPrefix')} </span>
         {highlightMatches(message.text, highlight)}
       </div>
     )
   }
 
   if (message.role === 'notice') {
+    const noticeKey = NOTICE_KEYS[message.reason]
     return (
       <p ref={ref} className="anim-rise mx-auto max-w-[78%] self-center text-center text-[13px] text-text2">
-        {NOTICE_COPY[message.reason] ?? DEFAULT_NOTICE_COPY}
+        {noticeKey ? t(noticeKey) : t('chat.message.defaultNotice')}
       </p>
     )
   }
@@ -100,8 +92,8 @@ const ChatMessage = forwardRef(function ChatMessage({ message, highlight = '', i
         ref={ref}
         className="anim-rise max-w-[78%] self-center rounded-2xl border border-warning/40 bg-refusal-bg px-4 py-3 text-center text-[14px] font-medium text-refusal-text"
       >
-        <span className="sr-only">Refusal: </span>
-        {REFUSAL_COPY}
+        <span className="sr-only">{t('chat.message.refusalPrefix')} </span>
+        {t('chat.message.refusal')}
       </div>
     )
   }
@@ -115,7 +107,7 @@ const ChatMessage = forwardRef(function ChatMessage({ message, highlight = '', i
         {/* Three staggered dots carry the "working" cue visually; the
             word stays in the DOM (sr-only) so the live region still
             announces something meaningful rather than nothing. */}
-        <span className="sr-only">Thinking…</span>
+        <span className="sr-only">{t('chat.message.thinking')}</span>
         <span aria-hidden="true" className="flex items-center gap-1">
           {[0, 1, 2].map((index) => (
             <span
@@ -125,7 +117,7 @@ const ChatMessage = forwardRef(function ChatMessage({ message, highlight = '', i
             />
           ))}
         </span>
-        <span aria-hidden="true">Thinking…</span>
+        <span aria-hidden="true">{t('chat.message.thinking')}</span>
       </div>
     )
   }
@@ -139,7 +131,7 @@ const ChatMessage = forwardRef(function ChatMessage({ message, highlight = '', i
       ref={ref}
       className={`anim-rise mr-auto max-w-[78%] self-start rounded-[20px_20px_20px_6px] border border-border bg-card-bg bg-[image:var(--grad-brand-soft)] px-4 py-3 text-[14px] leading-[1.6] text-text shadow-card${activeMatchClass}`}
     >
-      <span className="sr-only">GraphMind: </span>
+      <span className="sr-only">{t('chat.message.assistantPrefix')} </span>
       {message.segments.map((segment, index) => (
         <span key={index}>
           {highlightMatches(segment.text, highlight)}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 import { listDocuments } from '../api/documentsClient'
 import { listFolders } from '../api/foldersClient'
@@ -21,16 +22,16 @@ import UploadModal from '../components/UploadModal'
 // doesn't add one. Changing either control re-derives the rows from state
 // -- it never refetches.
 const SORT_OPTIONS = [
-  { value: 'recent', label: 'Sort: Most recent' },
-  { value: 'title', label: 'Sort: Title A–Z' },
-  { value: 'status', label: 'Sort: Status' },
+  { value: 'recent', key: 'recent' },
+  { value: 'title', key: 'title' },
+  { value: 'status', key: 'status' },
 ]
 
 const TYPE_FILTER_OPTIONS = [
-  { value: 'all', label: 'Filter: All types' },
-  { value: 'pdf', label: 'PDF' },
-  { value: 'markdown', label: 'Markdown' },
-  { value: 'html', label: 'HTML' },
+  { value: 'all', key: 'all' },
+  { value: 'pdf', key: 'pdf' },
+  { value: 'markdown', key: 'markdown' },
+  { value: 'html', key: 'html' },
 ]
 
 function byMostRecent(a, b) {
@@ -74,6 +75,7 @@ const POLL_INTERVAL_MS = 4000
 const MAX_POLL_ATTEMPTS = 45
 
 export default function DocumentsPage() {
+  const { t } = useTranslation()
   const { authFetch } = useAuth()
   const navigate = useNavigate()
   const [documents, setDocuments] = useState([])
@@ -305,8 +307,8 @@ export default function DocumentsPage() {
     <>
       <div className="mb-6 flex items-end justify-between gap-4">
         <div>
-          <p className="text-eyebrow uppercase text-accent">Your library</p>
-          <h1 className="text-page-title text-text">Documents</h1>
+          <p className="text-eyebrow uppercase text-accent">{t('documents.eyebrow')}</p>
+          <h1 className="text-page-title text-text">{t('documents.title')}</h1>
         </div>
         <button
           ref={uploadButtonRef}
@@ -314,7 +316,7 @@ export default function DocumentsPage() {
           onClick={handleOpenModal}
           className="btn-brand rounded-full px-5 py-2.5 text-sm font-semibold"
         >
-          Upload
+          {t('documents.upload')}
         </button>
       </div>
 
@@ -336,7 +338,7 @@ export default function DocumentsPage() {
           convention `DocumentDetailPage.jsx` already uses for its own
           in-page sub-sections ("Chapter breakdown", "Reason"), smaller
           than this page's own `h1` above. */}
-      <h2 className="mb-2 text-eyebrow uppercase text-text2">Folders</h2>
+      <h2 className="mb-2 text-eyebrow uppercase text-text2">{t('documents.foldersHeading')}</h2>
       <FolderGrid
         folders={folders}
         documents={documents}
@@ -356,7 +358,7 @@ export default function DocumentsPage() {
           rather than duplicating that prefix on screen. */}
       <div className="mb-4 flex flex-wrap items-center gap-2.5">
         <label className="sr-only" htmlFor="documents-sort">
-          Sort documents
+          {t('documents.sort.label')}
         </label>
         <select
           id="documents-sort"
@@ -366,13 +368,13 @@ export default function DocumentsPage() {
         >
           {SORT_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
-              {option.label}
+              {t(`documents.sort.${option.key}`)}
             </option>
           ))}
         </select>
 
         <label className="sr-only" htmlFor="documents-type-filter">
-          Filter documents by type
+          {t('documents.filter.label')}
         </label>
         <select
           id="documents-type-filter"
@@ -382,7 +384,7 @@ export default function DocumentsPage() {
         >
           {TYPE_FILTER_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
-              {option.label}
+              {t(`documents.filter.${option.key}`)}
             </option>
           ))}
         </select>
@@ -394,11 +396,11 @@ export default function DocumentsPage() {
         </p>
       )}
 
-      {!error && isLoading && <p className="text-sm text-text2">Loading documents...</p>}
+      {!error && isLoading && <p className="text-sm text-text2">{t('documents.loading')}</p>}
 
-      {showEmptyLibrary && <p className="text-sm text-text2">No documents yet.</p>}
+      {showEmptyLibrary && <p className="text-sm text-text2">{t('documents.emptyLibrary')}</p>}
 
-      {showFilteredEmpty && <p className="text-sm text-text2">No documents match this filter.</p>}
+      {showFilteredEmpty && <p className="text-sm text-text2">{t('documents.emptyFiltered')}</p>}
 
       {/* Card grid rather than the mockup's `.doclist` table -- a
           human-requested design change, recorded in the spec's Change Log.
@@ -410,7 +412,7 @@ export default function DocumentsPage() {
           boxes -- screen readers announce the count. */}
       {showGrid && (
         <ul
-          aria-label="Documents"
+          aria-label={t('documents.title')}
           className="grid list-none grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-4 p-0"
         >
           {visibleDocuments.map((doc) => (

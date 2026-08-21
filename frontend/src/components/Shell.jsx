@@ -1,4 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 
 // Authenticated shell: fixed-width sidebar + fluid content, per UX-DR1.
@@ -42,7 +43,7 @@ function Icon({ children }) {
 const NAV_ITEMS = [
   {
     to: '/settings',
-    label: 'User Settings',
+    labelKey: 'nav.settings',
     icon: (
       <>
         <circle cx="12" cy="12" r="3.2" />
@@ -52,7 +53,7 @@ const NAV_ITEMS = [
   },
   {
     to: '/documents',
-    label: 'Documents',
+    labelKey: 'nav.documents',
     icon: (
       <>
         <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" />
@@ -63,7 +64,7 @@ const NAV_ITEMS = [
   },
   {
     to: '/chat',
-    label: 'Chat',
+    labelKey: 'nav.chat',
     icon: (
       <>
         <path d="M20 14a3 3 0 0 1-3 3H8l-4 3V7a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3Z" />
@@ -73,7 +74,7 @@ const NAV_ITEMS = [
   },
   {
     to: '/graph',
-    label: 'Graph Preview',
+    labelKey: 'nav.graph',
     icon: (
       <>
         <circle cx="6" cy="7" r="2.4" />
@@ -100,6 +101,7 @@ const NAV_LINK_CLASS = ({ isActive }) =>
 export default function Shell() {
   const { logout } = useAuth()
   const navigate = useNavigate()
+  const { t } = useTranslation()
 
   function handleExit() {
     logout()
@@ -141,7 +143,7 @@ export default function Shell() {
                       ].join(' ')}
                     />
                     <Icon>{item.icon}</Icon>
-                    <span className="max-[900px]:sr-only">{item.label}</span>
+                    <span className="max-[900px]:sr-only">{t(item.labelKey)}</span>
                   </>
                 )}
               </NavLink>
@@ -161,7 +163,7 @@ export default function Shell() {
             <path d="M20 12H9" />
             <path d="M12 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6" />
           </Icon>
-          <span className="max-[900px]:sr-only">Exit</span>
+          <span className="max-[900px]:sr-only">{t('nav.exit')}</span>
         </button>
       </nav>
 

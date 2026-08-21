@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 import { RobotFigure } from '../components/chat/RobotMascot'
 
@@ -41,8 +42,7 @@ function FeatureIcon({ children }) {
 
 const FEATURES = [
   {
-    title: 'Upload anything',
-    body: 'Drop in PDFs, docs and notes. GraphMind extracts the text, chapter by chapter, and tracks every file through ingestion.',
+    key: 'upload',
     icon: (
       <>
         <path d="M12 16V4" />
@@ -52,8 +52,7 @@ const FEATURES = [
     ),
   },
   {
-    title: 'Answers with receipts',
-    body: 'Every answer is grounded in your own documents and carries citation chips back to the exact chapter it came from. No evidence, no answer.',
+    key: 'answers',
     icon: (
       <>
         <path d="M20 14a3 3 0 0 1-3 3H8l-4 3V7a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3Z" />
@@ -62,8 +61,7 @@ const FEATURES = [
     ),
   },
   {
-    title: 'See the connections',
-    body: 'People, organizations, projects, products and places are pulled out into a live knowledge graph you can explore — or read as a list.',
+    key: 'connections',
     icon: (
       <>
         <circle cx="6" cy="7" r="2.4" />
@@ -76,12 +74,13 @@ const FEATURES = [
 ]
 
 const STEPS = [
-  { n: '01', title: 'Add your documents', body: 'Upload one file or a whole folder. Watch each one move from Uploaded to Ready.' },
-  { n: '02', title: 'Ask in plain language', body: 'Narrow the scope to the documents you care about, then just ask.' },
-  { n: '03', title: 'Follow the evidence', body: 'Open any citation to land on the source, or jump to the graph to see how it all connects.' },
+  { n: '01', key: 'add' },
+  { n: '02', key: 'ask' },
+  { n: '03', key: 'follow' },
 ]
 
 export default function LandingPage() {
+  const { t } = useTranslation()
   const { isAuthenticated } = useAuth()
 
   return (
@@ -104,7 +103,7 @@ export default function LandingPage() {
                 to="/documents"
                 className="btn-brand rounded-full px-5 py-2.5 text-[13px] font-semibold"
               >
-                Open workspace
+                {t('landing.openWorkspace')}
               </Link>
             ) : (
               <>
@@ -112,13 +111,13 @@ export default function LandingPage() {
                   to="/login"
                   className="rounded-full px-4 py-2.5 text-[13px] font-semibold text-text2 hover:text-primary"
                 >
-                  Log in
+                  {t('landing.logIn')}
                 </Link>
                 <Link
                   to="/register"
                   className="btn-brand rounded-full px-5 py-2.5 text-[13px] font-semibold"
                 >
-                  Get started
+                  {t('landing.getStarted')}
                 </Link>
               </>
             )}
@@ -130,18 +129,16 @@ export default function LandingPage() {
         {/* ---- Hero ---- */}
         <section className="mx-auto grid max-w-6xl items-center gap-10 px-6 py-16 sm:py-24 min-[900px]:grid-cols-[1.15fr_1fr]">
           <div className="anim-rise">
-            <p className="text-eyebrow uppercase text-accent">Grounded document intelligence</p>
+            <p className="text-eyebrow uppercase text-accent">{t('landing.eyebrow')}</p>
             <h1 className="mt-3 font-display text-[clamp(34px,5vw,54px)] leading-[1.05] font-bold text-text">
-              Your documents,
+              {t('landing.heroTitleLine1')}
               <br />
               <span className="bg-[image:var(--grad-brand)] bg-clip-text text-transparent">
-                finally answering back.
+                {t('landing.heroTitleLine2')}
               </span>
             </h1>
             <p className="mt-5 max-w-[52ch] text-[16px] leading-relaxed text-text2">
-              GraphMind reads everything you upload, maps who and what is connected to what, and
-              answers your questions using only what your own documents actually say — with a
-              citation on every claim.
+              {t('landing.heroBody')}
             </p>
 
             <div className="mt-8 flex flex-wrap items-center gap-3">
@@ -149,20 +146,20 @@ export default function LandingPage() {
                 to={isAuthenticated ? '/documents' : '/register'}
                 className="btn-brand rounded-full px-7 py-3.5 text-[14px] font-semibold"
               >
-                {isAuthenticated ? 'Open workspace' : 'Create your account'}
+                {isAuthenticated ? t('landing.openWorkspace') : t('landing.createAccount')}
               </Link>
               {!isAuthenticated && (
                 <Link
                   to="/login"
                   className="btn-ghost rounded-full px-7 py-3.5 text-[14px] font-semibold"
                 >
-                  I already have one
+                  {t('landing.alreadyHaveOne')}
                 </Link>
               )}
             </div>
 
             <p className="mt-5 text-[13px] text-text2">
-              No answer without evidence — if your documents don't support it, GraphMind says so.
+              {t('landing.noAnswerWithoutEvidence')}
             </p>
           </div>
 
@@ -175,12 +172,12 @@ export default function LandingPage() {
                 <RobotFigure state="thinking" className="mt-[28px] w-[72px] shrink-0" />
                 <div className="min-w-0 flex-1 space-y-3">
                   <p className="ml-auto w-fit max-w-full rounded-[20px_20px_6px_20px] bg-[image:var(--grad-brand)] px-4 py-2.5 text-[13.5px] text-white shadow-[var(--glow)]">
-                    Who owns the migration project?
+                    {t('landing.heroSampleQuestion')}
                   </p>
                   <p className="rounded-[20px_20px_20px_6px] border border-border bg-surface px-4 py-3 text-[13.5px] leading-relaxed text-text">
-                    Priya Raman leads it, with Platform Engineering as the owning team.
+                    {t('landing.heroSampleAnswer')}
                     <span className="ml-1.5 inline-block rounded-full bg-citation px-2 py-[3px] text-[11px] font-bold text-citation-text">
-                      Q3-plan.pdf · Ch. 2
+                      {t('landing.heroSampleCitation')}
                     </span>
                   </p>
                 </div>
@@ -191,16 +188,16 @@ export default function LandingPage() {
 
         {/* ---- Features ---- */}
         <section className="mx-auto max-w-6xl px-6 py-10">
-          <h2 className="font-display text-section-title text-text">What you get</h2>
+          <h2 className="font-display text-section-title text-text">{t('landing.whatYouGet')}</h2>
           <ul className="mt-8 grid gap-5 min-[700px]:grid-cols-3">
             {FEATURES.map((feature) => (
               <li
-                key={feature.title}
+                key={feature.key}
                 className="card-lift rounded-2xl border border-border bg-card-bg p-6 shadow-card"
               >
                 <FeatureIcon>{feature.icon}</FeatureIcon>
-                <h3 className="font-display text-[17px] font-bold text-text">{feature.title}</h3>
-                <p className="mt-2 text-[14px] leading-relaxed text-text2">{feature.body}</p>
+                <h3 className="font-display text-[17px] font-bold text-text">{t(`landing.features.${feature.key}.title`)}</h3>
+                <p className="mt-2 text-[14px] leading-relaxed text-text2">{t(`landing.features.${feature.key}.body`)}</p>
               </li>
             ))}
           </ul>
@@ -208,7 +205,7 @@ export default function LandingPage() {
 
         {/* ---- How it works ---- */}
         <section className="mx-auto max-w-6xl px-6 py-14">
-          <h2 className="font-display text-section-title text-text">How it works</h2>
+          <h2 className="font-display text-section-title text-text">{t('landing.howItWorks')}</h2>
           <ol className="mt-8 grid gap-5 min-[700px]:grid-cols-3">
             {STEPS.map((step) => (
               <li key={step.n} className="rounded-2xl border border-border bg-surface2 p-6">
@@ -218,8 +215,8 @@ export default function LandingPage() {
                 >
                   {step.n}
                 </span>
-                <h3 className="mt-2 font-display text-[16px] font-bold text-text">{step.title}</h3>
-                <p className="mt-2 text-[14px] leading-relaxed text-text2">{step.body}</p>
+                <h3 className="mt-2 font-display text-[16px] font-bold text-text">{t(`landing.steps.${step.key}.title`)}</h3>
+                <p className="mt-2 text-[14px] leading-relaxed text-text2">{t(`landing.steps.${step.key}.body`)}</p>
               </li>
             ))}
           </ol>
@@ -229,16 +226,16 @@ export default function LandingPage() {
         <section className="mx-auto max-w-6xl px-6 pb-20">
           <div className="relative overflow-hidden rounded-2xl bg-[image:var(--grad-brand)] px-8 py-14 text-center shadow-modal">
             <h2 className="font-display text-[clamp(24px,3.2vw,34px)] font-bold text-white">
-              Start asking your documents questions.
+              {t('landing.closingTitle')}
             </h2>
             <p className="mx-auto mt-3 max-w-[54ch] text-[15px] text-white/85">
-              Free to set up. Your library, your answers, your evidence.
+              {t('landing.closingBody')}
             </p>
             <Link
               to={isAuthenticated ? '/documents' : '/register'}
               className="mt-7 inline-block rounded-full bg-white px-7 py-3.5 text-[14px] font-bold text-primary shadow-card"
             >
-              {isAuthenticated ? 'Open workspace' : 'Get started free'}
+              {isAuthenticated ? t('landing.openWorkspace') : t('landing.getStartedFree')}
             </Link>
           </div>
         </section>
@@ -246,13 +243,13 @@ export default function LandingPage() {
 
       <footer className="border-t border-border px-6 py-8">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 text-[13px] text-text2">
-          <span>© {new Date().getFullYear()} GraphMind</span>
+          <span>{t('landing.footerCopyright', { year: new Date().getFullYear() })}</span>
           <span className="flex gap-4">
             <Link to="/login" className="hover:text-primary">
-              Log in
+              {t('landing.logIn')}
             </Link>
             <Link to="/register" className="hover:text-primary">
-              Create account
+              {t('landing.createAccountLink')}
             </Link>
           </span>
         </div>

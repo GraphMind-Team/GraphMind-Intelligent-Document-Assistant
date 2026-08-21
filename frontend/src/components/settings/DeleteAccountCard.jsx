@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '../../context/AuthContext'
 import { deleteAccount } from '../../api/settingsClient'
 
@@ -9,10 +10,8 @@ import { deleteAccount } from '../../api/settingsClient'
 // (no modal), focus moving to Cancel on open, Escape and Cancel both
 // closing it without interrupting an in-flight delete, and a failed
 // request re-enabling the box for retry (Boundaries).
-const DELETE_ACCOUNT_BOUNDARY_TEXT =
-  'Permanently deletes your account, every document you uploaded, and everything extracted from them. This cannot be undone.'
-
 export default function DeleteAccountCard() {
+  const { t } = useTranslation()
   const { authFetch, logout } = useAuth()
   const navigate = useNavigate()
 
@@ -96,9 +95,9 @@ export default function DeleteAccountCard() {
 
   return (
     <div className="rounded-lg border border-danger/30 bg-danger/5 p-[22px]">
-      <h2 className="text-base font-bold text-text">Delete Account</h2>
+      <h2 className="text-base font-bold text-text">{t('settings.deleteAccount.title')}</h2>
       <p className="mt-2 text-sm text-text">
-        Permanently delete your account and all associated documents. This action cannot be undone.
+        {t('settings.deleteAccount.description')}
       </p>
 
       {/* Stays mounted whether resting or confirming -- like
@@ -112,7 +111,7 @@ export default function DeleteAccountCard() {
         onClick={openConfirm}
         className={`mt-4 self-start rounded-md border border-border bg-card-bg px-3 py-1.5 text-sm text-danger ${isConfirming ? 'hidden' : ''}`}
       >
-        Delete Account
+        {t('settings.deleteAccount.button')}
       </button>
 
       {isConfirming && (
@@ -124,7 +123,7 @@ export default function DeleteAccountCard() {
           className="mt-4 flex flex-col gap-2 rounded-md border border-danger/30 bg-card-bg p-2.5"
         >
           <p id={boundaryTextId} className="text-xs text-text">
-            {DELETE_ACCOUNT_BOUNDARY_TEXT}
+            {t('settings.deleteAccount.boundaryText')}
           </p>
           {error && (
             <p role="alert" className="text-xs text-danger">
@@ -140,7 +139,7 @@ export default function DeleteAccountCard() {
               disabled={isDeleting}
               className="rounded-md border border-border bg-card-bg px-2.5 py-1 text-xs font-semibold text-primary"
             >
-              Cancel
+              {t('settings.deleteAccount.cancel')}
             </button>
             <button
               type="button"
@@ -149,7 +148,7 @@ export default function DeleteAccountCard() {
               onClick={handleConfirmDelete}
               className="rounded-md border border-border bg-card-bg px-2.5 py-1 text-xs font-semibold text-danger"
             >
-              {isDeleting ? 'Deleting…' : 'Delete My Account'}
+              {isDeleting ? t('settings.deleteAccount.deleting') : t('settings.deleteAccount.confirm')}
             </button>
           </div>
         </div>

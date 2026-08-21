@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { resendVerification, verifyEmail } from '../api/authClient'
 
 // Email verification landing page (Story 1.6). Reached only by clicking
@@ -8,6 +9,7 @@ import { resendVerification, verifyEmail } from '../api/authClient'
 // is logged out by definition and shouldn't be bounced by either guard.
 // Mirrors RegisterPage.jsx/LoginPage.jsx's `.auth-wrap` card layout.
 export default function VerifyEmailPage() {
+  const { t } = useTranslation()
   const [searchParams] = useSearchParams()
   const token = searchParams.get('token')
 
@@ -52,7 +54,7 @@ export default function VerifyEmailPage() {
   return (
     <main className="app-aurora flex min-h-screen items-center justify-center p-8">
       <div className="anim-rise w-full max-w-[420px] rounded-2xl border border-border bg-card-bg p-9 shadow-modal">
-        <Link to="/" aria-label="GraphMind home" className="mb-4 inline-flex items-center gap-2.5">
+        <Link to="/" aria-label={t('auth.brandHome')} className="mb-4 inline-flex items-center gap-2.5">
           <span
             aria-hidden="true"
             className="relative block h-11 w-11 rounded-[15px] bg-[image:var(--grad-brand)] shadow-[var(--glow)] after:absolute after:inset-[11px] after:rounded-full after:border-2 after:border-white after:content-['']"
@@ -62,44 +64,44 @@ export default function VerifyEmailPage() {
 
         {status === 'missing-token' && (
           <>
-            <h1 className="mb-1 text-auth-title text-text">Verification link missing</h1>
+            <h1 className="mb-1 text-auth-title text-text">{t('auth.verifyEmail.missingTokenTitle')}</h1>
             <p className="text-sm text-text2">
-              This page needs a verification link -- open the one from your email, or{' '}
-              <Link to="/login" className="font-semibold text-link">log in</Link> to request a new one.
+              {t('auth.verifyEmail.missingTokenBodyPrefix')}{' '}
+              <Link to="/login" className="font-semibold text-link">{t('auth.verifyEmail.loginLinkText')}</Link> {t('auth.verifyEmail.missingTokenBodySuffix')}
             </p>
           </>
         )}
 
         {status === 'verifying' && (
           <>
-            <h1 className="mb-1 text-auth-title text-text">Verifying your email...</h1>
-            <p className="text-sm text-text2">One moment.</p>
+            <h1 className="mb-1 text-auth-title text-text">{t('auth.verifyEmail.verifyingTitle')}</h1>
+            <p className="text-sm text-text2">{t('auth.verifyEmail.verifyingBody')}</p>
           </>
         )}
 
         {status === 'verified' && (
           <>
-            <h1 className="mb-1 text-auth-title text-text">Email verified</h1>
-            <p className="mb-6 text-sm text-text2">Your account is ready. You can log in now.</p>
+            <h1 className="mb-1 text-auth-title text-text">{t('auth.verifyEmail.verifiedTitle')}</h1>
+            <p className="mb-6 text-sm text-text2">{t('auth.verifyEmail.verifiedBody')}</p>
             <Link to="/login" className="btn-brand block w-full rounded-full px-5 py-3 text-center text-sm font-semibold">
-              Log In
+              {t('auth.verifyEmail.verifiedButton')}
             </Link>
           </>
         )}
 
         {status === 'failed' && (
           <>
-            <h1 className="mb-1 text-auth-title text-text">Verification failed</h1>
+            <h1 className="mb-1 text-auth-title text-text">{t('auth.verifyEmail.failedTitle')}</h1>
             <p role="alert" className="mb-6 text-sm text-danger">{error}</p>
 
             {resendState === 'sent' ? (
               <p className="text-sm text-text">
-                If that account exists and isn't verified yet, we've sent a new link.
+                {t('auth.verifyEmail.resendSent')}
               </p>
             ) : (
               <form onSubmit={handleResend} className="flex flex-col">
                 <label htmlFor="verify-resend-email" className="mb-1.5 block text-sm font-semibold text-text2">
-                  Send me a new link
+                  {t('auth.verifyEmail.resendLabel')}
                 </label>
                 <input
                   id="verify-resend-email"
@@ -115,7 +117,7 @@ export default function VerifyEmailPage() {
                   disabled={resendState === 'sending'}
                   className="btn-brand w-full rounded-full px-5 py-3 text-sm font-semibold disabled:opacity-60"
                 >
-                  Resend verification email
+                  {t('auth.verifyEmail.resendButton')}
                 </button>
               </form>
             )}
@@ -123,7 +125,7 @@ export default function VerifyEmailPage() {
         )}
 
         <p className="mt-3 text-center text-sm text-text2">
-          <Link to="/login" className="font-semibold text-link">Back to log in</Link>
+          <Link to="/login" className="font-semibold text-link">{t('auth.verifyEmail.backToLogin')}</Link>
         </p>
       </div>
     </main>

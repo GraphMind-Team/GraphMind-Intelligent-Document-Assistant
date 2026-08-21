@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next'
+
 // Shared ingestion-status pill (Story 2.2).
 //
 // Extracted rather than inlined in the Documents table because Epic 3's
@@ -34,6 +36,7 @@ export const DOCUMENT_STATUSES = Object.keys(STATUS_CLASSES)
 const UNKNOWN_STATUS_CLASSES = 'bg-surface text-text2'
 
 export default function StatusPill({ status }) {
+  const { t } = useTranslation()
   if (!status) return null
 
   return (
@@ -43,7 +46,7 @@ export default function StatusPill({ status }) {
         STATUS_CLASSES[status] ?? UNKNOWN_STATUS_CLASSES,
       ].join(' ')}
     >
-      {status}
+      {t(`documents.status.${status}`, { defaultValue: status })}
     </span>
   )
 }

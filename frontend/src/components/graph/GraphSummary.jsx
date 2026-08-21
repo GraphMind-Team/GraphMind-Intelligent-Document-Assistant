@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { badgeFor, paletteFor, relationshipLabelFor, typeColorFor } from './graphTheme'
 
 // The accessible equivalent Story 4.1 (AC7/UX-DR28) requires: the canvas
@@ -44,6 +45,7 @@ import { badgeFor, paletteFor, relationshipLabelFor, typeColorFor } from './grap
 // only caller) already resolves it once from `ThemeContext` and passes it
 // down, the same way it passes `nodes`/`edges`.
 export default function GraphSummary({ nodes, edges, theme }) {
+  const { t } = useTranslation()
   const palette = paletteFor(theme)
   const [query, setQuery] = useState('')
   const [activeType, setActiveType] = useState(null)
@@ -108,9 +110,11 @@ export default function GraphSummary({ nodes, edges, theme }) {
   return (
     <div className="mt-5 text-sm">
       <p style={{ color: palette.ink2 }}>
-        Read-only — hover, click and drag are disabled; the canvas can be zoomed and panned.{' '}
-        {nodes.length} {nodes.length === 1 ? 'entity' : 'entities'}, {edges.length}{' '}
-        {edges.length === 1 ? 'relationship' : 'relationships'} shown.
+        {t('graph.summary.readOnlyNote')}{' '}
+        {t('graph.summary.countsLine', {
+          entities: t('graph.summary.entityCount', { count: nodes.length }),
+          relationships: t('graph.summary.relationshipCount', { count: edges.length }),
+        })}
       </p>
 
       <details className="mt-3 group" open>
@@ -125,20 +129,20 @@ export default function GraphSummary({ nodes, edges, theme }) {
           <span aria-hidden="true" className="transition-transform group-open:rotate-90">
             ▸
           </span>
-          View as list
+          {t('graph.summary.viewAsList')}
         </summary>
 
         {/* ---- Filter bar ---- */}
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <label htmlFor="graph-entity-search" className="sr-only">
-            Search entities and relationships
+            {t('graph.summary.searchLabel')}
           </label>
           <input
             id="graph-entity-search"
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search entities…"
+            placeholder={t('graph.summary.searchPlaceholder')}
             className="min-w-0 flex-1 rounded-full px-4 py-2 text-[13px] sm:max-w-[280px] sm:flex-none"
             style={{
               backgroundColor: palette.cardBg,
@@ -168,7 +172,7 @@ export default function GraphSummary({ nodes, edges, theme }) {
                     : { ...chipStyle, color: palette.ink }
                 }
               >
-                {type} · {typeNodes.length}
+                {t('graph.summary.typeChip', { type, count: typeNodes.length })}
               </button>
             )
           })}
@@ -183,14 +187,14 @@ export default function GraphSummary({ nodes, edges, theme }) {
               className="rounded-full px-3 py-1.5 text-[12px] font-semibold underline"
               style={{ color: palette.accentText }}
             >
-              Clear
+              {t('graph.summary.clear')}
             </button>
           )}
         </div>
 
         {hasNoMatches && (
           <p className="mt-4" style={{ color: palette.ink }}>
-            Nothing matches that search.
+            {t('graph.summary.noMatches')}
           </p>
         )}
 
@@ -260,7 +264,7 @@ export default function GraphSummary({ nodes, edges, theme }) {
               <span aria-hidden="true" className="transition-transform group-open/rel:rotate-90">
                 ▸
               </span>
-              Relationships
+              {t('graph.summary.relationships')}
               {/* The count stays on the closed summary on purpose: a
                   collapsed section must still tell you there is
                   something in it, and how much. */}

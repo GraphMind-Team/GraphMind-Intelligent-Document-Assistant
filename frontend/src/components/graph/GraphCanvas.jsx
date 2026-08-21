@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import ForceGraphKapsule from 'force-graph'
 import fromKapsule from 'react-kapsule'
 // force-graph's own simulation library (already its dependency; listed
@@ -299,6 +300,7 @@ function useContainerWidth(ref) {
 // empty-state message instead of this component when there are no
 // entities at all.
 export default function GraphCanvas({ graph }) {
+  const { t } = useTranslation()
   const { theme } = useTheme()
   const containerRef = useRef(null)
   const graphRef = useRef(null)
@@ -707,7 +709,7 @@ export default function GraphCanvas({ graph }) {
           // (AC7/UX-DR28). The label stays generic on purpose -- the
           // counts live in GraphSummary's own text, where they can be
           // read rather than crammed into one announcement.
-          aria-label="Knowledge graph visualization"
+          aria-label={t('graph.canvas.ariaLabel')}
           // `graph-motif` (index.css) paints the dot-grid + vignette
           // behind the graph; `ForceGraph2D`'s own `backgroundColor`
           // below is transparent specifically so it shows through.
@@ -774,16 +776,16 @@ export default function GraphCanvas({ graph }) {
         >
           <ToolbarButton onClick={() => stepZoom(1 / ZOOM_STEP)}>
             <span aria-hidden="true">−</span>
-            <span className="sr-only">Zoom out</span>
+            <span className="sr-only">{t('graph.canvas.zoomOut')}</span>
           </ToolbarButton>
           <ToolbarDivider />
           <ToolbarButton onClick={() => stepZoom(ZOOM_STEP)}>
             <span aria-hidden="true">+</span>
-            <span className="sr-only">Zoom in</span>
+            <span className="sr-only">{t('graph.canvas.zoomIn')}</span>
           </ToolbarButton>
           <ToolbarDivider />
           <ToolbarButton onClick={resetView} color={palette.accentText}>
-            Fit
+            {t('graph.canvas.fit')}
           </ToolbarButton>
         </div>
       </div>
@@ -795,7 +797,7 @@ export default function GraphCanvas({ graph }) {
           as a row of the same chips used everywhere else in this
           feature. */}
       <ul
-        aria-label="Entity type key"
+        aria-label={t('graph.canvas.entityTypeKey')}
         className="mt-3 flex list-none flex-wrap items-center gap-2 text-sm"
         style={{ color: palette.ink }}
       >

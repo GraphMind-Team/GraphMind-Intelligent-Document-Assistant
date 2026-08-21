@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '../../context/AuthContext'
 import { updateProfile } from '../../api/settingsClient'
 
@@ -9,6 +10,7 @@ import { updateProfile } from '../../api/settingsClient'
 // (nothing else on screen reads full_name), so this only needs local
 // saving/error/status state.
 export default function ProfileCard() {
+  const { t } = useTranslation()
   const { authFetch } = useAuth()
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
@@ -45,7 +47,7 @@ export default function ProfileCard() {
       })
       .catch((err) => {
         if (cancelled) return
-        setError(err.message || 'Failed to load profile.')
+        setError(err.message || t('settings.profile.loadError'))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -75,10 +77,10 @@ export default function ProfileCard() {
 
   return (
     <div className="rounded-lg border border-border bg-card-bg p-[22px]">
-      <h2 className="text-base font-bold text-text">Profile</h2>
+      <h2 className="text-base font-bold text-text">{t('settings.profile.title')}</h2>
       <form className="mt-4 flex flex-col gap-3" onSubmit={handleSubmit}>
         <label className="flex flex-col gap-1 text-sm text-text">
-          Full name
+          {t('settings.profile.fullName')}
           <input
             type="text"
             value={fullName}
@@ -88,7 +90,7 @@ export default function ProfileCard() {
           />
         </label>
         <label className="flex flex-col gap-1 text-sm text-text">
-          Email
+          {t('settings.profile.email')}
           {/* Read-only per the resolved email-editability question -- only
               full_name is editable in this story. */}
           <input
@@ -104,14 +106,14 @@ export default function ProfileCard() {
           disabled={loading || saving || fullName.trim() === ''}
           className="self-start rounded-md border border-border px-3 py-1.5 text-sm text-text transition-colors hover:border-primary hover:bg-primary/10 hover:text-primary disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-transparent disabled:hover:text-text"
         >
-          {saving ? 'Saving...' : 'Save'}
+          {saving ? t('settings.profile.saving') : t('settings.profile.save')}
         </button>
       </form>
       <p className="sr-only" aria-live="polite">
-        {status === 'saving' ? 'Saving profile...' : status === 'saved' ? 'Profile saved.' : ''}
+        {status === 'saving' ? t('settings.profile.savingStatus') : status === 'saved' ? t('settings.profile.savedStatus') : ''}
       </p>
       {status === 'saved' && (
-        <p className="mt-3 text-sm text-success">Saved!</p>
+        <p className="mt-3 text-sm text-success">{t('settings.profile.saved')}</p>
       )}
       {error && (
         <p role="alert" className="mt-3 text-sm text-danger">

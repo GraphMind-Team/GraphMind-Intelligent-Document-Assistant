@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 import { deleteDocument, getDocument } from '../api/documentsClient'
 import PreviewModal from '../components/PreviewModal'
@@ -39,9 +40,6 @@ import {
 // failure reason rendered directly below it. `Failed` therefore gets its
 // own terminal wording; every other non-Ready status keeps "Pending"
 // exactly as before.
-const PENDING = 'Pending'
-const UNAVAILABLE = 'Unavailable'
-
 function MetaItem({ label, value }) {
   return (
     <div className="rounded-md border border-border bg-surface px-3 py-2.5">
@@ -52,6 +50,7 @@ function MetaItem({ label, value }) {
 }
 
 export default function DocumentDetailPage() {
+  const { t } = useTranslation()
   const { documentId } = useParams()
   const { authFetch } = useAuth()
   const navigate = useNavigate()
@@ -132,10 +131,10 @@ export default function DocumentDetailPage() {
   return (
     <div className="mx-auto max-w-[640px]">
       <Link to="/documents" className="mb-4 inline-block text-sm text-link hover:underline">
-        Back to documents
+        {t('documentDetail.backToDocuments')}
       </Link>
 
-      {isLoading && <p className="text-sm text-text2">Loading document...</p>}
+      {isLoading && <p className="text-sm text-text2">{t('documentDetail.loading')}</p>}
 
       {/* A document that belongs to another account returns the same 404
           -- and therefore the same message -- as one that doesn't exist.
@@ -161,7 +160,7 @@ export default function DocumentDetailPage() {
           ? chapterEntries.reduce((total, [, count]) => total + count, 0)
           : null
         // Terminal for `Failed`, still-coming for anything else non-Ready.
-        const notReadyLabel = isFailed ? UNAVAILABLE : PENDING
+        const notReadyLabel = isFailed ? t('documentDetail.unavailable') : t('documentDetail.pending')
 
         return (
           <div className="rounded-xl border border-border bg-card-bg p-[26px]">
@@ -178,7 +177,7 @@ export default function DocumentDetailPage() {
                     onClick={() => setIsPreviewOpen(true)}
                     className="rounded-md border border-border bg-surface2 px-3 py-1.5 text-xs font-semibold text-primary"
                   >
-                    Preview
+                    {t('documentDetail.preview')}
                   </button>
                 )}
                 {/* Story 2.7: Document Detail's own entry point to the same
@@ -193,7 +192,7 @@ export default function DocumentDetailPage() {
                   onClick={openDeleteConfirm}
                   className="rounded-md border border-border bg-surface2 px-3 py-1.5 text-xs font-semibold text-danger"
                 >
-                  Delete
+                  {t('common.delete')}
                 </button>
               </div>
             </div>
@@ -213,7 +212,7 @@ export default function DocumentDetailPage() {
                 className="mt-3 mb-3 flex flex-col gap-2 rounded-md border border-danger/30 bg-danger/5 p-3"
               >
                 <p id={deleteBoundaryTextId} className="text-sm text-text">
-                  Delete {doc.filename}? {DELETE_BOUNDARY_TEXT}
+                  {t('documentDetail.deleteConfirmPrefix', { filename: doc.filename })} {DELETE_BOUNDARY_TEXT}
                 </p>
                 {deleteError && (
                   <p role="alert" className="text-sm text-danger">
@@ -229,7 +228,7 @@ export default function DocumentDetailPage() {
                     disabled={isDeleting}
                     className="rounded-md border border-border bg-card-bg px-3 py-1.5 text-xs font-semibold text-primary"
                   >
-                    Cancel
+                    {t('common.cancel')}
                   </button>
                   <button
                     type="button"
@@ -238,21 +237,21 @@ export default function DocumentDetailPage() {
                     disabled={isDeleting}
                     className="rounded-md border border-border bg-card-bg px-3 py-1.5 text-xs font-semibold text-danger"
                   >
-                    {isDeleting ? 'Deleting…' : 'Delete'}
+                    {isDeleting ? t('documentDetail.deleting') : t('common.delete')}
                   </button>
                 </div>
               </div>
             )}
 
             <p className="mt-0.5 flex flex-wrap items-center gap-2 text-[13px] text-text2">
-              <span>Uploaded {formatUploadedDate(doc.created_at)}</span>
+              <span>{t('documentDetail.uploadedOn', { date: formatUploadedDate(doc.created_at) })}</span>
               <StatusPill status={doc.status} />
             </p>
 
             <dl className="my-[18px] grid grid-cols-2 gap-3.5">
-              <MetaItem label="Uploaded" value={formatUploadedDate(doc.created_at)} />
+              <MetaItem label={t('documentDetail.uploadedLabel')} value={formatUploadedDate(doc.created_at)} />
               <MetaItem
-                label="File type"
+                label={t('documentDetail.fileType')}
                 value={`${formatFileType(doc.file_type)} · ${formatFileSize(doc.file_size_bytes)}`}
               />
               {/* Never a fabricated 0 (UX-DR8): a 0 here would read as
@@ -260,15 +259,15 @@ export default function DocumentDetailPage() {
                   false claim from "nothing has parsed it yet". "Pending"
                   while still in flight, "Unavailable" once Failed -- see
                   the note above the constants. */}
-              <MetaItem label="Chapters" value={isReady ? chapterCount : notReadyLabel} />
+              <MetaItem label={t('documentDetail.chapters')} value={isReady ? chapterCount : notReadyLabel} />
               <MetaItem
-                label="Passages indexed"
+                label={t('documentDetail.passagesIndexed')}
                 value={isReady ? passagesIndexed : notReadyLabel}
               />
             </dl>
 
             <section>
-              <h2 className="text-eyebrow uppercase text-text2">Chapter breakdown</h2>
+              <h2 className="text-eyebrow uppercase text-text2">{t('documentDetail.chapterBreakdownHeading')}</h2>
               {isReady ? (
                 <ul className="mt-2 divide-y divide-border">
                   {/* Insertion order from the backend already matches
@@ -292,12 +291,11 @@ export default function DocumentDetailPage() {
                 // document's ingestion is over, and the reason it ended is
                 // rendered in the section directly below.
                 <p className="mt-2 text-sm text-text2">
-                  Unavailable — this document failed to process.
+                  {t('documentDetail.unavailableChapterBreakdown')}
                 </p>
               ) : (
                 <p className="mt-2 text-sm text-text2">
-                  Pending — the chapter breakdown appears once this document has been parsed and
-                  indexed.
+                  {t('documentDetail.pendingChapterBreakdown')}
                 </p>
               )}
             </section>
@@ -309,14 +307,14 @@ export default function DocumentDetailPage() {
                 'Failed'`; every other status renders nothing here. */}
             {doc.status === 'Failed' && (
               <section className="mt-[18px]">
-                <h2 className="text-eyebrow uppercase text-text2">Reason</h2>
+                <h2 className="text-eyebrow uppercase text-text2">{t('documentDetail.reason')}</h2>
                 {/* `break-words` (matching `DocumentCard.jsx`'s filename
                     rendering) -- the backend allows up to ~340 chars of
                     freeform text here. Falls back to a fixed string rather
                     than rendering blank when `failed_reason` is null (e.g.
                     a pre-migration row). */}
                 <p className="mt-2 text-sm text-text break-words">
-                  {doc.failed_reason || 'No further details available.'}
+                  {doc.failed_reason || t('documentDetail.noFurtherDetails')}
                 </p>
               </section>
             )}

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 import { createFolder, updateFolder } from '../api/foldersClient'
 import { FOLDER_COLORS, folderSwatchClass } from '../utils/folderFormat'
@@ -24,6 +25,7 @@ const FOCUSABLE_SELECTOR =
 // edit. On success, calls `onSaved(folder)` with the server's response
 // (the caller updates its own folders list) and then `onClose()`.
 export default function FolderModal({ folder, onClose, onSaved }) {
+  const { t } = useTranslation()
   const { authFetch } = useAuth()
   const isEditing = folder != null
   const [name, setName] = useState(folder?.name ?? '')
@@ -121,14 +123,14 @@ export default function FolderModal({ folder, onClose, onSaved }) {
       >
         <div className="border-b border-border px-6 py-4">
           <h2 id={HEADING_ID} className="text-lg font-bold text-text">
-            {isEditing ? 'Edit folder' : 'New folder'}
+            {isEditing ? t('documents.folderGrid.editFolder') : t('documents.folderGrid.newFolder')}
           </h2>
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4 px-6 py-5">
           <div className="flex flex-col gap-1.5">
             <label htmlFor="folder-name" className="text-xs font-semibold text-text2">
-              Name
+              {t('documents.folderGrid.nameLabel')}
             </label>
             <input
               ref={nameInputRef}
@@ -143,7 +145,7 @@ export default function FolderModal({ folder, onClose, onSaved }) {
 
           <div className="flex flex-col gap-1.5">
             <span id="folder-color-label" className="text-xs font-semibold text-text2">
-              Color
+              {t('documents.folderGrid.colorLabel')}
             </span>
             {/* One-row swatch picker (Design Notes) -- native radio
                 semantics via role="radio" rather than a new picker
@@ -181,14 +183,14 @@ export default function FolderModal({ folder, onClose, onSaved }) {
               disabled={isSaving}
               className="rounded-full border border-border bg-surface2 px-5 py-2.5 text-sm font-semibold text-primary"
             >
-              Cancel
+              {t('common.cancel')}
             </button>
             <button
               type="submit"
               disabled={isSaving || trimmedName.length === 0}
               className="btn-brand rounded-full px-5 py-2.5 text-sm font-semibold"
             >
-              {isSaving ? 'Saving…' : 'Save'}
+              {isSaving ? t('documents.folderGrid.saving') : t('common.save')}
             </button>
           </div>
         </form>

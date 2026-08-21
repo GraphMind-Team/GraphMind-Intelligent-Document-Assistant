@@ -13,8 +13,11 @@
   "dependencies": {
     "d3-force-3d": "^3.0.6",
     "force-graph": "1.51.4",
+    "i18next": "^26.4.0",
+    "i18next-browser-languagedetector": "^8.2.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "react-i18next": "^17.0.12",
     "react-kapsule": "2.6.0",
     "react-router-dom": "^7.18.2"
   },

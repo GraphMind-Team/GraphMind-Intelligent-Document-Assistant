@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 import { ALLOWED_EXTENSIONS, uploadDocument, validateFile } from '../api/documentsClient'
 import { formatFileSize } from '../utils/documentFormat'
@@ -40,6 +41,7 @@ const FOCUSABLE_SELECTOR =
 // `XMLHttpRequest`: this component simply stops rendering, but nothing
 // calls `xhr.abort()`.
 export default function UploadModal({ onClose }) {
+  const { t } = useTranslation()
   const { token } = useAuth()
   const [files, setFiles] = useState([])
   const [isDragActive, setIsDragActive] = useState(false)
@@ -230,7 +232,7 @@ export default function UploadModal({ onClose }) {
       >
         <div className="border-b border-border px-6 py-4">
           <h2 id={HEADING_ID} className="text-lg font-bold text-text">
-            Upload documents
+            {t('documents.uploadModal.heading')}
           </h2>
         </div>
 
@@ -255,10 +257,11 @@ export default function UploadModal({ onClose }) {
             ].join(' ')}
           >
             <p className="text-sm text-text2">
-              Drag and drop files here, or <span className="font-semibold text-accent">browse</span>
+              {t('documents.uploadModal.dropzonePrefix')}{' '}
+              <span className="font-semibold text-accent">{t('documents.uploadModal.browse')}</span>
             </p>
             <p className="mt-1 text-xs text-text2">
-              Supported: {ALLOWED_EXTENSIONS.join(', ')} -- up to 20MB each
+              {t('documents.uploadModal.supported', { extensions: ALLOWED_EXTENSIONS.join(', ') })}
             </p>
             <input
               ref={fileInputRef}
@@ -267,7 +270,7 @@ export default function UploadModal({ onClose }) {
               accept={ALLOWED_EXTENSIONS.join(',')}
               onChange={handleInputChange}
               className="sr-only"
-              aria-label="Choose files to upload"
+              aria-label={t('documents.uploadModal.chooseFiles')}
             />
           </div>
 
@@ -281,7 +284,7 @@ export default function UploadModal({ onClose }) {
                   <div className="flex items-center justify-between gap-3">
                     <span className="min-w-0 flex-1 truncate text-sm text-text">{row.name}</span>
                     <span className="shrink-0 text-xs text-text2">
-                      {row.status === 'queued' ? 'Queued' : formatFileSize(row.size)}
+                      {row.status === 'queued' ? t('documents.uploadModal.queued') : formatFileSize(row.size)}
                     </span>
                   </div>
 
@@ -298,7 +301,7 @@ export default function UploadModal({ onClose }) {
                     // get a polite announcement when a row settles here,
                     // mirroring the error branch's live-region treatment.
                     <p role="status" className="mt-1.5 text-xs text-text2">
-                      Already uploaded
+                      {t('documents.uploadModal.alreadyUploaded')}
                       {row.documentId ? (
                         <>
                           {' -- '}
@@ -306,7 +309,7 @@ export default function UploadModal({ onClose }) {
                             to={`/documents/${row.documentId}`}
                             className="font-semibold text-accent"
                           >
-                            view document
+                            {t('documents.uploadModal.viewDocument')}
                           </Link>
                         </>
                       ) : null}
@@ -341,7 +344,7 @@ export default function UploadModal({ onClose }) {
             onClick={onClose}
             className="rounded-full border border-border bg-surface2 px-5 py-2.5 text-sm font-semibold text-primary"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
         </div>
       </div>

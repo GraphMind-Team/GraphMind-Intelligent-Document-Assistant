@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '../../context/AuthContext'
 import { changePassword } from '../../api/settingsClient'
 
@@ -6,6 +7,7 @@ import { changePassword } from '../../api/settingsClient'
 // fields, its own saving/error state, its own request. Clears its own
 // fields on success only; never touches Profile's state.
 export default function ChangePasswordCard() {
+  const { t } = useTranslation()
   const { authFetch } = useAuth()
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -47,10 +49,10 @@ export default function ChangePasswordCard() {
 
   return (
     <div className="rounded-lg border border-border bg-card-bg p-[22px]">
-      <h2 className="text-base font-bold text-text">Change Password</h2>
+      <h2 className="text-base font-bold text-text">{t('settings.changePassword.title')}</h2>
       <form className="mt-4 flex flex-col gap-3" onSubmit={handleSubmit}>
         <label className="flex flex-col gap-1 text-sm text-text">
-          Current password
+          {t('settings.changePassword.currentPassword')}
           <input
             type="password"
             value={currentPassword}
@@ -61,7 +63,7 @@ export default function ChangePasswordCard() {
           />
         </label>
         <label className="flex flex-col gap-1 text-sm text-text">
-          New password
+          {t('settings.changePassword.newPassword')}
           <input
             type="password"
             value={newPassword}
@@ -77,14 +79,14 @@ export default function ChangePasswordCard() {
           disabled={saving || !canSubmit}
           className="self-start rounded-md border border-border px-3 py-1.5 text-sm text-text transition-colors hover:border-primary hover:bg-primary/10 hover:text-primary disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-transparent disabled:hover:text-text"
         >
-          {saving ? 'Saving...' : 'Change Password'}
+          {saving ? t('settings.changePassword.saving') : t('settings.changePassword.submit')}
         </button>
       </form>
       <p className="sr-only" aria-live="polite">
-        {status === 'saving' ? 'Changing password...' : status === 'saved' ? 'Password changed.' : ''}
+        {status === 'saving' ? t('settings.changePassword.savingStatus') : status === 'saved' ? t('settings.changePassword.savedStatus') : ''}
       </p>
       {status === 'saved' && (
-        <p className="mt-3 text-sm text-success">Saved!</p>
+        <p className="mt-3 text-sm text-success">{t('settings.changePassword.saved')}</p>
       )}
       {error && (
         <p role="alert" className="mt-3 text-sm text-danger">

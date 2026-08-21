@@ -27,6 +27,8 @@ from app.documents import repository as documents_repository
 from app.folders import repository as folders_repository
 from app.shared.data_access.session import get_session_factory
 from app.shared.email import send_email
+from app.shared.i18n.catalogs import DEFAULT_LANGUAGE, t
+from app.shared.i18n.errors import localized_error
 # Safe import direction (Design Notes): `documents/` never imports `auth/`,
 # so `auth/service.py -> documents/service.py` introduces no cycle. Reuses
 # `DELETABLE_STATUSES` (public -- both modules read it) rather than
@@ -82,16 +84,17 @@ def hash_password(password: str) -> str:
     return bcrypt_sha256.hash(password)
 
 
-def register_user(db: Session, data: RegisterRequest) -> User:
+def register_user(db: Session, data: RegisterRequest, *, language: str = DEFAULT_LANGUAGE) -> User:
     # data.email is already stripped+lowercased by RegisterRequest's
     # validator, so this and any other consumer of the schema agree on the
-    # same casing.
+    # same casing. `language` is the registration request's resolved
+    # Accept-Language (routes.register), used both for the new account's
+    # initial `User.language` (so its first verification email and Settings
+    # default already match the browser) and for this 409's own detail text.
     existing = repository.get_user_by_email(db, data.email)
     if existing is not None:
         if existing.email_verified_at is not None:
-            raise HTTPException(
-                status_code=409, detail="An account with this email already exists."
-            )
+            raise localized_error(409, "error.email_exists", language)
 
         # Story 1.6: an *unverified* row is exactly the problem this story
         # exists to fix -- nobody has ever proven they control that inbox,
@@ -109,6 +112,7 @@ def register_user(db: Session, data: RegisterRequest) -> User:
         # untouched -- this is the same row, not a new account.
         user = repository.update_user_profile(db, existing, data.full_name)
         user = repository.update_user_password(db, user, hash_password(data.password))
+        user = repository.update_user_language(db, user, language)
         db.commit()
         db.refresh(user)
         return user
@@ -117,6 +121,7 @@ def register_user(db: Session, data: RegisterRequest) -> User:
         full_name=data.full_name,
         email=data.email,
         password_hash=hash_password(data.password),
+        language=language,
     )
 
     try:
@@ -130,9 +135,7 @@ def register_user(db: Session, data: RegisterRequest) -> User:
         # "someone else got there first, but it's unverified" case without
         # touching the insert path at all).
         db.rollback()
-        raise HTTPException(
-            status_code=409, detail="An account with this email already exists."
-        ) from None
+        raise localized_error(409, "error.email_exists", language) from None
 
     db.refresh(user)
     return user
@@ -239,6 +242,11 @@ def update_theme(db: Session, user: User, theme: str) -> None:
     db.commit()
 
 
+def update_language(db: Session, user: User, language: str) -> None:
+    repository.update_user_language(db, user, language)
+    db.commit()
+
+
 def update_profile(db: Session, user: User, data: UpdateProfileRequest) -> User:
     user = repository.update_user_profile(db, user, data.full_name)
     db.commit()
@@ -254,7 +262,7 @@ def change_password(db: Session, user: User, data: ChangePasswordRequest) -> Non
     # account-enumeration concern for an authenticated caller checking
     # their own password.
     if not bcrypt_sha256.verify(data.current_password, user.password_hash):
-        raise HTTPException(status_code=400, detail="Current password is incorrect.")
+        raise localized_error(400, "error.current_password_incorrect", user.language)
 
     new_hash = hash_password(data.new_password)
     repository.update_user_password(db, user, new_hash)
@@ -293,10 +301,7 @@ def delete_account(db: Session, current_user: User) -> None:
     documents = documents_repository.list_documents_for_user(db, current_user.id)
     for document in documents:
         if document.status not in DELETABLE_STATUSES:
-            raise HTTPException(
-                status_code=409,
-                detail="Document is still being processed and can't be deleted yet.",
-            )
+            raise localized_error(409, "error.document_still_processing", current_user.language)
 
     user_id_str = str(current_user.id)
     delete_passages_for_user(user_id_str)
@@ -308,7 +313,7 @@ def delete_account(db: Session, current_user: User) -> None:
     db.commit()
 
 
-def authenticate_user(db: Session, email: str, password: str) -> User:
+def authenticate_user(db: Session, email: str, password: str, *, language: str = DEFAULT_LANGUAGE) -> User:
     """Raises one generic 401 for both "no such email" and "wrong
     password" -- this is the message that actually matters for account
     enumeration (unlike registration's necessarily-revealing 409).
@@ -326,13 +331,14 @@ def authenticate_user(db: Session, email: str, password: str) -> User:
     hash_to_check = user.password_hash if user is not None else _dummy_password_hash()
     password_ok = bcrypt_sha256.verify(password, hash_to_check)
     if user is None or not password_ok:
-        raise HTTPException(status_code=401, detail="Invalid email or password.")
+        raise localized_error(401, "error.invalid_credentials", language)
 
     if _require_email_verification() and user.email_verified_at is None:
-        raise HTTPException(
-            status_code=403,
-            detail="Please verify your email address before logging in. We sent a link when you registered.",
-        )
+        # `user.language` (not the request's `language`) once the account is
+        # known to exist -- an unverified account's own saved preference is
+        # a better guess than the login request's Accept-Language, which may
+        # be a different device/browser than the one that registered it.
+        raise localized_error(403, "error.email_not_verified", user.language)
 
     return user
 
@@ -348,18 +354,19 @@ def _require_email_verification() -> bool:
     return raw not in ("false", "0", "no")
 
 
-def _verification_email_body(full_name: str, verify_url: str) -> str:
-    return (
-        f"Hi {full_name},\n\n"
-        "Thanks for signing up for GraphMind. Confirm your email address "
-        "by opening the link below:\n\n"
-        f"{verify_url}\n\n"
-        f"This link expires in {_verification_token_expire_hours()} hours. "
-        "If you didn't create a GraphMind account, you can ignore this email.\n"
+def _verification_email_body(full_name: str, verify_url: str, language: str) -> str:
+    return t(
+        "verify_email.body",
+        language,
+        full_name=full_name,
+        verify_url=verify_url,
+        expire_hours=_verification_token_expire_hours(),
     )
 
 
-def send_verification_email(user_id: uuid.UUID, email: str, full_name: str) -> None:
+def send_verification_email(
+    user_id: uuid.UUID, email: str, full_name: str, language: str = DEFAULT_LANGUAGE
+) -> None:
     """Builds a verify-email link and sends it (Story 1.6).
 
     Takes primitives, not the ORM `User` -- this runs as a Starlette
@@ -370,6 +377,12 @@ def send_verification_email(user_id: uuid.UUID, email: str, full_name: str) -> N
     the same way `main.py`'s startup warmups do -- a mail outage must not
     turn an already-committed, successful registration into a 500 with
     nothing left to roll back; the account can still request a resend.
+
+    `language` defaults to English for callers that don't have a resolved
+    one on hand, but both real callers pass an explicit value: `routes
+    .register` passes the registration request's resolved Accept-Language
+    (the new account has no saved preference yet), `resend_verification`
+    below passes the already-registered `user.language`.
     """
     token = create_email_verification_token(user_id)
     frontend_origin = os.environ.get("FRONTEND_ORIGIN", "http://localhost:5173")
@@ -378,8 +391,8 @@ def send_verification_email(user_id: uuid.UUID, email: str, full_name: str) -> N
     try:
         send_email(
             to=email,
-            subject="Verify your GraphMind email address",
-            body=_verification_email_body(full_name, verify_url),
+            subject=t("verify_email.subject", language),
+            body=_verification_email_body(full_name, verify_url, language),
         )
     except Exception:
         logger.exception("Failed to send verification email to %s", email)
@@ -393,9 +406,7 @@ def verify_email(db: Session, token: str) -> User:
     user_id = decode_email_verification_token(token)
     user = repository.get_user_by_id(db, user_id)
     if user is None:
-        raise HTTPException(
-            status_code=400, detail="This verification link is invalid or has expired."
-        )
+        raise localized_error(400, "error.invalid_verification_link", DEFAULT_LANGUAGE)
 
     if user.email_verified_at is None:
         repository.mark_email_verified(db, user)
@@ -431,6 +442,6 @@ def resend_verification(
         user = repository.get_user_by_email(db, email)
         if user is None or user.email_verified_at is not None:
             return
-        send_verification_email(user.id, user.email, user.full_name)
+        send_verification_email(user.id, user.email, user.full_name, user.language)
     finally:
         db.close()

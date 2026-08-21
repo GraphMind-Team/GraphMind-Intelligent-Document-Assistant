@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { getDocumentContent } from '../api/documentsClient'
 import { useAuth } from '../context/AuthContext'
 
@@ -32,6 +33,7 @@ const FOCUSABLE_SELECTOR =
 // Escape-to-close) -- the only new modal since that one, so it follows the
 // same established pattern rather than inventing another.
 export default function PreviewModal({ documentId, filename, fileType, onClose }) {
+  const { t } = useTranslation()
   const { authFetch } = useAuth()
   const [status, setStatus] = useState('loading') // 'loading' | 'ready' | 'error'
   const [error, setError] = useState(null)
@@ -145,7 +147,7 @@ export default function PreviewModal({ documentId, filename, fileType, onClose }
             onClick={onClose}
             className="shrink-0 rounded-full border border-border bg-surface2 px-5 py-2 text-sm font-semibold text-primary"
           >
-            Close
+            {t('documents.previewModal.close')}
           </button>
         </div>
 
@@ -153,10 +155,10 @@ export default function PreviewModal({ documentId, filename, fileType, onClose }
             can't be scrolled by keyboard at all. Load-bearing on the
             markdown path in particular, where the text sits directly in
             this container rather than in a focusable iframe. */}
-        <div tabIndex={0} aria-label="Document preview" className="flex-1 overflow-auto p-4">
+        <div tabIndex={0} aria-label={t('documents.previewModal.documentPreview')} className="flex-1 overflow-auto p-4">
           {status === 'loading' && (
             <p role="status" className="text-sm text-text2">
-              Loading preview...
+              {t('documents.previewModal.loading')}
             </p>
           )}
 
