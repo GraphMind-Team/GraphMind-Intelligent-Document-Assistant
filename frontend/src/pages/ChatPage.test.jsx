@@ -332,7 +332,7 @@ describe('ChatPage', () => {
 // Story 3.4/FR-17: initial history load, scroll-up pagination, and the
 // aria-live exclusion for revealed (as opposed to genuinely new) content.
 describe('ChatPage conversation history (Story 3.4)', () => {
-  it('requests exactly the 3 most recent messages on initial load (UX-DR29)', async () => {
+  it('requests exactly the 10 most recent messages on initial load (UX-DR29)', async () => {
     const historySpy = vi.spyOn(chatClient, 'getChatHistory').mockResolvedValue({
       messages: [],
       next_cursor: null,
@@ -343,7 +343,7 @@ describe('ChatPage conversation history (Story 3.4)', () => {
 
     await waitFor(() => expect(historySpy).toHaveBeenCalled())
     const [, options] = historySpy.mock.calls[0]
-    expect(options).toEqual({ limit: 3 })
+    expect(options).toEqual({ limit: 10 })
   })
 
   it('renders messages loaded from history in chronological (oldest-first) order', async () => {
@@ -452,6 +452,68 @@ describe('ChatPage conversation history (Story 3.4)', () => {
     expect(await screen.findByText('Older question?')).toBeInTheDocument()
     const [, secondCallOptions] = historySpy.mock.calls[1]
     expect(secondCallOptions).toEqual({ cursor: 'cursor-1', limit: 10 })
+  })
+
+  it('pulls older pages in on its own until the thread is tall enough to scroll', async () => {
+    // Regression (the "Load earlier messages" button's own reason for
+    // existing, after that button was removed): scroll is the only trigger
+    // for the next page, and a scroll event can only fire on a scroller
+    // that actually overflows. A returning user whose 3-message initial
+    // page doesn't fill the container therefore had nothing to scroll and
+    // no way at all to reach their own history -- it simply wasn't there.
+    //
+    // jsdom has no layout, so both measurements are 0 and the component's
+    // own `clientHeight > 0` guard would skip the auto-fill entirely.
+    // These stubs stand in for the layout jsdom doesn't do: a fixed 500px
+    // viewport, and a content height that grows 200px per message -- so
+    // the thread starts un-overflowed (1 message = 200px < 500px) and
+    // crosses the threshold only once a third message has been pulled in.
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+      configurable: true,
+      get() {
+        return this.getAttribute('role') === 'log' ? 500 : 0
+      },
+    })
+    Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+      configurable: true,
+      get() {
+        return this.getAttribute('role') === 'log' ? this.childElementCount * 200 : 0
+      },
+    })
+
+    const historySpy = vi.spyOn(chatClient, 'getChatHistory')
+    const page = (id, question, cursor, hasMore) => ({
+      messages: [
+        {
+          id,
+          role: 'user',
+          question,
+          segments: null,
+          empty_reason: null,
+          created_at: '2026-01-01T00:00:01',
+        },
+      ],
+      next_cursor: cursor,
+      has_more: hasMore,
+    })
+    historySpy.mockResolvedValueOnce(page('m3', 'Newest question?', 'cursor-1', true))
+    historySpy.mockResolvedValueOnce(page('m2', 'Middle question?', 'cursor-2', true))
+    historySpy.mockResolvedValueOnce(page('m1', 'Oldest question?', null, false))
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    render(<ChatPage />)
+
+    // No scroll gesture anywhere in this test: the thread fills itself.
+    expect(await screen.findByText('Oldest question?')).toBeInTheDocument()
+    expect(screen.getByText('Middle question?')).toBeInTheDocument()
+    expect(screen.getByText('Newest question?')).toBeInTheDocument()
+
+    // And it stops there rather than draining the whole conversation:
+    // 3 messages x 200px now exceeds the 500px viewport, so the scroller
+    // overflows and `handleMessageListScroll` is the trigger again.
+    expect(historySpy).toHaveBeenCalledTimes(3)
+
+    delete HTMLElement.prototype.clientHeight
+    delete HTMLElement.prototype.scrollHeight
   })
 
   it('does not request a further page when scrolling up once has_more is false', async () => {
@@ -618,66 +680,11 @@ describe('ChatPage conversation history (Story 3.4)', () => {
   })
 
   // --- Review fixes: the three ways history could become unreachable. ---
-
-  it('offers a Load earlier messages button whenever more history exists', async () => {
-    // Regression: scrolling to the top used to be the ONLY trigger, and a
-    // scroll event can only fire on a scroller that actually overflows.
-    // Three short messages don't fill the 480px-minimum container, so a
-    // returning user's own history was unreachable with no visible
-    // affordance and no keyboard path. Asserted on the button, not on
-    // `fireEvent.scroll`, precisely because jsdom dispatches a synthetic
-    // scroll regardless of layout and so cannot see that failure.
-    const historySpy = vi.spyOn(chatClient, 'getChatHistory')
-    historySpy.mockResolvedValueOnce({
-      messages: [
-        {
-          id: 'm2',
-          role: 'user',
-          question: 'Recent question?',
-          segments: null,
-          empty_reason: null,
-          created_at: '2026-01-01T00:00:02',
-        },
-      ],
-      next_cursor: 'cursor-1',
-      has_more: true,
-    })
-    historySpy.mockResolvedValueOnce({
-      messages: [
-        {
-          id: 'm1',
-          role: 'user',
-          question: 'Older question?',
-          segments: null,
-          empty_reason: null,
-          created_at: '2026-01-01T00:00:01',
-        },
-      ],
-      next_cursor: null,
-      has_more: false,
-    })
-    const user = userEvent.setup()
-    useAuth.mockReturnValue({ authFetch: vi.fn() })
-    render(<ChatPage />)
-
-    const button = await screen.findByRole('button', { name: /load earlier messages/i })
-    await user.click(button)
-
-    expect(await screen.findByText('Older question?')).toBeInTheDocument()
-    const [, secondCallOptions] = historySpy.mock.calls[1]
-    expect(secondCallOptions).toEqual({ cursor: 'cursor-1', limit: 10 })
-    // Gone once the backend says there is nothing older left.
-    await waitFor(() =>
-      expect(screen.queryByRole('button', { name: /load earlier messages/i })).not.toBeInTheDocument(),
-    )
-  })
-
-  it('does not offer the button when the account has no older history', async () => {
-    renderChatPage()
-
-    await waitFor(() => expect(chatClient.getChatHistory).toHaveBeenCalled())
-    expect(screen.queryByRole('button', { name: /load earlier messages/i })).not.toBeInTheDocument()
-  })
+  // The "Load earlier messages" button that used to cover the
+  // no-overflow/no-keyboard-path gap here was removed at the user's
+  // request -- pagination is scroll-only again, already covered by "loads
+  // a further page at limit=10 when the message list is scrolled to the
+  // top" above.
 
   it('keeps history reachable when the initial fetch resolves after a live question', async () => {
     // Regression: the initial fetch used to bail out entirely once a live
@@ -685,7 +692,7 @@ describe('ChatPage conversation history (Story 3.4)', () => {
     // `next_cursor`/`has_more` -- leaving pagination dead for the rest of
     // the session for exactly the users who had history to page through.
     let resolveHistory
-    vi.spyOn(chatClient, 'getChatHistory').mockImplementation(
+    const historySpy = vi.spyOn(chatClient, 'getChatHistory').mockImplementation(
       () => new Promise((resolve) => { resolveHistory = resolve }),
     )
     vi.spyOn(chatClient, 'askQuestion').mockResolvedValue(ANSWER_RESULT)
@@ -717,10 +724,15 @@ describe('ChatPage conversation history (Story 3.4)', () => {
     expect(await screen.findByText('An earlier question?')).toBeInTheDocument()
     expect(screen.getByText('What is the refund window?')).toBeInTheDocument()
     expect(screen.getByText("TechCorp's refund window is 30 days.")).toBeInTheDocument()
-    // And the pagination anchor survived, so older pages stay reachable.
-    expect(
-      await screen.findByRole('button', { name: /load earlier messages/i }),
-    ).toBeInTheDocument()
+
+    // And the pagination anchor survived, so older pages stay reachable via
+    // scroll -- the second call proves `historyCursor`/`hasMoreHistory`
+    // weren't dropped by the live-question bail-out this test guards.
+    historySpy.mockResolvedValueOnce({ messages: [], next_cursor: null, has_more: false })
+    fireEvent.scroll(screen.getByRole('log', { name: /conversation/i }), { target: { scrollTop: 0 } })
+    await waitFor(() => expect(historySpy).toHaveBeenCalledTimes(2))
+    const [, secondCallOptions] = historySpy.mock.calls[1]
+    expect(secondCallOptions).toEqual({ cursor: 'cursor-1', limit: 10 })
   })
 
   it('renders the loading indicator outside the scrollable log', async () => {
@@ -748,14 +760,14 @@ describe('ChatPage conversation history (Story 3.4)', () => {
     historySpy.mockImplementationOnce(
       () => new Promise((resolve) => { resolveSecond = resolve }),
     )
-    const user = userEvent.setup()
     useAuth.mockReturnValue({ authFetch: vi.fn() })
     render(<ChatPage />)
 
-    await user.click(await screen.findByRole('button', { name: /load earlier messages/i }))
+    await screen.findByText('Recent question?')
+    const log = screen.getByRole('log', { name: /conversation/i })
+    fireEvent.scroll(log, { target: { scrollTop: 0 } })
 
     const indicator = await screen.findByText('Loading earlier messages…')
-    const log = screen.getByRole('log', { name: /conversation/i })
     expect(log).toHaveAttribute('aria-busy', 'true')
     expect(log.contains(indicator)).toBe(false)
 

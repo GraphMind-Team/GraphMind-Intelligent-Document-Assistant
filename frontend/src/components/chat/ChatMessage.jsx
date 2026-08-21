@@ -1,3 +1,4 @@
+import { forwardRef } from 'react'
 import CitationChip from './CitationChip'
 import highlightMatches from './highlightMatches'
 
@@ -38,10 +39,31 @@ const REFUSAL_COPY = 'No supporting evidence found in your documents for this qu
 // own words are marked -- the fixed notice/refusal copy below is
 // GraphMind's wording, not something the user searched their own
 // conversation for.
-export default function ChatMessage({ message, highlight = '' }) {
+// `isActiveMatch` marks the one matching message the search's prev/next
+// navigation currently points at (ChatPage tracks the ordinal, this
+// component just renders the cue) -- a ring distinct from the `.chat-mark`
+// wash so "which of the N matches am I looking at" is answerable without
+// re-reading the "X of Y" count on every step. `outline`, not another
+// `shadow-[...]`: every bubble already carries its own Tailwind-generated
+// shadow utility (`shadow-card` / `shadow-[var(--glow)]`), and a second
+// `box-shadow` utility doesn't compose with those -- Tailwind emits one
+// `box-shadow` declaration per class and only one wins the cascade, so the
+// ring silently lost to the bubble's own shadow. `outline` is a separate
+// CSS property, so it always renders regardless of which shadow utility
+// the bubble already has.
+// Forwarded ref: ChatPage keeps one DOM node per message (keyed by its
+// full-thread index) so the search nav can `scrollIntoView` a specific
+// bubble -- every branch below attaches `ref` to its own root element for
+// that reason.
+const ChatMessage = forwardRef(function ChatMessage({ message, highlight = '', isActiveMatch = false }, ref) {
+  const activeMatchClass = isActiveMatch ? ' outline outline-2 outline-accent outline-offset-2' : ''
+
   if (message.role === 'user') {
     return (
-      <div className="anim-rise ml-auto max-w-[70%] self-end rounded-[20px_20px_6px_20px] bg-[image:var(--grad-brand)] px-4 py-2.5 text-[14px] text-white shadow-[var(--glow)]">
+      <div
+        ref={ref}
+        className={`anim-rise ml-auto max-w-[70%] self-end rounded-[20px_20px_6px_20px] bg-[image:var(--grad-brand)] px-4 py-2.5 text-[14px] text-white shadow-[var(--glow)]${activeMatchClass}`}
+      >
         {/* Sighted users get the sender cue from alignment/fill/corner
             (UX-DR5) alone; a screen reader gets none of that, so without
             this prefix two turns read as one undifferentiated stream. */}
@@ -53,7 +75,7 @@ export default function ChatMessage({ message, highlight = '' }) {
 
   if (message.role === 'notice') {
     return (
-      <p className="anim-rise mx-auto max-w-[78%] self-center text-center text-[13px] text-text2">
+      <p ref={ref} className="anim-rise mx-auto max-w-[78%] self-center text-center text-[13px] text-text2">
         {NOTICE_COPY[message.reason] ?? DEFAULT_NOTICE_COPY}
       </p>
     )
@@ -74,7 +96,10 @@ export default function ChatMessage({ message, highlight = '' }) {
   // already passed Story 3.1's own accessibility review.
   if (message.role === 'refusal') {
     return (
-      <div className="anim-rise max-w-[78%] self-center rounded-2xl border border-warning/40 bg-refusal-bg px-4 py-3 text-center text-[14px] font-medium text-refusal-text">
+      <div
+        ref={ref}
+        className="anim-rise max-w-[78%] self-center rounded-2xl border border-warning/40 bg-refusal-bg px-4 py-3 text-center text-[14px] font-medium text-refusal-text"
+      >
         <span className="sr-only">Refusal: </span>
         {REFUSAL_COPY}
       </div>
@@ -83,7 +108,10 @@ export default function ChatMessage({ message, highlight = '' }) {
 
   if (message.role === 'thinking') {
     return (
-      <div className="anim-rise mr-auto flex max-w-[78%] items-center gap-2 self-start rounded-[20px_20px_20px_6px] border border-border bg-surface px-4 py-3 text-[14px] text-text2">
+      <div
+        ref={ref}
+        className="anim-rise mr-auto flex max-w-[78%] items-center gap-2 self-start rounded-[20px_20px_20px_6px] border border-border bg-surface px-4 py-3 text-[14px] text-text2"
+      >
         {/* Three staggered dots carry the "working" cue visually; the
             word stays in the DOM (sr-only) so the live region still
             announces something meaningful rather than nothing. */}
@@ -107,7 +135,10 @@ export default function ChatMessage({ message, highlight = '' }) {
   // uses), so the answer bubble reads as "GraphMind" at a glance without
   // needing a border-color trick.
   return (
-    <div className="anim-rise mr-auto max-w-[78%] self-start rounded-[20px_20px_20px_6px] border border-border bg-card-bg bg-[image:var(--grad-brand-soft)] px-4 py-3 text-[14px] leading-[1.6] text-text shadow-card">
+    <div
+      ref={ref}
+      className={`anim-rise mr-auto max-w-[78%] self-start rounded-[20px_20px_20px_6px] border border-border bg-card-bg bg-[image:var(--grad-brand-soft)] px-4 py-3 text-[14px] leading-[1.6] text-text shadow-card${activeMatchClass}`}
+    >
       <span className="sr-only">GraphMind: </span>
       {message.segments.map((segment, index) => (
         <span key={index}>
@@ -123,4 +154,6 @@ export default function ChatMessage({ message, highlight = '' }) {
       ))}
     </div>
   )
-}
+})
+
+export default ChatMessage

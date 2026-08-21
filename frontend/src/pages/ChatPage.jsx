@@ -7,12 +7,18 @@ import RobotMascot from '../components/chat/RobotMascot'
 import DocumentsScopePanel from '../components/chat/DocumentsScopePanel'
 import ChatSearchPanel from '../components/chat/ChatSearchPanel'
 
-// UX-DR29/Story 3.4: initial page load renders only the 3 most recent
-// messages; each scroll-up page fetches 10 more. Two different numbers
-// for two different moments -- a small first paint, a bigger reveal once
-// the user is actively scrolling back.
-const INITIAL_HISTORY_LIMIT = 3
-const SCROLL_HISTORY_LIMIT = 10
+// UX-DR29/Story 3.4: one page size for both the initial load and every
+// scroll-up page after it.
+const HISTORY_PAGE_LIMIT = 10
+
+// Search-match navigation and "jump to latest" both move the scroller
+// programmatically -- UX-DR28 gates every other animation in this app
+// behind prefers-reduced-motion (index.css), so a smooth scrollIntoView/
+// scrollTo here must be gated the same way rather than silently animating
+// motion the user's OS setting asked for none of.
+function prefersReducedMotion() {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
 
 // How long the mascot holds a post-answer beat ('idea' or 'noAnswer')
 // before dropping back to idle. Both beats share the gm-idea envelope in
@@ -163,18 +169,34 @@ function ChatPageContent() {
   const [historyPrependToken, setHistoryPrependToken] = useState(0)
   const pendingScrollAdjustmentRef = useRef(null)
 
-  // Initial load (UX-DR29): fetch only the 3 most recent messages, not
-  // the full thread -- `getChatHistory` returns them newest-first, so
-  // `.reverse()` restores the chronological (oldest-first) order this
-  // page renders messages in. A failed fetch surfaces through the same
-  // `error` banner `handleSubmit` already uses (not swallowed silently) --
-  // a network blip on load must look like a network blip, not an
-  // account with an empty conversation. The Ask flow itself still isn't
-  // blocked either way: `messages` simply stays `[]` until the user asks
-  // something new.
+  // Chat-search match navigation. The thread is never narrowed to matches
+  // anymore (see `chatSearchNeedle`/`matchedIndices` below) -- instead the
+  // prev/next arrows in ChatSearchPanel step `activeMatchOrdinal` through
+  // `matchedIndices` and scroll the corresponding bubble into view, so a
+  // match is always read with its surrounding conversation still on
+  // screen. `messageRefs` holds one DOM node per message, keyed by its
+  // full-thread index (the same index `messages.map` below keys on), so a
+  // given ordinal can be turned into an element to scroll to.
+  const [activeMatchOrdinal, setActiveMatchOrdinal] = useState(0)
+  const messageRefs = useRef(new Map())
+
+  // Tracks whether the message list is scrolled to (near) its own bottom,
+  // purely to decide whether the floating "jump to latest" button below is
+  // shown -- jumping to a match earlier in the thread is exactly the
+  // moment a quick way back to the live edge of the conversation matters.
+  const [isNearBottom, setIsNearBottom] = useState(true)
+
+  // Initial load (UX-DR29): fetch only the most recent page, not the full
+  // thread -- `getChatHistory` returns them newest-first, so `.reverse()`
+  // restores the chronological (oldest-first) order this page renders
+  // messages in. A failed fetch surfaces through the same `error` banner
+  // `handleSubmit` already uses (not swallowed silently) -- a network blip
+  // on load must look like a network blip, not an account with an empty
+  // conversation. The Ask flow itself still isn't blocked either way:
+  // `messages` simply stays `[]` until the user asks something new.
   useEffect(() => {
     let cancelled = false
-    getChatHistory(authFetch, { limit: INITIAL_HISTORY_LIMIT })
+    getChatHistory(authFetch, { limit: HISTORY_PAGE_LIMIT })
       .then((page) => {
         if (cancelled) return
         const seeded = page.messages.slice().reverse().map(toUiMessage)
@@ -263,7 +285,7 @@ function ChatPageContent() {
     setIsLoadingHistory(true)
     setError(null)
     try {
-      const page = await getChatHistory(authFetch, { cursor: historyCursor, limit: SCROLL_HISTORY_LIMIT })
+      const page = await getChatHistory(authFetch, { cursor: historyCursor, limit: HISTORY_PAGE_LIMIT })
       const older = page.messages.slice().reverse().map(toUiMessage)
       const el = messageListRef.current
       if (el) {
@@ -296,9 +318,68 @@ function ChatPageContent() {
   }
 
   function handleMessageListScroll(event) {
-    if (event.currentTarget.scrollTop <= 0) {
+    const { scrollTop, scrollHeight, clientHeight } = event.currentTarget
+    // 48px slop: close enough to the bottom edge that "jump to latest"
+    // would be redundant, without demanding pixel-perfect alignment (a
+    // smooth-scroll animation's last frame or two otherwise flickers the
+    // button in and out right before it actually settles).
+    setIsNearBottom(scrollHeight - scrollTop - clientHeight < 48)
+    if (scrollTop <= 0) {
       loadOlderHistory()
     }
+  }
+
+  // Keeps scrolling up a *possible* gesture in the first place. Scroll is
+  // now the only trigger for the next older page, and a scroll event can
+  // only ever fire on a scroller that actually overflows -- so a returning
+  // user whose 3-message initial page (UX-DR29) doesn't fill this
+  // 520px-minimum container had no way at all to reach their own history:
+  // nothing to scroll, therefore nothing to trigger the fetch. This pulls
+  // pages in until the thread is tall enough to scroll (or the backend says
+  // there is nothing older left), at which point `handleMessageListScroll`
+  // above takes over as the sole trigger.
+  //
+  // Re-runs on `messages` so each prepended page is re-measured: one page
+  // of short turns can still leave the scroller un-overflowed, and this
+  // must then fetch again rather than stopping one page short. The
+  // `hasMoreHistory`/`isLoadingHistoryRef` guards inside `loadOlderHistory`
+  // are what make that self-terminating -- the last page flips
+  // `hasMoreHistory` false and the loop ends there.
+  // `clientHeight > 0` is a real guard, not a jsdom accommodation: a
+  // scroller that hasn't been laid out yet (or isn't currently displayed)
+  // reports 0 for both measurements, which would read as "doesn't
+  // overflow" and pull the entire conversation in one page at a time
+  // against a container that was never actually too short.
+  useEffect(() => {
+    if (!hasMoreHistory || isLoadingHistoryRef.current) return
+    const el = messageListRef.current
+    if (el && el.clientHeight > 0 && el.scrollHeight <= el.clientHeight) {
+      loadOlderHistory()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, hasMoreHistory])
+
+  // Scrolls a single message bubble into view without disturbing the rest
+  // of the thread around it -- 'center' rather than 'start'/'end' so a
+  // short bubble near either edge of the scroller still gets some
+  // surrounding context visible above and below it.
+  function scrollToMessageIndex(index) {
+    messageRefs.current
+      .get(index)
+      ?.scrollIntoView({ behavior: prefersReducedMotion() ? 'instant' : 'smooth', block: 'center' })
+  }
+
+  // Steps the active match forward (+1) or backward (-1) through
+  // `matchedIndices`, wrapping around at either end so the arrows never
+  // dead-end -- mirrors the wraparound behavior of a browser's own
+  // find-in-page next/previous.
+  function stepMatch(offset) {
+    if (matchedIndices.length === 0) return
+    setActiveMatchOrdinal((previous) => {
+      const next = (previous + offset + matchedIndices.length) % matchedIndices.length
+      scrollToMessageIndex(matchedIndices[next])
+      return next
+    })
   }
 
   async function handleSubmit(event) {
@@ -349,17 +430,32 @@ function ChatPageContent() {
   }
 
   const chatSearchNeedle = chatSearch.trim().toLowerCase()
-  // Index carried alongside the message so the key stays tied to the
-  // message's position in the full thread, not to its position in the
-  // filtered view -- otherwise React would reuse a bubble's DOM node for
-  // a different message as the query changes.
-  const visibleMessages = messages
-    .map((message, index) => ({ message, index }))
-    .filter(
-      ({ message }) =>
-        chatSearchNeedle === '' ||
-        messageSearchText(message).toLowerCase().includes(chatSearchNeedle),
-    )
+  // Full-thread indices of every message matching the active search --
+  // the thread itself is always rendered in full (see the message-list
+  // map below); this only drives the "N of M" count and the prev/next
+  // match navigation, never what's actually in the DOM.
+  const matchedIndices =
+    chatSearchNeedle === ''
+      ? []
+      : messages
+          .map((message, index) => ({ message, index }))
+          .filter(({ message }) => messageSearchText(message).toLowerCase().includes(chatSearchNeedle))
+          .map(({ index }) => index)
+
+  // A fresh query (including clearing it) starts over at the first match
+  // rather than carrying over whatever ordinal the previous query had
+  // reached -- an ordinal from the old result set has no meaningful
+  // relationship to the new one. Runs after render, so `matchedIndices`
+  // above already reflects the new `chatSearchNeedle` by the time this
+  // fires; deliberately keyed on the needle alone (not `matchedIndices`,
+  // which is a new array every render) so a new message arriving mid-search
+  // doesn't yank the user back to the first match.
+  useEffect(() => {
+    if (chatSearchNeedle === '') return
+    setActiveMatchOrdinal(0)
+    scrollToMessageIndex(matchedIndices[0])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatSearchNeedle])
 
   return (
     <>
@@ -399,49 +495,77 @@ function ChatPageContent() {
               sits outside this scroller on purpose: content mounting and
               unmounting inside it would shift the `scrollHeight` the
               prepend-restore effect measures against. */}
-          {/* Story 3.4 fix: scrolling to the top was the *only* trigger for
-              the next older page, and a scroll event can only fire on a
-              scroller that actually overflows. Three short messages don't
-              fill this 480px-minimum container, so a returning user with a
-              long conversation but a short recent tail could never reach
-              their own history -- and no keyboard-only path existed even
-              when it did overflow. jsdom dispatches `fireEvent.scroll`
-              regardless of layout, so the suite couldn't see it either.
-              This button is the primary, always-available affordance;
-              `onScroll` below stays as the additional gesture. Rendered
-              outside the scroller, so neither it nor the loading indicator
-              perturbs the prepend scroll-restore's `scrollHeight` math. */}
-          {(hasMoreHistory || isLoadingHistory) && (
+          {/* Scroll-to-top is the only trigger for the next older page --
+              no button, so it never sits in front of/pushes down the
+              search panel's own affordances. Purely informational, not
+              interactive: the loading indicator's own aria-live handles
+              the screen-reader case the removed button used to cover.
+              Rendered outside the scroller so it doesn't perturb the
+              prepend scroll-restore's `scrollHeight` math. */}
+          {isLoadingHistory && (
             <div className="flex justify-center border-b border-border px-5 py-2">
-              {isLoadingHistory ? (
-                <p className="text-[11px] text-text2">Loading earlier messages…</p>
-              ) : (
-                <button
-                  type="button"
-                  onClick={loadOlderHistory}
-                  className="btn-ghost rounded-full px-3.5 py-1.5 text-[11px] font-semibold"
-                >
-                  Load earlier messages
-                </button>
-              )}
+              <p className="text-[11px] text-text2">Loading earlier messages…</p>
             </div>
           )}
 
-          <div
-            ref={messageListRef}
-            role="log"
-            tabIndex={0}
-            aria-label="Conversation"
-            aria-live={liveAnnouncementsEnabled ? 'polite' : 'off'}
-            aria-atomic="false"
-            aria-busy={isLoadingHistory}
-            onScroll={handleMessageListScroll}
-            className="flex flex-1 flex-col gap-3 overflow-y-auto p-5"
-          >
-            {visibleMessages.map(({ message, index }) => (
-              <ChatMessage key={index} message={message} highlight={chatSearchNeedle} />
-            ))}
-            {isAsking && !chatSearchNeedle && <ChatMessage message={{ role: 'thinking' }} />}
+          {/* relative wrapper, not the scroller itself: the "jump to
+              latest" button below is positioned against this so it floats
+              over the messages on scroll instead of scrolling away with
+              them. */}
+          <div className="relative min-h-0 flex-1">
+            <div
+              ref={messageListRef}
+              role="log"
+              tabIndex={0}
+              aria-label="Conversation"
+              aria-live={liveAnnouncementsEnabled ? 'polite' : 'off'}
+              aria-atomic="false"
+              aria-busy={isLoadingHistory}
+              onScroll={handleMessageListScroll}
+              className="flex h-full flex-col gap-3 overflow-y-auto p-5"
+            >
+              {messages.map((message, index) => (
+                <ChatMessage
+                  key={index}
+                  ref={(node) => {
+                    if (node) messageRefs.current.set(index, node)
+                    else messageRefs.current.delete(index)
+                  }}
+                  message={message}
+                  highlight={chatSearchNeedle}
+                  isActiveMatch={chatSearchNeedle !== '' && matchedIndices[activeMatchOrdinal] === index}
+                />
+              ))}
+              {isAsking && <ChatMessage message={{ role: 'thinking' }} />}
+            </div>
+
+            {!isNearBottom && (
+              <button
+                type="button"
+                onClick={() => {
+                  const el = messageListRef.current
+                  if (el) {
+                    el.scrollTo({ top: el.scrollHeight, behavior: prefersReducedMotion() ? 'instant' : 'smooth' })
+                  }
+                }}
+                aria-label="Jump to latest messages"
+                className="absolute bottom-4 left-1/2 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-border bg-card-bg text-text2 shadow-card transition hover:text-accent"
+              >
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-4 w-4"
+                >
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M8.5 11l3.5 3.5 3.5-3.5" />
+                </svg>
+              </button>
+            )}
           </div>
 
           {error && (
@@ -524,8 +648,11 @@ function ChatPageContent() {
           <ChatSearchPanel
             value={chatSearch}
             onChange={setChatSearch}
-            resultCount={visibleMessages.length}
+            resultCount={matchedIndices.length}
             totalCount={messages.length}
+            activeMatchNumber={matchedIndices.length === 0 ? 0 : activeMatchOrdinal + 1}
+            onPrevMatch={() => stepMatch(-1)}
+            onNextMatch={() => stepMatch(1)}
           />
           <DocumentsScopePanel authFetch={authFetch} />
         </div>
