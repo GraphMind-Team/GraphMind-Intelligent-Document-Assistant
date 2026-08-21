@@ -108,10 +108,11 @@ def close_weaviate_client() -> None:
 
     Also resets `_collection_ready`: that flag describes "the collection
     was confirmed to exist over the client we currently hold" -- it
-    belongs to the connection being closed here, not to the process. No
-    caller reconnects after closing today, so this is a no-op in
-    practice, but leaving it True would describe a world that no longer
-    exists the moment a future reconnect path is added.
+    belongs to the connection being closed here, not to the process.
+    `_with_reconnect` below is a caller that does reconnect afterwards, so
+    this is load-bearing, not just tidy: leaving it True would let the
+    rebuilt client skip `_ensure_passage_collection` on a fact confirmed
+    over a connection that no longer exists.
     """
     global _client_instance, _collection_ready
     with _client_lock:
@@ -124,6 +125,63 @@ def close_weaviate_client() -> None:
 
 _collection_lock = threading.Lock()
 _collection_ready = False
+
+
+# Failures that mean "this connection is dead", as opposed to "this
+# request was wrong". Only these are worth reconnecting for -- retrying a
+# schema or validation error on a fresh connection would just fail again,
+# slower, and hide the real cause behind a reconnect that looks like a
+# network blip.
+#
+# `WeaviateQueryError` is deliberately in this list even though it also
+# covers genuine query errors: the observed production failure surfaced
+# as exactly that, wrapping a gRPC "sendmsg: Connection reset by peer
+# (104)", and the client offers no narrower type for it. The cost of
+# including it is one wasted retry on a malformed query; the cost of
+# leaving it out is every Weaviate operation failing until someone
+# restarts the process.
+_CONNECTION_ERRORS = (
+    weaviate.exceptions.WeaviateConnectionError,
+    weaviate.exceptions.WeaviateClosedClientError,
+    weaviate.exceptions.WeaviateGRPCUnavailableError,
+    weaviate.exceptions.WeaviateQueryError,
+    weaviate.exceptions.WeaviateDeleteManyError,
+    weaviate.exceptions.WeaviateTimeoutError,
+)
+
+
+def _with_reconnect(operation):
+    """Runs `operation()`, rebuilding the client once if the connection
+    turns out to be dead.
+
+    The client singleton is built once and cached for the life of the
+    process, and nothing invalidated it: when the platform dropped the
+    idle gRPC connection underneath it, every subsequent Weaviate call --
+    ingestion *and* chat retrieval, which share this client -- failed
+    with "Connection reset by peer (104)" until the service was manually
+    restarted. A cached handle to a socket that no longer exists is not a
+    state the app should need a human to notice.
+
+    `operation` must call `get_weaviate_client()` itself rather than
+    closing over a client, so the retry actually picks up the rebuilt one
+    rather than re-using the dead handle it just failed on.
+
+    Exactly one retry, not a loop with backoff: if a freshly built
+    connection also fails, the cluster is genuinely unreachable and the
+    caller's own error handling (ingestion marks the document Failed,
+    chat surfaces an error) is the right outcome -- not this function
+    silently absorbing a real outage into a longer wait.
+    """
+    try:
+        return operation()
+    except _CONNECTION_ERRORS as exc:
+        logger.warning(
+            "Weaviate call failed on a stale connection (%s) -- reconnecting and retrying once: %s",
+            type(exc).__name__,
+            str(exc)[:200],
+        )
+        close_weaviate_client()
+        return operation()
 
 
 def _ensure_passage_collection(client: WeaviateClient) -> None:
@@ -254,13 +312,16 @@ def delete_passages_for_document(document_id: str, user_id: str) -> None:
     write *and* every query filter -- true for every Weaviate operation
     this module performs.
     """
-    client = get_weaviate_client()
-    _ensure_passage_collection(client)
-    collection = client.collections.get(PASSAGE_COLLECTION)
-    result = collection.data.delete_many(
-        where=Filter.by_property("document_id").equal(document_id)
-        & Filter.by_property("user_id").equal(user_id)
-    )
+    def _delete():
+        client = get_weaviate_client()
+        _ensure_passage_collection(client)
+        collection = client.collections.get(PASSAGE_COLLECTION)
+        return collection.data.delete_many(
+            where=Filter.by_property("document_id").equal(document_id)
+            & Filter.by_property("user_id").equal(user_id)
+        )
+
+    result = _with_reconnect(_delete)
     # Weaviate caps a single batch delete (10k objects by default) --
     # `insert_many`'s result is checked for errors, so this should be
     # too, rather than assuming every matched object was actually
@@ -290,10 +351,13 @@ def delete_passages_for_user(user_id: str) -> None:
     passages (or a retry after a partial earlier failure) matches zero
     rows on `delete_many`, which is success, not an error.
     """
-    client = get_weaviate_client()
-    _ensure_passage_collection(client)
-    collection = client.collections.get(PASSAGE_COLLECTION)
-    result = collection.data.delete_many(where=Filter.by_property("user_id").equal(user_id))
+    def _delete():
+        client = get_weaviate_client()
+        _ensure_passage_collection(client)
+        collection = client.collections.get(PASSAGE_COLLECTION)
+        return collection.data.delete_many(where=Filter.by_property("user_id").equal(user_id))
+
+    result = _with_reconnect(_delete)
     # Same failed/matches accounting as delete_passages_for_document --
     # logged, not raised, since no caller retries a delete today beyond
     # re-running the whole cascade, which is itself idempotent.
@@ -335,10 +399,6 @@ def write_passages(passages: list[WeaviatePassage]) -> None:
             "(document_id, user_id) -- got a mixed batch."
         )
 
-    client = get_weaviate_client()
-    _ensure_passage_collection(client)
-    collection = client.collections.get(PASSAGE_COLLECTION)
-
     for batch_start in range(0, len(passages), PASSAGE_BATCH_SIZE):
         batch = passages[batch_start : batch_start + PASSAGE_BATCH_SIZE]
         objects = [
@@ -359,7 +419,19 @@ def write_passages(passages: list[WeaviatePassage]) -> None:
             )
             for p in batch
         ]
-        result = collection.data.insert_many(objects)
+
+        def _insert(objects=objects):
+            client = get_weaviate_client()
+            _ensure_passage_collection(client)
+            return client.collections.get(PASSAGE_COLLECTION).data.insert_many(objects)
+
+        # Per batch, not around the whole loop: a reconnect mid-document
+        # then re-runs only the batch that failed. Re-running the loop from
+        # the start would be harmless for correctness (object uuids are
+        # deterministic, so a repeat is an overwrite) but would re-send
+        # every earlier batch to be embedded again, spending Weaviate
+        # Embeddings quota on work already done.
+        result = _with_reconnect(_insert)
         if result.has_errors:
             raise RuntimeError(f"Weaviate write failed: {result.errors}")
 
@@ -398,20 +470,25 @@ def search_passages(
     the caller's (chat/service.py's) degenerate case to handle, not this
     function's.
     """
-    client = get_weaviate_client()
-    _ensure_passage_collection(client)
-    collection = client.collections.get(PASSAGE_COLLECTION)
-
     filters = Filter.by_property("user_id").equal(user_id)
     if document_ids:
         filters = filters & Filter.by_property("document_id").contains_any(document_ids)
 
-    response = collection.query.near_text(
-        query=query_text,
-        limit=limit,
-        filters=filters,
-        return_metadata=MetadataQuery(distance=True),
-    )
+    def _query():
+        client = get_weaviate_client()
+        _ensure_passage_collection(client)
+        return client.collections.get(PASSAGE_COLLECTION).query.near_text(
+            query=query_text,
+            limit=limit,
+            filters=filters,
+            return_metadata=MetadataQuery(distance=True),
+        )
+
+    # Read-only and idempotent, so retrying on a rebuilt connection is
+    # free -- and this is the path a user actually waits on, where a dead
+    # connection would otherwise surface as a failed question rather than
+    # a retried one.
+    response = _with_reconnect(_query)
 
     return [
         WeaviateSearchResult(

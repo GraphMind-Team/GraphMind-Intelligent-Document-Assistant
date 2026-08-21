@@ -111,3 +111,75 @@ def test_markdown_heading_inside_a_code_fence_is_not_treated_as_a_chapter():
     chapters = {c.chapter for c in chunks}
     assert chapters == {"Real Heading", "Another Real Heading"}
     assert "install deps" not in chapters
+
+
+# ---------------------------------------------------------------------------
+# Glyph-spaced PDF repair. Some PDFs (design-tool exports especially)
+# position every character individually, so pypdf faithfully returns
+# "К о н т а к т и" for "Контакти". Observed on two real CV PDFs where
+# 100% of extracted tokens were single characters.
+# ---------------------------------------------------------------------------
+
+from app.documents.parsing import _looks_char_spaced, _repair_char_spacing
+
+
+def test_char_spacing_detected_on_fully_glyph_spaced_text():
+    text = "К о н т а к т и\n0 8 8 6 9 9 7 8 5 8\nТ е л е ф о н\ny o a n a s b @ g m a i l . c o m"
+    assert _looks_char_spaced(text)
+
+
+def test_normal_prose_is_not_detected_as_char_spaced():
+    """The detector must not fire on real documents -- repairing one would
+    glue every word to its neighbour."""
+    text = (
+        "Project Aurora is GraphMind's internal codename for the Q3 2026 "
+        "knowledge-graph visualization redesign. The project began on "
+        "2026-04-01 and is scheduled to ship on 2026-09-15. Elena Rusev "
+        "leads it, and Northwind Robotics supplies the hardware."
+    )
+    assert not _looks_char_spaced(text)
+
+
+def test_bulgarian_prose_is_not_detected_as_char_spaced():
+    """Cyrillic is the script the failing PDFs were in -- the detector must
+    key on token length, not on the alphabet."""
+    text = (
+        "Личен дневник по разработката на Gamification модула върху "
+        "стажантската среда на Sirma Academy LMS. Всеки запис отговаря на "
+        "commit — какво е добавено и защо, подредено хронологично."
+    )
+    assert not _looks_char_spaced(text)
+
+
+def test_short_text_is_never_treated_as_char_spaced():
+    """Below the token floor the ratio is meaningless -- a two-token page
+    would otherwise score 100% and be 'repaired' into nonsense."""
+    assert not _looks_char_spaced("A B")
+    assert not _looks_char_spaced("")
+
+
+def test_repair_rejoins_words_using_the_double_space_boundary():
+    """Single space separates glyphs; two or more marks a real word
+    boundary. That distinction is what makes this reconstruction lossless
+    rather than a guess."""
+    assert _repair_char_spacing("г р а д  К ю с т е н д и л") == "град Кюстендил"
+    assert _repair_char_spacing("Y O A N A  B O R I S O V A") == "YOANA BORISOVA"
+
+
+def test_repair_preserves_line_structure():
+    """Chapter-heading detection downstream still reads these lines, so
+    the line count must not change."""
+    repaired = _repair_char_spacing("К о н т а к т и\n0 8 8 6 9 9 7 8 5 8")
+    assert repaired == "Контакти\n0886997858"
+
+
+def test_repair_keeps_punctuation_inside_a_rejoined_token():
+    assert _repair_char_spacing("y o a n a s b @ g m a i l . c o m") == "yoanasb@gmail.com"
+
+
+def test_repaired_pdf_text_is_substantially_shorter():
+    """The repair roughly halves the character count, which is why it also
+    matters for cost: extraction text is capped at EXTRACTION_CHAR_BUDGET,
+    so glyph spacing was spending half that budget on spaces."""
+    spaced = "\n".join(["К о н т а к т и  Т е л е ф о н"] * 10)
+    assert len(_repair_char_spacing(spaced)) < len(spaced) / 1.8

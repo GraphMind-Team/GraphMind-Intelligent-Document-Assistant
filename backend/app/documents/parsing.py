@@ -234,10 +234,73 @@ def _parse_html(content: bytes) -> list[tuple[str, str]]:
 # --- PDF ------------------------------------------------------------------
 
 
+# Fraction of whitespace-separated tokens that must be a single character
+# before a page is treated as glyph-spaced (see `_repair_char_spacing`).
+# High deliberately: real prose in any language sits far below this (even
+# Chinese/Japanese text extracts as multi-character tokens here), so a
+# genuine document cannot trip it by accident. The observed failing PDFs
+# score 1.00 -- every single token -- so there is no need to sit close to
+# the boundary.
+_CHAR_SPACED_TOKEN_RATIO = 0.8
+
+# Below this many tokens the ratio isn't meaningful -- a near-empty page
+# ("A", "B") would otherwise look 100% char-spaced and get "repaired"
+# into nonsense.
+_CHAR_SPACED_MIN_TOKENS = 20
+
+
+def _looks_char_spaced(text: str) -> bool:
+    """True if `text` looks like every glyph was extracted separately.
+
+    Some PDFs (design-tool exports especially) position each glyph
+    individually rather than as runs of text. pypdf faithfully reports
+    what the file says, so "Контакти" comes back as "К о н т а к т и".
+    """
+    tokens = text.split()
+    if len(tokens) < _CHAR_SPACED_MIN_TOKENS:
+        return False
+    singles = sum(1 for token in tokens if len(token) == 1)
+    return singles / len(tokens) >= _CHAR_SPACED_TOKEN_RATIO
+
+
+def _repair_char_spacing(text: str) -> str:
+    """Rejoins glyph-spaced text into words.
+
+    Relies on the one distinction such PDFs do preserve: a single space
+    separates glyphs *within* a word, while a real word boundary comes
+    through as two or more spaces. So "г р а д  К ю с т е н д и л"
+    carries enough information to recover "град Кюстендил" exactly --
+    this is a lossless reconstruction, not a guess at where words go.
+    Line structure is preserved so chapter-heading detection downstream
+    still sees the same lines.
+
+    Only ever called behind `_looks_char_spaced`, because applied to
+    normal text it would destroy every genuine single-letter word ("a",
+    "I") by gluing it onto its neighbour.
+    """
+    repaired_lines = []
+    for line in text.splitlines():
+        if not line.strip():
+            repaired_lines.append(line)
+            continue
+        words = [re.sub(r"\s+", "", word) for word in re.split(r"\s{2,}", line.strip())]
+        repaired_lines.append(" ".join(word for word in words if word))
+    return "\n".join(repaired_lines)
+
+
 def _parse_pdf(content: bytes) -> list[tuple[str, str]]:
     try:
         reader = PdfReader(io.BytesIO(content))
-        page_texts = [page.extract_text() or "" for page in reader.pages]
+        # Per page, not over the whole document: a PDF can mix a
+        # glyph-spaced cover/graphic page with normally-extracted body
+        # pages, and a document-wide ratio would let the good pages mask
+        # a bad one (or vice versa).
+        page_texts = []
+        for page in reader.pages:
+            page_text = page.extract_text() or ""
+            if _looks_char_spaced(page_text):
+                page_text = _repair_char_spacing(page_text)
+            page_texts.append(page_text)
     except Exception as exc:
         raise UnparseableDocument("Could not parse PDF.") from exc
 

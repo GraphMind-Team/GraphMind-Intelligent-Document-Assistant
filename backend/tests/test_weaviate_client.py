@@ -562,3 +562,80 @@ def test_search_passages_omits_document_id_filter_when_empty_list(monkeypatch):
     filters = fake_collection.query.near_text.call_args.kwargs["filters"]
     assert filters.target == "user_id"
     assert filters.value == "user-1"
+
+
+# ---------------------------------------------------------------------------
+# Stale-connection reconnect. The client singleton is cached for the life
+# of the process; when the platform dropped the idle gRPC connection
+# underneath it, every Weaviate call -- ingestion AND chat retrieval --
+# failed with "Connection reset by peer (104)" until a manual restart.
+# ---------------------------------------------------------------------------
+
+
+def test_search_passages_reconnects_once_on_a_dead_connection(monkeypatch):
+    """The failure this exists for: a cached handle to a socket that no
+    longer exists must not require a human to notice."""
+    from weaviate.exceptions import WeaviateQueryError
+
+    dead_client, dead_collection = _fake_client(exists=True)
+    live_client, live_collection = _fake_client(exists=True)
+    dead_collection.query.near_text.side_effect = WeaviateQueryError(
+        "sendmsg: Connection reset by peer (104)", "GRPC"
+    )
+    live_collection.query.near_text.return_value = MagicMock(
+        objects=[_fake_weaviate_object("chunk-0", distance=0.1)]
+    )
+
+    clients = [dead_client, live_client]
+    monkeypatch.setattr(
+        "app.shared.data_access.weaviate_client.get_weaviate_client",
+        lambda: clients[0],
+    )
+    monkeypatch.setattr(
+        "app.shared.data_access.weaviate_client.close_weaviate_client",
+        lambda: clients.pop(0),
+    )
+
+    results = search_passages("q", "user-1")
+
+    assert len(results) == 1
+    dead_collection.query.near_text.assert_called_once()
+    live_collection.query.near_text.assert_called_once()
+
+
+def test_a_second_failure_propagates_rather_than_looping(monkeypatch):
+    """Exactly one retry. If a freshly built connection also fails, the
+    cluster is genuinely unreachable and the caller's own handling
+    (ingestion marks Failed, chat surfaces an error) is the right outcome
+    -- not this absorbing a real outage into a longer wait."""
+    from weaviate.exceptions import WeaviateQueryError
+
+    client, collection = _fake_client(exists=True)
+    collection.query.near_text.side_effect = WeaviateQueryError("still dead", "GRPC")
+    monkeypatch.setattr(
+        "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: client
+    )
+    monkeypatch.setattr(
+        "app.shared.data_access.weaviate_client.close_weaviate_client", lambda: None
+    )
+
+    with pytest.raises(WeaviateQueryError):
+        search_passages("q", "user-1")
+
+    assert collection.query.near_text.call_count == 2
+
+
+def test_a_non_connection_error_is_not_retried(monkeypatch):
+    """Retrying a schema/validation error on a fresh connection would just
+    fail again, slower, and hide the real cause behind what looks like a
+    network blip."""
+    client, collection = _fake_client(exists=True)
+    collection.query.near_text.side_effect = ValueError("bad query shape")
+    monkeypatch.setattr(
+        "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: client
+    )
+
+    with pytest.raises(ValueError):
+        search_passages("q", "user-1")
+
+    collection.query.near_text.assert_called_once()
