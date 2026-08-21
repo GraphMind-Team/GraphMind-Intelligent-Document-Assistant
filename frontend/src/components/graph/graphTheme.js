@@ -111,6 +111,27 @@ export function badgeFor(type) {
   return TYPE_BADGES[type] ?? type.slice(0, 2).toUpperCase()
 }
 
+// Plain-language labels for OD-1's closed entity-type vocabulary (mirrors
+// `relationshipLabelFor` below) -- the raw `type` string is the vocabulary
+// key everywhere else in this module (TYPE_BADGES/TYPE_COLORS lookups,
+// group identity, sort order), so only the rendered label goes through
+// `t()`; a type outside the closed set still renders as its raw form
+// instead of crashing. Takes `t` as a parameter rather than calling
+// `useTranslation()` itself -- this is a plain module, not a component/hook,
+// mirrored by every caller already holding its own `t` from `useTranslation()`.
+const ENTITY_TYPE_KEYS = {
+  Person: 'graph.entityTypes.Person',
+  Organization: 'graph.entityTypes.Organization',
+  Project: 'graph.entityTypes.Project',
+  Product: 'graph.entityTypes.Product',
+  Location: 'graph.entityTypes.Location',
+}
+
+export function entityTypeLabelFor(t, type) {
+  const key = ENTITY_TYPE_KEYS[type]
+  return key ? t(key) : type
+}
+
 // One five-step sky ramp, deep ocean (Person) to pale sky (Location) --
 // the types are peers, not a hierarchy of importance, but one shared hue
 // family reads as one coherent system where five unrelated hues would
@@ -162,18 +183,20 @@ export function typeColorFor(theme, type) {
 // the raw `WORKS_AT`/`PART_OF` enum values read as code, not the plain,
 // declarative voice the rest of this app uses. A type outside the closed
 // set (same reachability note as `badgeFor`) still renders, title-cased
-// from its raw form, instead of crashing.
-const RELATIONSHIP_LABELS = {
-  WORKS_AT: 'Works at',
-  SUPPLIES: 'Supplies',
-  PART_OF: 'Part of',
-  LOCATED_IN: 'Located in',
-  RELATED_TO: 'Related to',
+// from its raw form, instead of crashing -- that fallback can't go through
+// `t()` (there's no key for an unknown type), so it stays English same as
+// before.
+const RELATIONSHIP_LABEL_KEYS = {
+  WORKS_AT: 'graph.relationshipTypes.WORKS_AT',
+  SUPPLIES: 'graph.relationshipTypes.SUPPLIES',
+  PART_OF: 'graph.relationshipTypes.PART_OF',
+  LOCATED_IN: 'graph.relationshipTypes.LOCATED_IN',
+  RELATED_TO: 'graph.relationshipTypes.RELATED_TO',
 }
 
-export function relationshipLabelFor(type) {
-  const known = RELATIONSHIP_LABELS[type]
-  if (known) return known
+export function relationshipLabelFor(t, type) {
+  const key = RELATIONSHIP_LABEL_KEYS[type]
+  if (key) return t(key)
   const lower = type.replaceAll('_', ' ').toLowerCase()
   return lower.charAt(0).toUpperCase() + lower.slice(1)
 }

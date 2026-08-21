@@ -8,7 +8,7 @@ import fromKapsule from 'react-kapsule'
 import { forceCollide } from 'd3-force-3d'
 import { useTheme } from '../../context/ThemeContext'
 import GraphSummary from './GraphSummary'
-import { badgeFor, paletteFor, relationshipLabelFor, typeColorFor } from './graphTheme'
+import { badgeFor, entityTypeLabelFor, paletteFor, relationshipLabelFor, typeColorFor } from './graphTheme'
 
 // Built directly from `force-graph` (the vanilla 2D engine) and
 // `react-kapsule` (the same wrapper `react-force-graph`'s own
@@ -632,7 +632,7 @@ export default function GraphCanvas({ graph }) {
     if (LINK_LABEL_FONT_SIZE * globalScale < MIN_LEGIBLE_FONT_PX) return
 
     const { x, y } = quadraticMidpoint(start, end, link.curvature ?? 0)
-    const label = relationshipLabelFor(link.type)
+    const label = relationshipLabelFor(t, link.type)
 
     ctx.font = `600 ${LINK_LABEL_FONT_SIZE}px sans-serif`
     const textWidth = ctx.measureText(label).width
@@ -821,7 +821,7 @@ export default function GraphCanvas({ graph }) {
                 {badgeFor(type)}
               </span>
               <span className="sr-only">{badgeFor(type)}</span>{' '}
-              <span className="text-[13px] font-semibold">{type}</span>
+              <span className="text-[13px] font-semibold">{entityTypeLabelFor(t, type)}</span>
             </li>
           )
         })}
