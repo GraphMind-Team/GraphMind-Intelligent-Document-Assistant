@@ -29,6 +29,7 @@ import threading
 from neo4j import Driver, GraphDatabase
 
 from app.shared.data_access.shapes import Neo4jEntity, Neo4jRelationship
+from app.shared.env import env_str
 
 logger = logging.getLogger(__name__)
 
@@ -74,9 +75,9 @@ def get_neo4j_driver() -> Driver:
     if _driver_instance is None:
         with _driver_lock:
             if _driver_instance is None:  # re-check: lost the race, not the need
-                uri = os.environ.get("NEO4J_URI")
-                username = os.environ.get("NEO4J_USERNAME")
-                password = os.environ.get("NEO4J_PASSWORD")
+                uri = env_str("NEO4J_URI")
+                username = env_str("NEO4J_USERNAME")
+                password = env_str("NEO4J_PASSWORD")
                 if not uri or not username or not password:
                     raise RuntimeError(
                         "Missing required environment variable(s): NEO4J_URI, "
