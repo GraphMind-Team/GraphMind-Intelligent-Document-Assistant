@@ -42,6 +42,14 @@ services:
         sync: false
       - key: OPENROUTER_API_KEY
         sync: false
+      # Outbound email. Brevo's HTTP API, not SMTP: Render's free tier
+      # blocks outbound ports 25, 465 and 587, so smtplib cannot deliver
+      # from here at all. The SMTP_* vars below are kept because
+      # SMTP_FROM doubles as the Brevo sender address (which must be a
+      # verified sender in the Brevo dashboard), and so a paid instance
+      # could fall back to SMTP without a config rewrite.
+      - key: BREVO_API_KEY
+        sync: false
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT

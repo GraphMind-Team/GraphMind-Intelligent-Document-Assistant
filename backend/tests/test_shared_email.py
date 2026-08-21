@@ -23,6 +23,11 @@ def _clear_smtp_env(monkeypatch):
     `.env` (loaded by `shared/data_access/session.py`'s `load_dotenv()`
     at import time) would leak into these tests' "unconfigured" cases."""
     for key in (
+        # BREVO_API_KEY belongs in this list as much as any SMTP_* var:
+        # it is now checked FIRST by send_email, so a real key in a
+        # developer's .env would silently route every "unconfigured" and
+        # every SMTP test in this file down the HTTP branch instead.
+        "BREVO_API_KEY",
         "SMTP_HOST",
         "SMTP_PORT",
         "SMTP_USERNAME",
@@ -132,3 +137,104 @@ def test_smtp_starttls_defaults_to_true(monkeypatch):
     assert email_module._smtp_starttls() is False
     monkeypatch.setenv("SMTP_STARTTLS", "0")
     assert email_module._smtp_starttls() is False
+
+
+# ---------------------------------------------------------------------------
+# Brevo HTTP transport (added when Render's free tier turned out to block
+# every SMTP port -- 25, 465 and 587 -- making smtplib undeliverable there
+# regardless of configuration).
+# ---------------------------------------------------------------------------
+
+
+def test_brevo_api_key_takes_precedence_over_a_configured_smtp_host(monkeypatch):
+    """The precedence direction is the whole point, not an arbitrary pick.
+
+    A deployment mid-migration has BOTH set: the old SMTP values are still
+    filled in, and the API key is newly added. Preferring SMTP there would
+    mean the variable someone just set to fix delivery gets ignored in
+    favour of the one that cannot deliver -- failing exactly where the fix
+    was supposed to apply.
+    """
+    fake_smtp_class = MagicMock()
+    monkeypatch.setattr(email_module.smtplib, "SMTP", fake_smtp_class)
+    fake_post = MagicMock(return_value=MagicMock(status_code=201))
+    monkeypatch.setattr(email_module.httpx, "post", fake_post)
+
+    monkeypatch.setenv("BREVO_API_KEY", "key-123")
+    monkeypatch.setenv("SMTP_HOST", "smtp.gmail.com")
+    monkeypatch.setenv("SMTP_FROM", "sender@example.com")
+
+    email_module.send_email(to="user@example.com", subject="Hi", body="Body")
+
+    fake_post.assert_called_once()
+    fake_smtp_class.assert_not_called()
+
+
+def test_brevo_send_posts_the_expected_payload(monkeypatch):
+    fake_post = MagicMock(return_value=MagicMock(status_code=201))
+    monkeypatch.setattr(email_module.httpx, "post", fake_post)
+    monkeypatch.setenv("BREVO_API_KEY", "key-123")
+    monkeypatch.setenv("SMTP_FROM", "sender@example.com")
+
+    email_module.send_email(to="user@example.com", subject="Verify", body="Link")
+
+    kwargs = fake_post.call_args.kwargs
+    assert kwargs["headers"]["api-key"] == "key-123"
+    payload = kwargs["json"]
+    assert payload["sender"] == {"email": "sender@example.com"}
+    assert payload["to"] == [{"email": "user@example.com"}]
+    assert payload["subject"] == "Verify"
+    assert payload["textContent"] == "Link"
+
+
+def test_brevo_falls_back_to_smtp_username_for_the_sender(monkeypatch):
+    fake_post = MagicMock(return_value=MagicMock(status_code=201))
+    monkeypatch.setattr(email_module.httpx, "post", fake_post)
+    monkeypatch.setenv("BREVO_API_KEY", "key-123")
+    monkeypatch.setenv("SMTP_USERNAME", "fallback@example.com")
+
+    email_module.send_email(to="user@example.com", subject="Hi", body="Body")
+
+    assert fake_post.call_args.kwargs["json"]["sender"] == {"email": "fallback@example.com"}
+
+
+def test_brevo_without_any_sender_address_raises_a_named_error(monkeypatch):
+    fake_post = MagicMock(return_value=MagicMock(status_code=201))
+    monkeypatch.setattr(email_module.httpx, "post", fake_post)
+    monkeypatch.setenv("BREVO_API_KEY", "key-123")
+
+    with pytest.raises(ValueError, match="SMTP_FROM"):
+        email_module.send_email(to="user@example.com", subject="Hi", body="Body")
+
+    fake_post.assert_not_called()
+
+
+def test_brevo_error_response_raises_with_the_body_included(monkeypatch):
+    """An unverified sender address is the likeliest failure on a fresh
+    Brevo account, and it is indistinguishable from any other 400 unless
+    the response body survives into the message the caller logs."""
+    fake_post = MagicMock(
+        return_value=MagicMock(status_code=400, text='{"message":"Sender not valid"}')
+    )
+    monkeypatch.setattr(email_module.httpx, "post", fake_post)
+    monkeypatch.setenv("BREVO_API_KEY", "key-123")
+    monkeypatch.setenv("SMTP_FROM", "sender@example.com")
+
+    with pytest.raises(RuntimeError, match="Sender not valid"):
+        email_module.send_email(to="user@example.com", subject="Hi", body="Body")
+
+
+def test_no_transport_configured_still_logs_instead_of_sending(monkeypatch, caplog):
+    """The console fallback must survive the new branch -- local dev and
+    CI configure neither transport."""
+    fake_post = MagicMock()
+    monkeypatch.setattr(email_module.httpx, "post", fake_post)
+    fake_smtp_class = MagicMock()
+    monkeypatch.setattr(email_module.smtplib, "SMTP", fake_smtp_class)
+
+    with caplog.at_level("WARNING"):
+        email_module.send_email(to="user@example.com", subject="Hi", body="Body")
+
+    fake_post.assert_not_called()
+    fake_smtp_class.assert_not_called()
+    assert "user@example.com" in caplog.text
