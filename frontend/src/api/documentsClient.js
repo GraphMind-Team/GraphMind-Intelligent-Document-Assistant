@@ -148,6 +148,28 @@ export async function getDocumentContent(authFetch, documentId) {
 // listDocuments -- so this never calls `response.json()` on the happy
 // path, only on a non-2xx response where the backend's `{"detail": ...}`
 // envelope (AD-3) is expected.
+// Assigns/unassigns one document's folder (folder-grouping feature).
+// `folderId` may be `null` to unassign (back to "Ungrouped"). Same error
+// shape as every other client in this module -- a cross-tenant or
+// nonexistent document id, or a `folderId` belonging to another account,
+// both come back as the backend's own 404 (different messages: "Document
+// not found." vs "Folder not found." -- see documents/service.py).
+export async function updateDocumentFolder(authFetch, documentId, folderId) {
+  const response = await authFetch(`/documents/${encodeURIComponent(documentId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ folder_id: folderId }),
+  })
+  const data = await response.json().catch(() => null)
+
+  if (!response.ok) {
+    const message = formatDetail(data?.detail)
+    throw new Error(message || `Failed to update document folder (${response.status}).`)
+  }
+
+  return data
+}
+
 export async function deleteDocument(authFetch, documentId) {
   const response = await authFetch(`/documents/${encodeURIComponent(documentId)}`, {
     method: 'DELETE',

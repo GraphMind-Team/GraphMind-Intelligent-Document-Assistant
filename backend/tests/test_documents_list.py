@@ -42,6 +42,12 @@ def test_list_returns_uploaded_document(client):
     assert len(body) == 1
     assert body[0]["id"] == uploaded["id"]
     assert body[0]["status"] == "Uploaded"
+    # Folder-grouping feature: `GET /documents` is the primary consumer of
+    # `folder_id` (`DocumentsPage.jsx` calls list, not the by-id detail
+    # endpoint) -- a freshly uploaded, never-assigned document must come
+    # back Unfiled (`None`), not the field being silently absent.
+    assert "folder_id" in body[0]
+    assert body[0]["folder_id"] is None
 
 
 def test_list_requires_authentication(client):

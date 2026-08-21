@@ -115,6 +115,25 @@
   --refusal-bg: #FCEFD9;
   --refusal-text: #8A5200;
 
+  /* Folder swatches (folder-grouping feature) -- the enforced pastel
+     color vocabulary (`FOLDER_COLORS` in `backend/app/folders/service.py`).
+     Same bg/text two-tone formula as --status-*: a soft tint plus an ink
+     that clears >= 4.5:1 on it, never a saturated fill. Six keys, deliberately
+     pastel-not-vivid so a whole row of tiles reads calm rather than like a
+     traffic-light board. */
+  --folder-color-rose-bg: #FBE3EA;
+  --folder-color-rose-text: #A31545;
+  --folder-color-peach-bg: #FCE6D6;
+  --folder-color-peach-text: #9A4A0A;
+  --folder-color-sun-bg: #FCF0C7;
+  --folder-color-sun-text: #7A5C00;
+  --folder-color-mint-bg: #D9F3E6;
+  --folder-color-mint-text: #0A6B48;
+  --folder-color-sky-bg: #DCEEFC;
+  --folder-color-sky-text: #0A5A9C;
+  --folder-color-lilac-bg: #EBE1FB;
+  --folder-color-lilac-text: #5B2FA8;
+
   --focus-ring: #0EA5E9;
   --sidebar-focus-ring: #0369A1;
 
@@ -245,6 +264,22 @@
   --refusal-bg: rgba(251, 191, 36, .14);
   --refusal-text: #FBBF24;
 
+  /* Folder swatches -- dark: translucent rgba bg over the dark surface,
+     saturated text, same formula --status-* already uses for its own dark
+     overrides. */
+  --folder-color-rose-bg: rgba(249, 168, 196, .16);
+  --folder-color-rose-text: #F9A8C4;
+  --folder-color-peach-bg: rgba(247, 183, 122, .16);
+  --folder-color-peach-text: #F7B77A;
+  --folder-color-sun-bg: rgba(240, 210, 100, .16);
+  --folder-color-sun-text: #F0D264;
+  --folder-color-mint-bg: rgba(94, 219, 166, .16);
+  --folder-color-mint-text: #5EDBA6;
+  --folder-color-sky-bg: rgba(124, 198, 245, .16);
+  --folder-color-sky-text: #7CC6F5;
+  --folder-color-lilac-bg: rgba(196, 166, 245, .16);
+  --folder-color-lilac-text: #C4A6F5;
+
   --focus-ring: #38BDF8;
   --sidebar-focus-ring: #38BDF8;
 
@@ -321,6 +356,19 @@
 
   --color-refusal-bg: var(--refusal-bg);
   --color-refusal-text: var(--refusal-text);
+
+  --color-folder-color-rose-bg: var(--folder-color-rose-bg);
+  --color-folder-color-rose-text: var(--folder-color-rose-text);
+  --color-folder-color-peach-bg: var(--folder-color-peach-bg);
+  --color-folder-color-peach-text: var(--folder-color-peach-text);
+  --color-folder-color-sun-bg: var(--folder-color-sun-bg);
+  --color-folder-color-sun-text: var(--folder-color-sun-text);
+  --color-folder-color-mint-bg: var(--folder-color-mint-bg);
+  --color-folder-color-mint-text: var(--folder-color-mint-text);
+  --color-folder-color-sky-bg: var(--folder-color-sky-bg);
+  --color-folder-color-sky-text: var(--folder-color-sky-text);
+  --color-folder-color-lilac-bg: var(--folder-color-lilac-bg);
+  --color-folder-color-lilac-text: var(--folder-color-lilac-text);
 
   --color-focus-ring: var(--focus-ring);
   --color-sidebar-focus-ring: var(--sidebar-focus-ring);

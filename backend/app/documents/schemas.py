@@ -35,3 +35,18 @@ class DocumentResponse(BaseModel):
     # body is the *existing* document returned in place of creating a new
     # one -- the route sets the 200 status code alongside this.
     is_duplicate: bool = False
+    # Folder-grouping feature: `None` means "Unfiled". Additive-only field,
+    # same reasoning as `is_duplicate` above -- every existing response
+    # consumer is unaffected by its presence.
+    folder_id: uuid.UUID | None = None
+
+
+class UpdateDocumentFolderRequest(BaseModel):
+    """Body for `PATCH /documents/{document_id}`. `folder_id: null`
+    unassigns the document (back to "Unfiled") -- this is the one and only
+    field this endpoint accepts (the spec's Boundaries: no server-side
+    sort/filter param, and this PATCH exists solely for folder assignment).
+    No default -- the caller must state its intent explicitly, either a
+    folder id or `null`, rather than an omitted field silently unassigning."""
+
+    folder_id: uuid.UUID | None

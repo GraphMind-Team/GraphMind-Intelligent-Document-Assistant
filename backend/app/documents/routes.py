@@ -24,7 +24,7 @@ from app.documents.rate_limiter import (
     get_upload_concurrency_limiter,
     get_upload_rate_limiter,
 )
-from app.documents.schemas import DocumentResponse
+from app.documents.schemas import DocumentResponse, UpdateDocumentFolderRequest
 from app.shared.data_access import get_db_session
 from app.shared.models import User
 from app.shared.rate_limiter import ConcurrencyLimiter, RateLimiter
@@ -138,6 +138,22 @@ def get_document(
     accident.
     """
     document = service.get_document(db, current_user, document_id)
+    return DocumentResponse.model_validate(document)
+
+
+@router.patch("/{document_id}", response_model=DocumentResponse)
+def update_document_folder(
+    document_id: uuid.UUID,
+    data: UpdateDocumentFolderRequest,
+    db: Session = Depends(get_db_session),
+    current_user: User = Depends(get_current_user),
+) -> DocumentResponse:
+    """Assigns/unassigns one document's folder (the folder-grouping
+    feature's document-side endpoint). Same tenancy-scoped 404 as
+    `get_document` for the document itself; a `folder_id` that doesn't
+    belong to `current_user` is its own 404 -- see
+    `service.update_document_folder`'s docstring."""
+    document = service.update_document_folder(db, current_user, document_id, data.folder_id)
     return DocumentResponse.model_validate(document)
 
 

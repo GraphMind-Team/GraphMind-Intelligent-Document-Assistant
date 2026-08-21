@@ -88,7 +88,11 @@ def test_get_never_serializes_raw_content_or_owner(client):
         # Story 2.6: additive field, `False` for any document that isn't
         # itself the response to a duplicate upload.
         "is_duplicate",
+        # Folder-grouping feature: additive field, `None` ("Unfiled") for
+        # any document never assigned to a folder.
+        "folder_id",
     }
+    assert body["folder_id"] is None
     # Not yet Ready -- Story 2.4 requires this stay None, never a
     # fabricated {} (mirrors UX-DR8's "Pending, never a fabricated 0" rule).
     assert body["chapter_breakdown"] is None

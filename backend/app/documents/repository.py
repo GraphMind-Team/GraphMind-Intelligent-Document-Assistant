@@ -146,6 +146,23 @@ def delete_all_documents_for_user(db: Session, user_id: uuid.UUID) -> int:
     return result.rowcount
 
 
+def update_document_folder(db: Session, document: Document, folder_id: uuid.UUID | None) -> Document:
+    """Sets `document.folder_id` to `folder_id` (or `None` to unassign).
+
+    Takes the already-loaded, already-tenancy-checked `document` object
+    (from `get_document_for_user`, via `service.get_document`) rather than
+    an id -- the folder-ownership check (a different tenancy check, on a
+    different table) happens in the service layer before this is ever
+    called, mirroring `claim_failed_document_for_reingest`'s "the caller
+    enforces the business rule, this function only does the write"
+    convention. Does not commit -- the caller owns the transaction
+    boundary.
+    """
+    document.folder_id = folder_id
+    db.flush()
+    return document
+
+
 def get_document_by_content_hash(db: Session, user_id: uuid.UUID, content_hash: str) -> Document | None:
     """One document by content hash, scoped to its owner (Story 2.6).
 

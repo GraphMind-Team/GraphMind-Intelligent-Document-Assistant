@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { listDocuments } from '../api/documentsClient'
+import { listFolders } from '../api/foldersClient'
 import DocumentCard from '../components/DocumentCard'
+import FolderGrid, { ALL_DOCUMENTS_FILTER, UNGROUPED_FILTER } from '../components/FolderGrid'
 import { DOCUMENT_STATUSES } from '../components/StatusPill'
 import UploadModal from '../components/UploadModal'
 
@@ -82,6 +84,21 @@ export default function DocumentsPage() {
   const [typeFilter, setTypeFilter] = useState('all')
   const uploadButtonRef = useRef(null)
 
+  // Folder-grouping feature: `folders` is fetched once (no polling -- only
+  // ingestion status needs that), and `folderFilter` is either
+  // ALL_DOCUMENTS_FILTER, UNGROUPED_FILTER, or a real folder's own id.
+  // Client-side over `documents`, same as sortBy/typeFilter above.
+  const [folders, setFolders] = useState([])
+  const [folderFilter, setFolderFilter] = useState(ALL_DOCUMENTS_FILTER)
+  // Its own error state, separate from the document list's `error` above
+  // -- a folder-fetch failure must not also blank out the document grid
+  // (`showGrid`/`showEmptyLibrary`/`showFilteredEmpty` all key off `error`
+  // already meaning "the document list itself failed"). Rendered with the
+  // same `role="alert"` banner convention this file already uses for
+  // `error`, just its own paragraph, so the failure is visible rather than
+  // silently indistinguishable from "you have zero folders".
+  const [folderError, setFolderError] = useState(null)
+
   // `silent` skips the loading/error UI churn -- used by the polling
   // effect below so a background re-check every few seconds doesn't blank
   // out the already-rendered grid on every tick.
@@ -106,6 +123,27 @@ export default function DocumentsPage() {
   useEffect(() => {
     fetchDocuments()
   }, [fetchDocuments])
+
+  // Folders are fetched once on mount -- no polling loop, unlike documents:
+  // nothing about a folder transitions on its own in the background the
+  // way ingestion status does. A failure here is surfaced via its own
+  // `folderError` banner (see the state comment above) rather than
+  // swallowed -- the document grid still renders normally either way, but
+  // the user can now tell "zero folders" apart from "folders failed to
+  // load".
+  const fetchFolders = useCallback(async () => {
+    setFolderError(null)
+    try {
+      const data = await listFolders(authFetch)
+      setFolders(data)
+    } catch (err) {
+      setFolderError(err.message)
+    }
+  }, [authFetch])
+
+  useEffect(() => {
+    fetchFolders()
+  }, [fetchFolders])
 
   // A key identifying *which* documents are currently pollable, not just
   // whether any are -- a plain boolean would mean a document stuck at
@@ -153,8 +191,17 @@ export default function DocumentsPage() {
   }, [pollableDocumentIdsKey, fetchDocuments])
 
   const visibleDocuments = useMemo(() => {
-    const filtered =
+    let filtered =
       typeFilter === 'all' ? documents : documents.filter((doc) => doc.file_type === typeFilter)
+
+    // Folder-grouping feature: narrows further by the selected folder
+    // tile, same client-side derivation as the type filter above -- no
+    // separate fetch, no server-side param.
+    if (folderFilter === UNGROUPED_FILTER) {
+      filtered = filtered.filter((doc) => !doc.folder_id)
+    } else if (folderFilter !== ALL_DOCUMENTS_FILTER) {
+      filtered = filtered.filter((doc) => doc.folder_id === folderFilter)
+    }
 
     // Copy before sorting -- `documents` is state, and Array#sort mutates.
     const sorted = [...filtered]
@@ -166,7 +213,7 @@ export default function DocumentsPage() {
       sorted.sort(byMostRecent)
     }
     return sorted
-  }, [documents, sortBy, typeFilter])
+  }, [documents, sortBy, typeFilter, folderFilter])
 
   // Single boolean gate, one <UploadModal/> ever rendered -- structurally
   // no second modal can open on top of it (Story 2.1 AC1).
@@ -188,9 +235,44 @@ export default function DocumentsPage() {
   // guard, activating the trash button (mouse *or* Enter/Space, since
   // button activation dispatches a bubbling click) would navigate, and
   // clicking the title link would push two identical history entries.
+  // Also covers the "⋮" menu button and its menu items (Round 2: they're
+  // `<button>`s too, same as trash, so no separate selector is needed for
+  // them). Native HTML5 drag-and-drop (also Round 2) dispatches neither a
+  // `click` nor bubbles through this guard, so dragging a card needs no
+  // entry here either.
   function handleCardClick(event, documentId) {
     if (event.target.closest('a, button')) return
     navigate(`/documents/${documentId}`)
+  }
+
+  // Folder-grouping feature: DocumentCard reports a successful assignment
+  // change here rather than keeping its own copy of `folder_id` -- this is
+  // the single source of truth `visibleDocuments`/`FolderGrid`'s counts
+  // are both derived from.
+  function handleDocumentFolderChanged(documentId, folderId) {
+    setDocuments((prev) =>
+      prev.map((doc) => (doc.id === documentId ? { ...doc, folder_id: folderId } : doc)),
+    )
+  }
+
+  function handleFolderCreated(folder) {
+    setFolders((prev) => [...prev, folder])
+  }
+
+  function handleFolderUpdated(folder) {
+    setFolders((prev) => prev.map((existing) => (existing.id === folder.id ? folder : existing)))
+  }
+
+  // Deleting a folder never deletes its documents (the spec's Boundaries)
+  // -- the backend's `ON DELETE SET NULL` already unfiled them server-side,
+  // so the local `documents` copy of `folder_id` is updated here too,
+  // otherwise it would keep pointing at a folder id that no longer exists
+  // until the next full refetch.
+  function handleFolderDeleted(folderId) {
+    setFolders((prev) => prev.filter((folder) => folder.id !== folderId))
+    setDocuments((prev) =>
+      prev.map((doc) => (doc.folder_id === folderId ? { ...doc, folder_id: null } : doc)),
+    )
   }
 
   // Story 2.7: on a successful delete, the row is removed from local
@@ -235,6 +317,36 @@ export default function DocumentsPage() {
           Upload
         </button>
       </div>
+
+      {/* Its own banner, separate from the document-list `error` below --
+          a folder-fetch failure must stay visible without hiding the
+          document grid (which stays functional either way, just with zero
+          folder tiles until a retry). */}
+      {folderError && (
+        <p role="alert" className="mb-4 text-sm text-danger">
+          {folderError}
+        </p>
+      )}
+
+      {/* Folder tile grid sits above the document grid (folder-grouping
+          feature) -- selecting a tile filters `visibleDocuments` above
+          client-side, the same convention the sort/filter selects below
+          already use. "Folders" heading (Round 2, Spec Change Log) makes
+          the section legible as its own area -- same eyebrow/heading
+          convention `DocumentDetailPage.jsx` already uses for its own
+          in-page sub-sections ("Chapter breakdown", "Reason"), smaller
+          than this page's own `h1` above. */}
+      <h2 className="mb-2 text-eyebrow uppercase text-text2">Folders</h2>
+      <FolderGrid
+        folders={folders}
+        documents={documents}
+        activeFilter={folderFilter}
+        onSelectFilter={setFolderFilter}
+        onFolderCreated={handleFolderCreated}
+        onFolderUpdated={handleFolderUpdated}
+        onFolderDeleted={handleFolderDeleted}
+        onDocumentFolderChanged={handleDocumentFolderChanged}
+      />
 
       {/* Real <select> elements with real labels -- not custom listbox
           widgets -- so keyboard/screen-reader/mobile behavior is the
@@ -297,13 +409,19 @@ export default function DocumentsPage() {
           A <ul> because this is a list of things, not a grid of layout
           boxes -- screen readers announce the count. */}
       {showGrid && (
-        <ul className="grid list-none grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-4 p-0">
+        <ul
+          aria-label="Documents"
+          className="grid list-none grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-4 p-0"
+        >
           {visibleDocuments.map((doc) => (
             <DocumentCard
               key={doc.id}
               document={doc}
               onCardClick={handleCardClick}
               onDeleted={handleDeleted}
+              folders={folders}
+              onFolderChanged={handleDocumentFolderChanged}
+              onFolderCreated={handleFolderCreated}
             />
           ))}
         </ul>

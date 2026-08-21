@@ -1,10 +1,11 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import DocumentsPage from './DocumentsPage'
 import { useAuth } from '../context/AuthContext'
 import * as documentsClient from '../api/documentsClient'
+import * as foldersClient from '../api/foldersClient'
 
 vi.mock('../context/AuthContext', () => ({ useAuth: vi.fn() }))
 vi.mock('../components/UploadModal', () => ({
@@ -15,6 +16,18 @@ vi.mock('../components/UploadModal', () => ({
     </div>
   ),
 }))
+
+// Folder-grouping feature: DocumentsPage fetches folders alongside
+// documents on mount. Every test in this file gets a default empty
+// `listFolders` resolution here, so the pre-existing document-only tests
+// below (none of which mock `authFetch` beyond a bare `vi.fn()`) don't
+// also surface DocumentsPage's own `folderError` alert banner just from
+// the folders fetch failing against an un-implemented `authFetch`. Tests
+// that actually exercise folder behavior override this per-test via their
+// own `vi.spyOn(foldersClient, 'listFolders')`.
+beforeEach(() => {
+  vi.spyOn(foldersClient, 'listFolders').mockResolvedValue([])
+})
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -56,6 +69,8 @@ const MD_DOC = {
   created_at: '2026-08-01T00:00:00Z',
 }
 
+const FOLDER_A = { id: 'folder-a', name: 'Contracts', color: 'mint', created_at: '2026-08-10T00:00:00Z' }
+
 describe('DocumentsPage', () => {
   it('renders type, title, status pill, uploaded date and a trash icon per card', async () => {
     useAuth.mockReturnValue({ authFetch: vi.fn() })
@@ -64,8 +79,12 @@ describe('DocumentsPage', () => {
     renderPage()
 
     // The card grid is a list, so each document is a listitem rather than
-    // a table row -- same five facts, different container.
-    const card = await screen.findByRole('listitem')
+    // a table row -- same five facts, different container. Scoped to the
+    // "Documents" list specifically: the folder tile grid above it (added
+    // by the folder-grouping feature) is its own separate list with its
+    // own listitems.
+    const documentsList = await screen.findByRole('list', { name: 'Documents' })
+    const card = within(documentsList).getByRole('listitem')
     expect(within(card).getByRole('link', { name: 'beta-report.pdf' })).toBeInTheDocument()
     expect(within(card).getByText('PDF')).toBeInTheDocument()
     expect(within(card).getByText('Uploaded')).toBeInTheDocument()
@@ -83,7 +102,8 @@ describe('DocumentsPage', () => {
 
     renderPage()
 
-    const card = await screen.findByRole('listitem')
+    const documentsList = await screen.findByRole('list', { name: 'Documents' })
+    const card = within(documentsList).getByRole('listitem')
     expect(within(card).getByText('Failed')).toBeInTheDocument()
     expect(screen.queryByText(/unexpected EOF/)).not.toBeInTheDocument()
   })
@@ -152,7 +172,8 @@ describe('DocumentsPage', () => {
     const user = userEvent.setup()
 
     renderPage()
-    const card = await screen.findByRole('listitem')
+    const documentsList = await screen.findByRole('list', { name: 'Documents' })
+    const card = within(documentsList).getByRole('listitem')
 
     await user.click(card)
 
@@ -221,7 +242,7 @@ describe('DocumentsPage', () => {
     expect(deleteSpy).toHaveBeenCalledWith(expect.any(Function), PDF_DOC.id)
     // The other document is untouched.
     expect(screen.getByRole('link', { name: 'alpha-notes.md' })).toBeInTheDocument()
-    expect(screen.getAllByRole('listitem')).toHaveLength(1)
+    expect(within(screen.getByRole('list', { name: 'Documents' })).getAllByRole('listitem')).toHaveLength(1)
 
     // Focus lands on Upload, the one always-present stable control, since
     // the card (and the confirm box's own Delete button, which held focus
@@ -473,6 +494,250 @@ describe('DocumentsPage', () => {
       })
 
       expect(screen.getByRole('alert')).toHaveTextContent('Network error')
+    })
+  })
+
+  describe('folder grouping (folder-grouping feature)', () => {
+    it('fetches folders once on mount and renders them as tiles above the document grid', async () => {
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([
+        { ...PDF_DOC, folder_id: 'folder-a' },
+        { ...MD_DOC, folder_id: null },
+      ])
+      const foldersSpy = vi.spyOn(foldersClient, 'listFolders').mockResolvedValue([FOLDER_A])
+
+      renderPage()
+
+      expect(await screen.findByRole('button', { name: /^Contracts,/ })).toBeInTheDocument()
+      expect(foldersSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('surfaces a folder-fetch failure as its own alert, without hiding the document grid', async () => {
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([PDF_DOC])
+      vi.spyOn(foldersClient, 'listFolders').mockRejectedValue(new Error('Failed to load folders (500).'))
+
+      renderPage()
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('Failed to load folders (500).')
+      // The document grid is unaffected -- a folder-fetch failure is
+      // distinguishable from "you have zero folders", but it's not the
+      // same kind of failure as the document list's own, which does hide
+      // the grid.
+      expect(screen.getByRole('link', { name: 'beta-report.pdf' })).toBeInTheDocument()
+      // The two fixed tiles ("All documents"/"Ungrouped") still render --
+      // the grid works with zero folder tiles either way.
+      expect(screen.getByRole('button', { name: /^All documents,/ })).toBeInTheDocument()
+    })
+
+    it('renders a "Folders" heading above the tile grid', async () => {
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([])
+
+      renderPage()
+
+      expect(await screen.findByRole('heading', { name: 'Folders' })).toBeInTheDocument()
+    })
+
+    it('selecting a folder tile filters the grid client-side; "All documents" and "Ungrouped" do too', async () => {
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      const listSpy = vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([
+        { ...PDF_DOC, folder_id: 'folder-a' },
+        { ...MD_DOC, folder_id: null },
+      ])
+      vi.spyOn(foldersClient, 'listFolders').mockResolvedValue([FOLDER_A])
+      const user = userEvent.setup()
+
+      renderPage()
+      await screen.findByRole('link', { name: 'beta-report.pdf' })
+      await screen.findByRole('link', { name: 'alpha-notes.md' })
+
+      // Selecting the folder tile narrows to just its member.
+      await user.click(screen.getByRole('button', { name: /^Contracts,/ }))
+      expect(screen.getByRole('link', { name: 'beta-report.pdf' })).toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: 'alpha-notes.md' })).not.toBeInTheDocument()
+
+      // "Ungrouped" narrows to the document with no folder_id.
+      await user.click(screen.getByRole('button', { name: /^Ungrouped,/ }))
+      expect(screen.queryByRole('link', { name: 'beta-report.pdf' })).not.toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'alpha-notes.md' })).toBeInTheDocument()
+
+      // "All documents" shows everything again.
+      await user.click(screen.getByRole('button', { name: /^All documents,/ }))
+      expect(screen.getByRole('link', { name: 'beta-report.pdf' })).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'alpha-notes.md' })).toBeInTheDocument()
+
+      // No server round trip for any of the above -- filtering stayed
+      // entirely client-side over the one initial fetch, matching the
+      // existing sort/type-filter convention.
+      expect(listSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('assigning a document to a folder via its card "⋮" menu updates the grid and the tile count without a refetch', async () => {
+      const authFetch = vi.fn()
+      useAuth.mockReturnValue({ authFetch })
+      const listSpy = vi
+        .spyOn(documentsClient, 'listDocuments')
+        .mockResolvedValue([{ ...PDF_DOC, folder_id: null }])
+      vi.spyOn(foldersClient, 'listFolders').mockResolvedValue([FOLDER_A])
+      vi.spyOn(documentsClient, 'updateDocumentFolder').mockResolvedValue({
+        ...PDF_DOC,
+        folder_id: 'folder-a',
+      })
+      const user = userEvent.setup()
+
+      renderPage()
+      await screen.findByRole('link', { name: 'beta-report.pdf' })
+      expect(within(screen.getByRole('button', { name: /^Contracts,/ })).getByText('0 documents')).toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: `Move ${PDF_DOC.filename} to folder` }))
+      await user.click(screen.getByRole('menuitem', { name: 'Contracts' }))
+
+      // The tile's count reflects the reassignment immediately...
+      await waitFor(() =>
+        expect(
+          within(screen.getByRole('button', { name: /^Contracts,/ })).getByText('1 document'),
+        ).toBeInTheDocument(),
+      )
+      // ...and selecting that tile now shows the reassigned document,
+      // without DocumentsPage refetching the document list.
+      await user.click(screen.getByRole('button', { name: /^Contracts,/ }))
+      expect(screen.getByRole('link', { name: 'beta-report.pdf' })).toBeInTheDocument()
+      expect(listSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not navigate to Detail when the per-card "⋮" menu is opened or used', async () => {
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([{ ...PDF_DOC, folder_id: null }])
+      vi.spyOn(foldersClient, 'listFolders').mockResolvedValue([FOLDER_A])
+      vi.spyOn(documentsClient, 'updateDocumentFolder').mockResolvedValue({
+        ...PDF_DOC,
+        folder_id: 'folder-a',
+      })
+      const user = userEvent.setup()
+
+      renderPage()
+      await screen.findByRole('link', { name: 'beta-report.pdf' })
+
+      await user.click(screen.getByRole('button', { name: `Move ${PDF_DOC.filename} to folder` }))
+      expect(screen.queryByText(/detail probe/i)).not.toBeInTheDocument()
+
+      await user.click(screen.getByRole('menuitem', { name: 'Contracts' }))
+      expect(screen.queryByText(/detail probe/i)).not.toBeInTheDocument()
+    })
+
+    it('dragging one ungrouped document onto another opens the create-folder dialog, and confirming assigns both', async () => {
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([
+        { ...PDF_DOC, folder_id: null },
+        { ...MD_DOC, folder_id: null },
+      ])
+      vi.spyOn(foldersClient, 'createFolder').mockResolvedValue({
+        id: 'new-folder',
+        name: 'Reports',
+        color: 'sun',
+        created_at: '2026-08-21T00:00:00Z',
+      })
+      const updateSpy = vi.spyOn(documentsClient, 'updateDocumentFolder').mockResolvedValue({})
+      const user = userEvent.setup()
+
+      renderPage()
+      const documentsList = await screen.findByRole('list', { name: 'Documents' })
+      const [pdfCard, mdCard] = within(documentsList).getAllByRole('listitem')
+
+      const dataTransfer = {
+        store: {},
+        setData(type, value) {
+          this.store[type] = value
+        },
+        getData(type) {
+          return this.store[type] ?? ''
+        },
+      }
+      fireEvent.dragStart(pdfCard, { dataTransfer })
+      fireEvent.dragOver(mdCard, { dataTransfer })
+      fireEvent.drop(mdCard, { dataTransfer })
+
+      expect(screen.getByRole('dialog', { name: /new folder/i })).toBeInTheDocument()
+      await user.type(screen.getByLabelText('Name'), 'Reports')
+      await user.click(screen.getByRole('button', { name: 'Save' }))
+
+      await waitFor(() => {
+        expect(updateSpy).toHaveBeenCalledWith(expect.any(Function), PDF_DOC.id, 'new-folder')
+        expect(updateSpy).toHaveBeenCalledWith(expect.any(Function), MD_DOC.id, 'new-folder')
+      })
+      // The new tile now shows both documents, reflected without a
+      // document-list refetch.
+      await waitFor(() =>
+        expect(
+          within(screen.getByRole('button', { name: /^Reports,/ })).getByText('2 documents'),
+        ).toBeInTheDocument(),
+      )
+    })
+
+    it('dragging a document onto a folder tile assigns it directly, no dialog', async () => {
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([{ ...PDF_DOC, folder_id: null }])
+      vi.spyOn(foldersClient, 'listFolders').mockResolvedValue([FOLDER_A])
+      const updateSpy = vi
+        .spyOn(documentsClient, 'updateDocumentFolder')
+        .mockResolvedValue({ ...PDF_DOC, folder_id: 'folder-a' })
+
+      renderPage()
+      const documentsList = await screen.findByRole('list', { name: 'Documents' })
+      const card = within(documentsList).getByRole('listitem')
+      const tile = screen.getByRole('button', { name: /^Contracts,/ }).closest('div')
+
+      const dataTransfer = {
+        store: {},
+        setData(type, value) {
+          this.store[type] = value
+        },
+        getData(type) {
+          return this.store[type] ?? ''
+        },
+      }
+      fireEvent.dragStart(card, { dataTransfer })
+      fireEvent.dragOver(tile, { dataTransfer })
+      fireEvent.drop(tile, { dataTransfer })
+
+      await waitFor(() => expect(updateSpy).toHaveBeenCalledWith(expect.any(Function), PDF_DOC.id, 'folder-a'))
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      await waitFor(() =>
+        expect(
+          within(screen.getByRole('button', { name: /^Contracts,/ })).getByText('1 document'),
+        ).toBeInTheDocument(),
+      )
+    })
+
+    it('deleting a folder removes its tile and ungroups its documents locally, without losing them', async () => {
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([
+        { ...PDF_DOC, folder_id: 'folder-a' },
+      ])
+      vi.spyOn(foldersClient, 'listFolders').mockResolvedValue([FOLDER_A])
+      vi.spyOn(foldersClient, 'deleteFolder').mockResolvedValue(undefined)
+      const user = userEvent.setup()
+
+      renderPage()
+      await screen.findByRole('link', { name: 'beta-report.pdf' })
+
+      await user.click(screen.getByRole('button', { name: 'Delete Contracts' }))
+      await user.click(within(screen.getByRole('alert')).getByRole('button', { name: 'Delete' }))
+
+      // The folder tile is gone...
+      await waitFor(() =>
+        expect(screen.queryByRole('button', { name: /^Contracts,/ })).not.toBeInTheDocument(),
+      )
+      // ...its document is still in the grid (never deleted), now
+      // Ungrouped -- its "⋮" menu no longer offers an "Ungrouped" item
+      // (nothing to unassign from) or "Contracts" (the folder is gone).
+      expect(screen.getByRole('link', { name: 'beta-report.pdf' })).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: `Move ${PDF_DOC.filename} to folder` }))
+      const menu = screen.getByRole('menu')
+      expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
+        'Create new folder',
+      ])
     })
   })
 })
