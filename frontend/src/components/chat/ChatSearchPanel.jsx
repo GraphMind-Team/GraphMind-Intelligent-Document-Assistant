@@ -8,7 +8,21 @@
 // Typing filters live; the surrounding <form> exists so pressing Enter
 // is a no-op submit instead of bubbling out of the input (and so the
 // field is a real search landmark for assistive tech).
-export default function ChatSearchPanel({ value, onChange, resultCount, totalCount }) {
+//
+// A match no longer removes every other message from the thread (that
+// hid the surrounding conversation instead of helping find something in
+// it) -- the thread stays intact and this panel's prev/next arrows
+// scroll the active match into view instead, `activeMatchNumber` (1-based)
+// tracking which of the `resultCount` matches that is.
+export default function ChatSearchPanel({
+  value,
+  onChange,
+  resultCount,
+  totalCount,
+  activeMatchNumber,
+  onPrevMatch,
+  onNextMatch,
+}) {
   return (
     <section className="w-full shrink-0 self-start rounded-2xl border border-border bg-card-bg p-5 shadow-card">
       <h2 className="mb-2.5 text-[13px] font-bold text-primary">Search in chat</h2>
@@ -43,14 +57,59 @@ export default function ChatSearchPanel({ value, onChange, resultCount, totalCou
       </form>
 
       {value.trim() !== '' && (
-        // aria-live: the count is the only feedback that a query matched
-        // anything, and the thread itself is a separate live region the
-        // filter deliberately doesn't re-announce.
-        <p aria-live="polite" className="mt-2 text-[11px] text-text2">
-          {resultCount === 0
-            ? 'No matching messages loaded.'
-            : `${resultCount} of ${totalCount} loaded message${totalCount === 1 ? '' : 's'}.`}
-        </p>
+        <div className="mt-2 flex items-center justify-between gap-2">
+          {/* aria-live: the count is the only feedback that a query matched
+              anything, and the thread itself is a separate live region the
+              search deliberately doesn't re-announce. */}
+          <p aria-live="polite" className="text-[11px] text-text2">
+            {resultCount === 0
+              ? 'No matching messages loaded.'
+              : `Match ${activeMatchNumber} of ${resultCount} (${totalCount} loaded).`}
+          </p>
+
+          {resultCount > 0 && (
+            <div className="flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                onClick={onPrevMatch}
+                aria-label="Previous match"
+                className="btn-ghost flex h-6 w-6 items-center justify-center rounded-full"
+              >
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-3.5 w-3.5"
+                >
+                  <path d="M18 15l-6-6-6 6" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={onNextMatch}
+                aria-label="Next match"
+                className="btn-ghost flex h-6 w-6 items-center justify-center rounded-full"
+              >
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-3.5 w-3.5"
+                >
+                  <path d="M6 9l6 6 6-6" />
+                </svg>
+              </button>
+            </div>
+          )}
+        </div>
       )}
     </section>
   )
