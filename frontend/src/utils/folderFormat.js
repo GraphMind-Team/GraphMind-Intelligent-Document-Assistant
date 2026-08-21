@@ -20,14 +20,33 @@ const FOLDER_COLOR_BG_CLASSES = {
   lilac: 'bg-folder-color-lilac-bg',
 }
 
+const FOLDER_COLOR_TEXT_CLASSES = {
+  rose: 'text-folder-color-rose-text',
+  peach: 'text-folder-color-peach-text',
+  sun: 'text-folder-color-sun-text',
+  mint: 'text-folder-color-mint-text',
+  sky: 'text-folder-color-sky-text',
+  lilac: 'text-folder-color-lilac-text',
+}
+
 // Neutral fallback for a color outside the vocabulary (backend/frontend
 // drift) -- still renders, rather than silently breaking the tile.
 const UNKNOWN_COLOR_BG_CLASS = 'bg-surface'
+const UNKNOWN_COLOR_TEXT_CLASS = 'text-text'
 
-// The swatch's own fill -- used for the small color dot on a folder tile
-// and for each option in FolderModal's color picker. There is no
-// filled-chip rendering of a folder's color anywhere in the app (unlike
-// StatusPill's bg+text pairing), so there is no second bg+text helper here.
+// Used by FolderModal's color picker, which keeps its own circular swatch
+// convention for choosing a color (a `role="radio"` dot per option) --
+// unrelated to how a folder's color renders on its own tile.
 export function folderSwatchClass(color) {
   return FOLDER_COLOR_BG_CLASSES[color] ?? UNKNOWN_COLOR_BG_CLASS
+}
+
+// The folder tile's own fill: the whole tile is tinted with the folder's
+// color (bg + matching readable text), the same two-tone formula
+// StatusPill's STATUS_CLASSES already uses, rather than a small color dot.
+export function folderTileClasses(color) {
+  return {
+    bg: FOLDER_COLOR_BG_CLASSES[color] ?? UNKNOWN_COLOR_BG_CLASS,
+    text: FOLDER_COLOR_TEXT_CLASSES[color] ?? UNKNOWN_COLOR_TEXT_CLASS,
+  }
 }

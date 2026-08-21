@@ -101,6 +101,46 @@ export default function DocumentsPage() {
   // silently indistinguishable from "you have zero folders".
   const [folderError, setFolderError] = useState(null)
 
+  // The folders panel (folder-grouping feature): a persistent right-hand
+  // panel, not a dropdown -- toggled open/closed by its own "Folders"
+  // button, and otherwise only closed by an outside click. Selecting a
+  // tile inside it does *not* close it, unlike DocumentCard.jsx's own "⋮"
+  // menu -- the panel is meant to stay put so a document can be dragged
+  // into it repeatedly.
+  //
+  // Listens on `click`, not `mousedown`: a native drag gesture starts with
+  // a `mousedown` on its source card (which sits outside this panel), and
+  // a `mousedown` listener would close the panel the instant that drag
+  // began -- before the drop ever reached a folder tile, defeating the
+  // whole "drag a document into the open panel" point of keeping it open.
+  // A `click` never fires for that same gesture (the browser suppresses it
+  // once the pointer has moved), so dragging in from outside the panel is
+  // unaffected; only an actual click elsewhere closes it.
+  //
+  // A click inside `[role="dialog"]` is also excluded: FolderModal (opened
+  // from this panel's own "+ New folder"/edit, or from a doc-onto-doc drop
+  // that creates one) is portalled to `document.body`, outside this
+  // panel's own DOM subtree, so without this its own Save/Cancel buttons
+  // would otherwise read as an outside click and close the panel out from
+  // under the dialog that's still open on top of it.
+  const [isFoldersOpen, setIsFoldersOpen] = useState(false)
+  const foldersTriggerRef = useRef(null)
+  const foldersPanelRef = useRef(null)
+
+  useEffect(() => {
+    if (!isFoldersOpen) return undefined
+
+    function handleClick(event) {
+      if (foldersPanelRef.current?.contains(event.target)) return
+      if (foldersTriggerRef.current?.contains(event.target)) return
+      if (event.target.closest('[role="dialog"]')) return
+      setIsFoldersOpen(false)
+    }
+
+    document.addEventListener('click', handleClick)
+    return () => document.removeEventListener('click', handleClick)
+  }, [isFoldersOpen])
+
   // `silent` skips the loading/error UI churn -- used by the polling
   // effect below so a background re-check every few seconds doesn't blank
   // out the already-rendered grid on every tick.
@@ -330,33 +370,34 @@ export default function DocumentsPage() {
         </p>
       )}
 
-      {/* Folder tile grid sits above the document grid (folder-grouping
-          feature) -- selecting a tile filters `visibleDocuments` above
-          client-side, the same convention the sort/filter selects below
-          already use. "Folders" heading (Round 2, Spec Change Log) makes
-          the section legible as its own area -- same eyebrow/heading
-          convention `DocumentDetailPage.jsx` already uses for its own
-          in-page sub-sections ("Chapter breakdown", "Reason"), smaller
-          than this page's own `h1` above. */}
-      <h2 className="mb-2 text-eyebrow uppercase text-text2">{t('documents.foldersHeading')}</h2>
-      <FolderGrid
-        folders={folders}
-        documents={documents}
-        activeFilter={folderFilter}
-        onSelectFilter={setFolderFilter}
-        onFolderCreated={handleFolderCreated}
-        onFolderUpdated={handleFolderUpdated}
-        onFolderDeleted={handleFolderDeleted}
-        onDocumentFolderChanged={handleDocumentFolderChanged}
-      />
-
-      {/* Real <select> elements with real labels -- not custom listbox
-          widgets -- so keyboard/screen-reader/mobile behavior is the
-          platform's, not something re-implemented here. The visible
-          option text carries the "Sort:"/"Filter:" prefix exactly as the
-          mockup does, so the labels themselves are screen-reader-only
-          rather than duplicating that prefix on screen. */}
+      {/* Toolbar row: the "Folders" trigger (folder-grouping feature) sits
+          beside Sort/Filter, sized to match -- a plain toggle button, not a
+          dropdown. Pressing it mounts a persistent right-hand panel (below,
+          next to the document grid) that stays open across tile
+          selections; only an outside click or pressing this button again
+          closes it (the effect above). Real <select> elements for
+          Sort/Filter -- not custom listbox widgets -- so keyboard/screen-
+          reader/mobile behavior is the platform's, not something
+          re-implemented here. The visible option text carries the
+          "Sort:"/"Filter:" prefix exactly as the mockup does, so the labels
+          themselves are screen-reader-only rather than duplicating that
+          prefix on screen. */}
       <div className="mb-4 flex flex-wrap items-center gap-2.5">
+        <button
+          ref={foldersTriggerRef}
+          type="button"
+          aria-pressed={isFoldersOpen}
+          onClick={() => setIsFoldersOpen((open) => !open)}
+          className={[
+            'rounded-full border px-3.5 py-2 text-[13px] font-medium',
+            isFoldersOpen || folderFilter !== ALL_DOCUMENTS_FILTER
+              ? 'border-accent text-accent'
+              : 'border-border bg-input-bg text-text',
+          ].join(' ')}
+        >
+          {t('documents.foldersHeading')}
+        </button>
+
         <label className="sr-only" htmlFor="documents-sort">
           {t('documents.sort.label')}
         </label>
@@ -390,44 +431,74 @@ export default function DocumentsPage() {
         </select>
       </div>
 
-      {error && (
-        <p role="alert" className="mb-4 text-sm text-danger">
-          {error}
-        </p>
-      )}
+      {/* The folders panel (when open) sits to the right of the document
+          grid as a real layout column, not an overlay -- this is what lets
+          a document be dragged into it. The grid's own column min-width
+          shrinks while the panel is open (below) so the same document
+          count still lands close to its usual columns-per-row instead of
+          silently dropping a column to the panel. */}
+      <div className="flex items-start gap-4">
+        <div className="min-w-0 flex-1">
+          {error && (
+            <p role="alert" className="mb-4 text-sm text-danger">
+              {error}
+            </p>
+          )}
 
-      {!error && isLoading && <p className="text-sm text-text2">{t('documents.loading')}</p>}
+          {!error && isLoading && <p className="text-sm text-text2">{t('documents.loading')}</p>}
 
-      {showEmptyLibrary && <p className="text-sm text-text2">{t('documents.emptyLibrary')}</p>}
+          {showEmptyLibrary && <p className="text-sm text-text2">{t('documents.emptyLibrary')}</p>}
 
-      {showFilteredEmpty && <p className="text-sm text-text2">{t('documents.emptyFiltered')}</p>}
+          {showFilteredEmpty && <p className="text-sm text-text2">{t('documents.emptyFiltered')}</p>}
 
-      {/* Card grid rather than the mockup's `.doclist` table -- a
-          human-requested design change, recorded in the spec's Change Log.
-          `auto-fill` + `minmax` reflows by itself as the content area
-          narrows (including at 200% zoom), which is also what retires the
-          table's clipping problem structurally rather than by patching an
-          overflow rule: there is no fixed min-content width to clip.
-          A <ul> because this is a list of things, not a grid of layout
-          boxes -- screen readers announce the count. */}
-      {showGrid && (
-        <ul
-          aria-label={t('documents.title')}
-          className="grid list-none grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-4 p-0"
-        >
-          {visibleDocuments.map((doc) => (
-            <DocumentCard
-              key={doc.id}
-              document={doc}
-              onCardClick={handleCardClick}
-              onDeleted={handleDeleted}
+          {/* Card grid rather than the mockup's `.doclist` table -- a
+              human-requested design change, recorded in the spec's Change
+              Log. `auto-fill` + `minmax` reflows by itself as the content
+              area narrows (including at 200% zoom), which is also what
+              retires the table's clipping problem structurally rather than
+              by patching an overflow rule: there is no fixed min-content
+              width to clip. A <ul> because this is a list of things, not a
+              grid of layout boxes -- screen readers announce the count. */}
+          {showGrid && (
+            <ul
+              aria-label={t('documents.title')}
+              className={[
+                'grid list-none gap-4 p-0',
+                isFoldersOpen
+                  ? 'grid-cols-[repeat(auto-fill,minmax(11rem,1fr))]'
+                  : 'grid-cols-[repeat(auto-fill,minmax(14rem,1fr))]',
+              ].join(' ')}
+            >
+              {visibleDocuments.map((doc) => (
+                <DocumentCard
+                  key={doc.id}
+                  document={doc}
+                  onCardClick={handleCardClick}
+                  onDeleted={handleDeleted}
+                  folders={folders}
+                  onFolderChanged={handleDocumentFolderChanged}
+                  onFolderCreated={handleFolderCreated}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {isFoldersOpen && (
+          <div ref={foldersPanelRef}>
+            <FolderGrid
               folders={folders}
-              onFolderChanged={handleDocumentFolderChanged}
+              documents={documents}
+              activeFilter={folderFilter}
+              onSelectFilter={setFolderFilter}
               onFolderCreated={handleFolderCreated}
+              onFolderUpdated={handleFolderUpdated}
+              onFolderDeleted={handleFolderDeleted}
+              onDocumentFolderChanged={handleDocumentFolderChanged}
             />
-          ))}
-        </ul>
-      )}
+          </div>
+        )}
+      </div>
 
       {isModalOpen && <UploadModal onClose={handleCloseModal} />}
     </>
