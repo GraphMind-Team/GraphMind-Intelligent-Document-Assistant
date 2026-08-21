@@ -39,8 +39,16 @@ def db_session():
     SQLAlchemy's dialect-agnostic `Uuid` type rather than a Postgres-only
     default. `StaticPool` keeps the single in-memory connection alive for
     the fixture's lifetime instead of it disappearing between uses.
+
+    Unlike Postgres, SQLite does not enforce foreign keys (including
+    `ON DELETE` actions) unless a connection explicitly turns it on --
+    without the `PRAGMA foreign_keys=ON` below, `documents.folder_id`'s
+    `ON DELETE SET NULL` (folder-grouping feature) would silently no-op in
+    every test against this fixture while still working correctly against
+    real Postgres, which is a gap worth closing rather than working around
+    per-test.
     """
-    from sqlalchemy import create_engine
+    from sqlalchemy import create_engine, event
     from sqlalchemy.orm import sessionmaker
     from sqlalchemy.pool import StaticPool
 
@@ -51,6 +59,13 @@ def db_session():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+
+    @event.listens_for(engine, "connect")
+    def _enable_sqlite_foreign_keys(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
     Base.metadata.create_all(engine)
     TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     session = TestingSessionLocal()

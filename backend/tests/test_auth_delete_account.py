@@ -375,6 +375,38 @@ def test_delete_account_with_persisted_chat_messages_removes_them_too(
     assert db_session.query(ChatMessage).filter(ChatMessage.user_id == user_id).count() == 0
 
 
+def test_delete_account_with_persisted_folders_removes_them_too(
+    client, db_session, _stub_weaviate_delete, _stub_neo4j_delete
+):
+    """Folder-grouping feature regression, mirroring
+    `test_delete_account_with_persisted_chat_messages_removes_them_too`
+    above: `folders.user_id` is a `NOT NULL` foreign key into `users.id`
+    with no `ON DELETE CASCADE` either, so deleting the `users` row while
+    this account still owns `folders` rows must not surface as an
+    unhandled `IntegrityError`/500."""
+    from app.shared.models import Folder
+
+    token = _register_and_login(
+        client,
+        full_name="Maria Ivanova",
+        email="maria-delete-account-folders@example.com",
+        password="password12345",
+    )
+    create_response = client.post(
+        "/folders", headers=_auth_headers(token), json={"name": "Contracts", "color": "mint"}
+    )
+    assert create_response.status_code == 201, create_response.text
+
+    me = client.get("/auth/me", headers=_auth_headers(token))
+    user_id = uuid.UUID(me.json()["id"])
+
+    response = client.delete("/auth/me", headers=_auth_headers(token))
+
+    assert response.status_code == 204
+    assert db_session.get(User, user_id) is None
+    assert db_session.query(Folder).filter(Folder.user_id == user_id).count() == 0
+
+
 def test_repository_delete_user_is_a_no_op_when_the_row_is_already_gone(db_session):
     """`auth.repository.delete_user` guards against `db.get` returning
     `None` -- a real case, not hypothetical: a second concurrent

@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { deleteDocument, getDocument, listDocuments, uploadDocument, validateFile } from './documentsClient'
+import {
+  deleteDocument,
+  getDocument,
+  listDocuments,
+  updateDocumentFolder,
+  uploadDocument,
+  validateFile,
+} from './documentsClient'
 
 describe('validateFile', () => {
   function makeFile(name, size, type = 'application/octet-stream') {
@@ -145,6 +152,66 @@ describe('deleteDocument', () => {
     const authFetch = vi.fn().mockResolvedValue(new Response('not json', { status: 500 }))
 
     await expect(deleteDocument(authFetch, 'doc-1')).rejects.toThrow('Failed to delete document (500)')
+  })
+})
+
+describe('updateDocumentFolder', () => {
+  it('sends a PATCH with the folder_id body and returns the parsed response', async () => {
+    const authFetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ id: 'doc-1', folder_id: 'folder-a' }), { status: 200 }))
+
+    const result = await updateDocumentFolder(authFetch, 'doc-1', 'folder-a')
+
+    expect(result).toEqual({ id: 'doc-1', folder_id: 'folder-a' })
+    expect(authFetch).toHaveBeenCalledWith('/documents/doc-1', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folder_id: 'folder-a' }),
+    })
+  })
+
+  it('sends folder_id: null to unassign', async () => {
+    const authFetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ id: 'doc-1', folder_id: null }), { status: 200 }))
+
+    await updateDocumentFolder(authFetch, 'doc-1', null)
+
+    expect(authFetch).toHaveBeenCalledWith('/documents/doc-1', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folder_id: null }),
+    })
+  })
+
+  it('encodes the document id rather than interpolating it into the path raw', async () => {
+    const authFetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ id: 'x', folder_id: null }), { status: 200 }))
+
+    await updateDocumentFolder(authFetch, '../auth/me', null)
+
+    expect(authFetch).toHaveBeenCalledWith(
+      '/documents/..%2Fauth%2Fme',
+      expect.objectContaining({ method: 'PATCH' }),
+    )
+  })
+
+  it('throws the backend detail on a 404 (cross-tenant or nonexistent document/folder)', async () => {
+    const authFetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ detail: 'Folder not found.' }), { status: 404 }))
+
+    await expect(updateDocumentFolder(authFetch, 'doc-1', 'folder-a')).rejects.toThrow('Folder not found.')
+  })
+
+  it('falls back to a generic message when a non-2xx response has no parseable body', async () => {
+    const authFetch = vi.fn().mockResolvedValue(new Response('not json', { status: 500 }))
+
+    await expect(updateDocumentFolder(authFetch, 'doc-1', 'folder-a')).rejects.toThrow(
+      'Failed to update document folder (500)',
+    )
   })
 })
 

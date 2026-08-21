@@ -683,3 +683,16 @@
     only to a real deployment where a human needs to receive the email.
   evidence: Story 1.6 (see `backend/.env.example`'s own SMTP block for the same note). No SMTP
     provider has been chosen or credentials obtained as of this story's implementation.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-folder-grouping.md`
+  summary: >
+    A folder deleted concurrently with a request that reads it first (`PATCH /documents/{id}`
+    assigning to that folder, or `PATCH /folders/{id}` renaming/recoloring it) can surface as an
+    uncaught `IntegrityError`/500 between the ownership check and the final `db.commit()`, instead
+    of a clean 404.
+  evidence: Folder-grouping review (edge-case-hunter, echoed by blind-hunter) raised this. Narrow
+    window requiring two racing requests against the same folder within milliseconds; matches this
+    project's own accepted-risk precedent for equivalent narrow delete-vs-concurrent-request races
+    (e.g. Story 2.7's unguarded post-write `db.commit()`, Story 3.4's account-deletion race) rather
+    than a new pattern. Worth a dedicated `IntegrityError` -> 404 fix with a concurrency test if it's
+    ever observed in practice.

@@ -113,6 +113,21 @@ class Document(Base):
     # constraint for the identical race shape.
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
 
+    # Folder-grouping feature: one folder per document, or `None` for
+    # "Unfiled" -- never a required field, and never a list (the spec's
+    # Never section rules out multi-parent folders). `ondelete="SET NULL"`
+    # so deleting a folder never deletes its documents (the spec's
+    # Boundaries): the DB itself enforces that the row survives as unfiled
+    # even if some future code path forgets to clear it explicitly.
+    # `index=True` -- mirrors every other FK/user-scoping column in this
+    # file (`Document.user_id`, `Folder.user_id`, `ChatMessage.user_id`):
+    # Postgres doesn't auto-index FK columns, and `ON DELETE SET NULL`
+    # needs one so deleting a folder doesn't force a full-table scan of
+    # `documents` to find its members.
+    folder_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("folders.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
     __table_args__ = (
         # Story 2.6: DB-level guard closing the concurrent-duplicate-upload
         # race that the pre-create hash lookup alone can't -- two requests
@@ -122,6 +137,33 @@ class Document(Base):
         # back, and re-queries by hash to return the winner's row.
         Index("ix_documents_user_id_content_hash", "user_id", "content_hash", unique=True),
     )
+
+
+class Folder(Base):
+    """A user-owned folder documents can optionally belong to (folder
+    grouping feature).
+
+    One folder per document, never nested, never multi-parent (see the
+    spec's Never section) -- enforced structurally by `Document.folder_id`
+    being a single nullable scalar FK, not a join table. `color` stores one
+    of the fixed pastel-vocabulary keys (`FOLDER_COLORS` in
+    `folders/service.py`), the same "vocabulary enforced in service code,
+    never a free-form client value" precedent `Document.status` already
+    sets -- a plain `String`, not a DB enum.
+
+    Queried exclusively through `user_scoped_select` (AD-2), same as every
+    other per-user Postgres table.
+    """
+
+    __tablename__ = "folders"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    color: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 class ChatMessage(Base):

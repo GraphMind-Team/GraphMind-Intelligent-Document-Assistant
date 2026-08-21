@@ -20,6 +20,12 @@ from fastapi import HTTPException
 
 from app.documents import repository
 from app.documents.parsing import CHUNK_OVERLAP_WORDS, parse_document
+# Safe import direction, same as `auth/service.py -> documents/service.py`
+# (see that module's Design Notes comment): `folders/` never imports
+# `documents/`, so this introduces no cycle. Used only to check that a
+# client-supplied `folder_id` actually belongs to `current_user` before
+# `update_document_folder` writes it.
+from app.folders import repository as folders_repository
 from app.shared.data_access.neo4j_client import (
     prune_document_from_graph,
     write_entities_and_relationships,
@@ -554,6 +560,35 @@ def get_document(db: Session, current_user: User, document_id: uuid.UUID) -> Doc
 # 5.3) also imports this, to apply the identical guard across every
 # document a whole account owns rather than redefining the same set.
 DELETABLE_STATUSES: Final = {"Ready", "Failed"}
+
+
+def update_document_folder(
+    db: Session, current_user: User, document_id: uuid.UUID, folder_id: uuid.UUID | None
+) -> Document:
+    """Assigns (or, when `folder_id` is `None`, unassigns) one document to
+    a folder -- the document-side half of the folder-grouping feature
+    (folders own their own CRUD in `app.folders`, but `Document.folder_id`
+    is this module's own column, so this module owns writing it).
+
+    Raises `HTTPException(404)` -- "Document not found." -- for a missing
+    or not-owned document, via the same `get_document` lookup/message the
+    read path already uses. When `folder_id` is not `None`, also raises
+    `HTTPException(404)` -- "Folder not found." -- if that folder doesn't
+    exist or belongs to a different account (the spec's I/O matrix): the
+    two 404s carry different messages because they name different missing
+    resources, but both are 404s for the identical IDOR reason -- neither
+    a nonexistent id nor a cross-tenant one may be distinguishable from the
+    other via status code or body.
+    """
+    document = get_document(db, current_user, document_id)
+    if folder_id is not None:
+        folder = folders_repository.get_folder_for_user(db, current_user.id, folder_id)
+        if folder is None:
+            raise HTTPException(status_code=404, detail="Folder not found.")
+    document = repository.update_document_folder(db, document, folder_id)
+    db.commit()
+    db.refresh(document)
+    return document
 
 
 def delete_document(db: Session, current_user: User, document_id: uuid.UUID) -> None:
