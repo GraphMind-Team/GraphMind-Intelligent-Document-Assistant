@@ -19,7 +19,17 @@ export const UNGROUPED_FILTER = 'ungrouped'
 // dependency per the spec's Boundaries).
 const DRAG_DOCUMENT_ID_TYPE = 'text/plain'
 
-function FolderTile({ folder, count, isActive, onSelect, onEdit, onDeleted, onDropDocument }) {
+function FolderTile({
+  folder,
+  count,
+  isActive,
+  onSelect,
+  onEdit,
+  onDeleted,
+  onDropDocument,
+  onDragTooltip,
+  onDragTooltipClear,
+}) {
   const { t } = useTranslation()
   const { authFetch } = useAuth()
   const [isConfirming, setIsConfirming] = useState(false)
@@ -77,20 +87,26 @@ function FolderTile({ folder, count, isActive, onSelect, onEdit, onDeleted, onDr
   // for `onDrop` to fire at all.
   function handleDragOver(event) {
     event.preventDefault()
+    // Keeps the "Move to {name}" tooltip tracking the cursor while it's
+    // still over this tile -- `dragenter` alone only fires once on entry.
+    onDragTooltip(folder.name, event.clientX, event.clientY)
   }
 
   function handleDragEnter(event) {
     event.preventDefault()
     setIsDragOver(true)
+    onDragTooltip(folder.name, event.clientX, event.clientY)
   }
 
   function handleDragLeave() {
     setIsDragOver(false)
+    onDragTooltipClear()
   }
 
   function handleDrop(event) {
     event.preventDefault()
     setIsDragOver(false)
+    onDragTooltipClear()
     const draggedId = event.dataTransfer.getData(DRAG_DOCUMENT_ID_TYPE)
     if (!draggedId) return
     onDropDocument(draggedId, folder.id)
@@ -257,6 +273,19 @@ export default function FolderGrid({
   const { authFetch } = useAuth()
   const [modalState, setModalState] = useState(null) // null | 'create' | <folder>
   const [dropError, setDropError] = useState(null)
+  // "Move to {name}" tooltip (Round 3): follows the cursor while a
+  // dragged document sits over a folder tile, since the tile's own
+  // border/ring highlight alone gave no indication of *where* it would
+  // land. `null` when nothing is being dragged over a tile right now.
+  const [dragTooltip, setDragTooltip] = useState(null)
+
+  function handleDragTooltip(name, x, y) {
+    setDragTooltip({ name, x, y })
+  }
+
+  function handleDragTooltipClear() {
+    setDragTooltip(null)
+  }
 
   const { allCount, ungroupedCount, countsByFolderId } = useMemo(() => {
     const counts = new Map()
@@ -342,10 +371,27 @@ export default function FolderGrid({
               onEdit={(target) => setModalState(target)}
               onDeleted={handleFolderDeleted}
               onDropDocument={handleDropDocument}
+              onDragTooltip={handleDragTooltip}
+              onDragTooltipClear={handleDragTooltipClear}
             />
           </li>
         ))}
       </ul>
+
+      {/* Fixed to the viewport, not the tile -- it needs to track the
+          cursor, not sit still relative to a `card-lift` tile that itself
+          moves under hover. `pointer-events-none` so it never itself
+          becomes a drop target and steals the dragover/drop events meant
+          for the tile underneath it. */}
+      {dragTooltip && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none fixed z-50 rounded-full border border-border bg-card-bg px-2.5 py-1 text-xs font-semibold text-text shadow-modal"
+          style={{ left: dragTooltip.x + 14, top: dragTooltip.y + 14 }}
+        >
+          {t('documents.folderGrid.moveToTooltip', { name: dragTooltip.name })}
+        </div>
+      )}
 
       {modalState && (
         <FolderModal

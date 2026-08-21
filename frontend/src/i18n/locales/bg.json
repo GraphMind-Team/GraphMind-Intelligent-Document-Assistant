@@ -190,7 +190,8 @@
       "tileAria_one": "{{name}}, {{count}} документ",
       "tileAria_other": "{{name}}, {{count}} документа",
       "documentCount_one": "{{count}} документ",
-      "documentCount_other": "{{count}} документа"
+      "documentCount_other": "{{count}} документа",
+      "moveToTooltip": "Премести в {{name}}"
     },
     "uploadModal": {
       "heading": "Качване на документи",

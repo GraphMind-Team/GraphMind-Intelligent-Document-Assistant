@@ -190,7 +190,8 @@
       "tileAria_one": "{{name}}, {{count}} Dokument",
       "tileAria_other": "{{name}}, {{count}} Dokumente",
       "documentCount_one": "{{count}} Dokument",
-      "documentCount_other": "{{count}} Dokumente"
+      "documentCount_other": "{{count}} Dokumente",
+      "moveToTooltip": "Nach {{name}} verschieben"
     },
     "uploadModal": {
       "heading": "Dokumente hochladen",
