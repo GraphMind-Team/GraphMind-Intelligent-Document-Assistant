@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+/* Tailwind's Preflight resets <button> to `cursor: default` -- restore the
+   platform-conventional pointer/hand cursor on every enabled button in the
+   app, rather than adding `cursor-pointer` one class list at a time. */
+button:not(:disabled) {
+  cursor: pointer;
+}
+
 /*
  * ============================================================
  *  GraphMind Design System v2 -- "Aurora Sky" (2026 refresh)

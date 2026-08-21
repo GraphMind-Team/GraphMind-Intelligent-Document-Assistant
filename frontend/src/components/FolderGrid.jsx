@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 import { deleteFolder } from '../api/foldersClient'
 import { updateDocumentFolder } from '../api/documentsClient'
-import { folderSwatchClass } from '../utils/folderFormat'
+import { folderTileClasses } from '../utils/folderFormat'
 import FolderModal from './FolderModal'
 
 // Filter values `DocumentsPage.jsx` compares `visibleDocuments` derivation
@@ -19,7 +19,17 @@ export const UNGROUPED_FILTER = 'ungrouped'
 // dependency per the spec's Boundaries).
 const DRAG_DOCUMENT_ID_TYPE = 'text/plain'
 
-function FolderTile({ folder, count, isActive, onSelect, onEdit, onDeleted, onDropDocument }) {
+function FolderTile({
+  folder,
+  count,
+  isActive,
+  onSelect,
+  onEdit,
+  onDeleted,
+  onDropDocument,
+  onDragTooltip,
+  onDragTooltipClear,
+}) {
   const { t } = useTranslation()
   const { authFetch } = useAuth()
   const [isConfirming, setIsConfirming] = useState(false)
@@ -77,20 +87,26 @@ function FolderTile({ folder, count, isActive, onSelect, onEdit, onDeleted, onDr
   // for `onDrop` to fire at all.
   function handleDragOver(event) {
     event.preventDefault()
+    // Keeps the "Move to {name}" tooltip tracking the cursor while it's
+    // still over this tile -- `dragenter` alone only fires once on entry.
+    onDragTooltip(folder.name, event.clientX, event.clientY)
   }
 
   function handleDragEnter(event) {
     event.preventDefault()
     setIsDragOver(true)
+    onDragTooltip(folder.name, event.clientX, event.clientY)
   }
 
   function handleDragLeave() {
     setIsDragOver(false)
+    onDragTooltipClear()
   }
 
   function handleDrop(event) {
     event.preventDefault()
     setIsDragOver(false)
+    onDragTooltipClear()
     const draggedId = event.dataTransfer.getData(DRAG_DOCUMENT_ID_TYPE)
     if (!draggedId) return
     onDropDocument(draggedId, folder.id)
@@ -104,7 +120,7 @@ function FolderTile({ folder, count, isActive, onSelect, onEdit, onDeleted, onDr
       <div
         role="alert"
         onKeyDown={handleConfirmBoxKeyDown}
-        className="flex flex-col gap-2 rounded-xl border border-danger/30 bg-danger/5 p-3"
+        className="flex h-full flex-col gap-2 rounded-xl border border-danger/30 bg-danger/5 p-2.5"
       >
         <p className="text-xs text-text">
           {t('documents.folderGrid.deleteConfirm', { name: folder.name })}
@@ -114,7 +130,7 @@ function FolderTile({ folder, count, isActive, onSelect, onEdit, onDeleted, onDr
             {error}
           </p>
         )}
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <button
             ref={cancelButtonRef}
             type="button"
@@ -137,6 +153,11 @@ function FolderTile({ folder, count, isActive, onSelect, onEdit, onDeleted, onDr
     )
   }
 
+  // The whole tile carries the folder's own color (bg + matching text),
+  // replacing the earlier small color dot -- the tile itself is now the
+  // color swatch, not something drawn inside it.
+  const colorClasses = folderTileClasses(folder.color)
+
   return (
     <div
       onDragOver={handleDragOver}
@@ -144,8 +165,9 @@ function FolderTile({ folder, count, isActive, onSelect, onEdit, onDeleted, onDr
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       className={[
-        'card-lift relative flex flex-col gap-1.5 rounded-xl border p-3.5',
-        isActive || isDragOver ? 'border-accent bg-surface2' : 'border-border bg-card-bg',
+        'card-lift relative flex h-full w-full flex-col gap-1 rounded-xl border p-2.5',
+        colorClasses.bg,
+        isActive || isDragOver ? 'border-accent ring-2 ring-accent/40' : 'border-transparent',
       ].join(' ')}
     >
       <button
@@ -153,21 +175,17 @@ function FolderTile({ folder, count, isActive, onSelect, onEdit, onDeleted, onDr
         aria-pressed={isActive}
         aria-label={t('documents.folderGrid.tileAria', { name: folder.name, count })}
         onClick={() => onSelect(folder.id)}
-        className="flex flex-col items-start gap-1.5 pr-10 text-left"
+        className="flex h-full w-full flex-col items-start justify-between gap-1 pr-8 text-left"
       >
-        <span
-          aria-hidden="true"
-          className={['h-3.5 w-3.5 shrink-0 rounded-full', folderSwatchClass(folder.color)].join(' ')}
-        />
-        <span className="line-clamp-2 text-[13.5px] font-semibold break-words text-text">
+        <span className={['line-clamp-2 text-[13px] font-semibold break-words', colorClasses.text].join(' ')}>
           {folder.name}
         </span>
-        <span className="text-xs text-text2">
+        <span className={['text-[11px]', colorClasses.text, 'opacity-80'].join(' ')}>
           {t('documents.folderGrid.documentCount', { count })}
         </span>
       </button>
 
-      <div className="absolute right-2 top-2 flex gap-0.5">
+      <div className="absolute right-1.5 top-1.5 flex gap-0.5">
         <button
           type="button"
           aria-label={t('documents.folderGrid.editAria', { name: folder.name })}
@@ -175,9 +193,9 @@ function FolderTile({ folder, count, isActive, onSelect, onEdit, onDeleted, onDr
             event.stopPropagation()
             onEdit(folder)
           }}
-          className="rounded-lg p-1 text-text2 hover:bg-accent/10 hover:text-accent"
+          className="rounded-lg p-1 text-current hover:bg-black/10"
         >
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3">
             <path d="M12 20h9" />
             <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
           </svg>
@@ -188,9 +206,9 @@ function FolderTile({ folder, count, isActive, onSelect, onEdit, onDeleted, onDr
           aria-label={t('documents.folderGrid.deleteFolderAria', { name: folder.name })}
           aria-expanded={isConfirming}
           onClick={openConfirm}
-          className="rounded-lg p-1 text-text2 hover:bg-danger/10 hover:text-danger"
+          className="rounded-lg p-1 text-current hover:bg-black/10"
         >
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3">
             <path d="M3 6h18" />
             <path d="M8 6V4h8v2" />
             <path d="M6 6l1 14h10l1-14" />
@@ -210,24 +228,31 @@ function FixedTile({ label, count, isActive, onSelect }) {
       aria-label={t('documents.folderGrid.tileAria', { name: label, count })}
       onClick={onSelect}
       className={[
-        'card-lift flex flex-col items-start gap-1.5 rounded-xl border p-3.5 text-left',
+        'card-lift flex h-full w-full flex-col items-start justify-between gap-1 rounded-xl border p-2.5 text-left',
         isActive ? 'border-accent bg-surface2' : 'border-border bg-card-bg',
       ].join(' ')}
     >
-      <span className="text-[13.5px] font-semibold text-text">{label}</span>
-      <span className="text-xs text-text2">
+      <span className="text-[13px] font-semibold text-text">{label}</span>
+      <span className="text-[11px] text-text2">
         {t('documents.folderGrid.documentCount', { count })}
       </span>
     </button>
   )
 }
 
-// Folder tile grid sitting above the document grid (folder-grouping
-// feature). Selecting a tile filters `DocumentsPage.jsx`'s grid
-// client-side over the already-fetched `documents` list -- no server
-// round trip, matching the page's existing sort/filter convention. Folder
+// Folders panel (folder-grouping feature): a persistent right-hand panel,
+// mounted by `DocumentsPage.jsx` only while its own "Folders" toggle
+// button is pressed -- this component owns no open/closed state of its
+// own, and every tile here is always visible the instant it's mounted (no
+// nested dropdown). Selecting a tile filters `DocumentsPage.jsx`'s grid
+// client-side over the already-fetched `documents` list -- no server round
+// trip, matching the page's existing sort/filter convention. Folder
 // membership counts are likewise derived client-side here, from
 // `documents`, not from a separate endpoint.
+//
+// Every tile (the "+ New folder" action, the two fixed tiles, and each
+// real folder) shares one `auto-rows-fr` grid so they all render at the
+// same size, regardless of how much text a name/count pair carries.
 //
 // `onDocumentFolderChanged(documentId, folderId)` (Round 2) is the same
 // callback shape `DocumentCard.jsx` reports its own assignment changes
@@ -248,6 +273,19 @@ export default function FolderGrid({
   const { authFetch } = useAuth()
   const [modalState, setModalState] = useState(null) // null | 'create' | <folder>
   const [dropError, setDropError] = useState(null)
+  // "Move to {name}" tooltip (Round 3): follows the cursor while a
+  // dragged document sits over a folder tile, since the tile's own
+  // border/ring highlight alone gave no indication of *where* it would
+  // land. `null` when nothing is being dragged over a tile right now.
+  const [dragTooltip, setDragTooltip] = useState(null)
+
+  function handleDragTooltip(name, x, y) {
+    setDragTooltip({ name, x, y })
+  }
+
+  function handleDragTooltipClear() {
+    setDragTooltip(null)
+  }
 
   const { allCount, ungroupedCount, countsByFolderId } = useMemo(() => {
     const counts = new Map()
@@ -287,7 +325,7 @@ export default function FolderGrid({
   }
 
   return (
-    <div className="mb-5">
+    <div className="w-72 shrink-0 rounded-2xl border border-border bg-card-bg p-3 shadow-card">
       {dropError && (
         <p role="alert" className="mb-2 text-xs text-danger">
           {dropError}
@@ -295,8 +333,18 @@ export default function FolderGrid({
       )}
       <ul
         aria-label={t('documents.foldersHeading')}
-        className="grid list-none grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-3 p-0"
+        className="grid auto-rows-fr list-none grid-cols-2 gap-2 p-0"
       >
+        <li>
+          <button
+            type="button"
+            onClick={() => setModalState('create')}
+            className="flex h-full min-h-[4.5rem] w-full flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-border p-2.5 text-text2 hover:border-accent hover:text-accent"
+          >
+            <span aria-hidden="true" className="text-lg leading-none">+</span>
+            <span className="text-[11px] font-semibold">{t('documents.folderGrid.newFolder')}</span>
+          </button>
+        </li>
         <li>
           <FixedTile
             label={t('documents.folderGrid.allDocuments')}
@@ -323,20 +371,27 @@ export default function FolderGrid({
               onEdit={(target) => setModalState(target)}
               onDeleted={handleFolderDeleted}
               onDropDocument={handleDropDocument}
+              onDragTooltip={handleDragTooltip}
+              onDragTooltipClear={handleDragTooltipClear}
             />
           </li>
         ))}
-        <li>
-          <button
-            type="button"
-            onClick={() => setModalState('create')}
-            className="flex h-full min-h-[4.75rem] w-full flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-border p-3.5 text-text2 hover:border-accent hover:text-accent"
-          >
-            <span aria-hidden="true" className="text-lg leading-none">+</span>
-            <span className="text-xs font-semibold">{t('documents.folderGrid.newFolder')}</span>
-          </button>
-        </li>
       </ul>
+
+      {/* Fixed to the viewport, not the tile -- it needs to track the
+          cursor, not sit still relative to a `card-lift` tile that itself
+          moves under hover. `pointer-events-none` so it never itself
+          becomes a drop target and steals the dragover/drop events meant
+          for the tile underneath it. */}
+      {dragTooltip && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none fixed z-50 rounded-full border border-border bg-card-bg px-2.5 py-1 text-xs font-semibold text-text shadow-modal"
+          style={{ left: dragTooltip.x + 14, top: dragTooltip.y + 14 }}
+        >
+          {t('documents.folderGrid.moveToTooltip', { name: dragTooltip.name })}
+        </div>
+      )}
 
       {modalState && (
         <FolderModal

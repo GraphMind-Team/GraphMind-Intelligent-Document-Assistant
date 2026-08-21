@@ -498,15 +498,17 @@ describe('DocumentsPage', () => {
   })
 
   describe('folder grouping (folder-grouping feature)', () => {
-    it('fetches folders once on mount and renders them as tiles above the document grid', async () => {
+    it('fetches folders once on mount, and pressing "Folders" renders them as tiles in the panel', async () => {
       useAuth.mockReturnValue({ authFetch: vi.fn() })
       vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([
         { ...PDF_DOC, folder_id: 'folder-a' },
         { ...MD_DOC, folder_id: null },
       ])
       const foldersSpy = vi.spyOn(foldersClient, 'listFolders').mockResolvedValue([FOLDER_A])
+      const user = userEvent.setup()
 
       renderPage()
+      await user.click(screen.getByRole('button', { name: 'Folders' }))
 
       expect(await screen.findByRole('button', { name: /^Contracts,/ })).toBeInTheDocument()
       expect(foldersSpy).toHaveBeenCalledTimes(1)
@@ -516,6 +518,7 @@ describe('DocumentsPage', () => {
       useAuth.mockReturnValue({ authFetch: vi.fn() })
       vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([PDF_DOC])
       vi.spyOn(foldersClient, 'listFolders').mockRejectedValue(new Error('Failed to load folders (500).'))
+      const user = userEvent.setup()
 
       renderPage()
 
@@ -526,17 +529,20 @@ describe('DocumentsPage', () => {
       // the grid.
       expect(screen.getByRole('link', { name: 'beta-report.pdf' })).toBeInTheDocument()
       // The two fixed tiles ("All documents"/"Ungrouped") still render --
-      // the grid works with zero folder tiles either way.
+      // the panel works with zero folder tiles either way.
+      await user.click(screen.getByRole('button', { name: 'Folders' }))
       expect(screen.getByRole('button', { name: /^All documents,/ })).toBeInTheDocument()
     })
 
-    it('renders a "Folders" heading above the tile grid', async () => {
+    it('renders a "Folders" toggle button in the toolbar, closed until pressed', async () => {
       useAuth.mockReturnValue({ authFetch: vi.fn() })
       vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([])
 
       renderPage()
 
-      expect(await screen.findByRole('heading', { name: 'Folders' })).toBeInTheDocument()
+      const trigger = await screen.findByRole('button', { name: 'Folders' })
+      expect(trigger).toHaveAttribute('aria-pressed', 'false')
+      expect(screen.queryByRole('button', { name: /^All documents,/ })).not.toBeInTheDocument()
     })
 
     it('selecting a folder tile filters the grid client-side; "All documents" and "Ungrouped" do too', async () => {
@@ -551,8 +557,11 @@ describe('DocumentsPage', () => {
       renderPage()
       await screen.findByRole('link', { name: 'beta-report.pdf' })
       await screen.findByRole('link', { name: 'alpha-notes.md' })
+      await user.click(screen.getByRole('button', { name: 'Folders' }))
 
-      // Selecting the folder tile narrows to just its member.
+      // Selecting the folder tile narrows to just its member. The panel
+      // itself stays open across every selection below -- only an outside
+      // click or the trigger closes it, not a tile pick.
       await user.click(screen.getByRole('button', { name: /^Contracts,/ }))
       expect(screen.getByRole('link', { name: 'beta-report.pdf' })).toBeInTheDocument()
       expect(screen.queryByRole('link', { name: 'alpha-notes.md' })).not.toBeInTheDocument()
@@ -588,8 +597,12 @@ describe('DocumentsPage', () => {
 
       renderPage()
       await screen.findByRole('link', { name: 'beta-report.pdf' })
+      await user.click(screen.getByRole('button', { name: 'Folders' }))
       expect(within(screen.getByRole('button', { name: /^Contracts,/ })).getByText('0 documents')).toBeInTheDocument()
 
+      // The card's own "⋮" menu stops its clicks from propagating (so they
+      // never navigate to Detail), which also means the folders panel
+      // stays open across this whole interaction -- it's still open below.
       await user.click(screen.getByRole('button', { name: `Move ${PDF_DOC.filename} to folder` }))
       await user.click(screen.getByRole('menuitem', { name: 'Contracts' }))
 
@@ -644,6 +657,7 @@ describe('DocumentsPage', () => {
       renderPage()
       const documentsList = await screen.findByRole('list', { name: 'Documents' })
       const [pdfCard, mdCard] = within(documentsList).getAllByRole('listitem')
+      await user.click(screen.getByRole('button', { name: 'Folders' }))
 
       const dataTransfer = {
         store: {},
@@ -682,10 +696,12 @@ describe('DocumentsPage', () => {
       const updateSpy = vi
         .spyOn(documentsClient, 'updateDocumentFolder')
         .mockResolvedValue({ ...PDF_DOC, folder_id: 'folder-a' })
+      const user = userEvent.setup()
 
       renderPage()
       const documentsList = await screen.findByRole('list', { name: 'Documents' })
       const card = within(documentsList).getByRole('listitem')
+      await user.click(screen.getByRole('button', { name: 'Folders' }))
       const tile = screen.getByRole('button', { name: /^Contracts,/ }).closest('div')
 
       const dataTransfer = {
@@ -721,6 +737,7 @@ describe('DocumentsPage', () => {
 
       renderPage()
       await screen.findByRole('link', { name: 'beta-report.pdf' })
+      await user.click(screen.getByRole('button', { name: 'Folders' }))
 
       await user.click(screen.getByRole('button', { name: 'Delete Contracts' }))
       await user.click(within(screen.getByRole('alert')).getByRole('button', { name: 'Delete' }))

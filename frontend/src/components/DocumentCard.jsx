@@ -400,8 +400,15 @@ export default function DocumentCard({
             a user scans this grid for, and a silently clipped name is
             worse than a taller card. `line-clamp-2` bounds it so one
             pathological name can't stretch its whole grid row. */}
+        {/* `draggable={false}`: an <a href> is natively draggable by
+            default, and starting a drag from directly over the filename
+            would otherwise let the browser take over with its own
+            link-drag ghost (filename + full URL in a gray chip) instead of
+            this card's own `onDragStart` above -- stepping on the "Move to
+            {folder}" tooltip FolderGrid.jsx shows during that same drag. */}
         <Link
           to={detailHref}
+          draggable={false}
           className="line-clamp-2 text-[14.5px] font-semibold break-words text-text hover:text-primary hover:underline"
         >
           {document.filename}
