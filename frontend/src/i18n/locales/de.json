@@ -111,10 +111,10 @@
     "logIn": "Anmelden",
     "getStarted": "Loslegen",
     "openWorkspace": "Arbeitsbereich öffnen",
-    "eyebrow": "Fundierte Dokumentenintelligenz",
+    "eyebrow": "Intelligente Dokumentenanalyse mit Belegen",
     "heroTitleLine1": "Deine Dokumente",
     "heroTitleLine2": "antworten endlich.",
-    "heroBody": "GraphMind liest alles, was du hochlädst, kartiert, wer und was mit was verbunden ist, und beantwortet deine Fragen ausschließlich anhand dessen, was deine eigenen Dokumente tatsächlich sagen — mit einem Beleg für jede Aussage.",
+    "heroBody": "GraphMind liest alles, was du hochlädst, zeigt dir, wie Personen, Themen und Fakten miteinander verknüpft sind, und beantwortet deine Fragen ausschließlich auf Basis dessen, was in deinen eigenen Dokumenten steht — mit einem Beleg für jede Aussage.",
     "createAccount": "Konto erstellen",
     "alreadyHaveOne": "Ich habe bereits eins",
     "noAnswerWithoutEvidence": "Keine Antwort ohne Beleg — wenn deine Dokumente es nicht stützen, sagt GraphMind das.",
@@ -124,8 +124,8 @@
     "whatYouGet": "Das bekommst du",
     "features": {
       "upload": { "title": "Lade alles hoch", "body": "Lade PDFs, Dokumente und Notizen hoch. GraphMind extrahiert den Text Kapitel für Kapitel und verfolgt jede Datei durch die gesamte Verarbeitung." },
-      "answers": { "title": "Antworten mit Belegen", "body": "Jede Antwort basiert auf deinen eigenen Dokumenten und trägt Zitat-Chips zurück zum genauen Kapitel, aus dem sie stammt. Kein Beleg, keine Antwort." },
-      "connections": { "title": "Verbindungen erkennen", "body": "Personen, Organisationen, Projekte, Produkte und Orte werden in einen lebendigen Wissensgraphen extrahiert, den du erkunden — oder als Liste lesen kannst." }
+      "answers": { "title": "Antworten mit Belegen", "body": "Jede Antwort stützt sich auf deine eigenen Dokumente und verlinkt per Zitat genau zu dem Kapitel, aus dem sie stammt. Kein Beleg, keine Antwort." },
+      "connections": { "title": "Verbindungen erkennen", "body": "Personen, Organisationen, Projekte, Produkte und Orte werden automatisch in einem übersichtlichen Wissensgraphen erfasst, den du visuell erkunden oder einfach als Liste durchsehen kannst." }
     },
     "howItWorks": "So funktioniert's",
     "steps": {
@@ -149,6 +149,7 @@
     "emptyFiltered": "Keine Dokumente entsprechen diesem Filter.",
     "deleteAria": "{{filename}} löschen",
     "deleteConfirmPrefix": "{{filename}} löschen?",
+    "deleteBoundaryText": "Entfernt die zugehörigen Textabschnitte sowie alle Entitäten und Beziehungen, die in keinem anderen Dokument vorkommen.",
     "deleting": "Wird gelöscht…",
     "sort": {
       "label": "Dokumente sortieren",

@@ -6,7 +6,6 @@ import { deleteDocument, getDocument } from '../api/documentsClient'
 import PreviewModal from '../components/PreviewModal'
 import StatusPill from '../components/StatusPill'
 import {
-  DELETE_BOUNDARY_TEXT,
   formatFileSize,
   formatFileType,
   formatUploadedDate,
@@ -212,7 +211,7 @@ export default function DocumentDetailPage() {
                 className="mt-3 mb-3 flex flex-col gap-2 rounded-md border border-danger/30 bg-danger/5 p-3"
               >
                 <p id={deleteBoundaryTextId} className="text-sm text-text">
-                  {t('documentDetail.deleteConfirmPrefix', { filename: doc.filename })} {DELETE_BOUNDARY_TEXT}
+                  {t('documentDetail.deleteConfirmPrefix', { filename: doc.filename })} {t('documents.deleteBoundaryText')}
                 </p>
                 {deleteError && (
                   <p role="alert" className="text-sm text-danger">

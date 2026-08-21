@@ -6,7 +6,7 @@ import StatusPill from './StatusPill'
 import FolderModal from './FolderModal'
 import { useAuth } from '../context/AuthContext'
 import { deleteDocument, updateDocumentFolder } from '../api/documentsClient'
-import { DELETE_BOUNDARY_TEXT, formatFileTypeShort, formatUploadedDate } from '../utils/documentFormat'
+import { formatFileTypeShort, formatUploadedDate } from '../utils/documentFormat'
 
 // The MIME type `onDragStart` below writes the dragged document's id
 // under, and every other card's `onDrop` reads it back from (Round 2:
@@ -437,7 +437,7 @@ export default function DocumentCard({
             className="flex flex-col gap-2 rounded-xl border border-danger/30 bg-danger/5 p-3"
           >
             <p id={boundaryTextId} className="text-xs text-text">
-              {t('documents.deleteConfirmPrefix', { filename: document.filename })} {DELETE_BOUNDARY_TEXT}
+              {t('documents.deleteConfirmPrefix', { filename: document.filename })} {t('documents.deleteBoundaryText')}
             </p>
             {error && (
               <p role="alert" className="text-xs text-danger">

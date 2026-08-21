@@ -3,18 +3,6 @@
 // than repeated per page so the same document renders the same size/type/
 // date string wherever it appears.
 
-// Story 2.7 (updated by Story 2.8, OD-4): the declarative boundary text an
-// inline delete-confirm box states before any deletion happens (UX-DR19) --
-// shared by DocumentCard.jsx's trash-icon confirm and
-// DocumentDetailPage.jsx's Delete-button confirm so the same
-// reference-counted-pruning wording can't drift between the two entry
-// points to the identical action. No longer an unconditional "entities
-// remain" -- Story 2.8 reverses that: entities/relationships unique to this
-// document are pruned from the graph, and only ones a surviving document
-// still contributes to are kept.
-export const DELETE_BOUNDARY_TEXT =
-  'Removes its passages, and any entities/relationships not shared with another document.'
-
 // The stored `file_type` values are the normalized ones the backend writes
 // (`backend/app/documents/service.py`'s `_EXTENSION_TO_FILE_TYPE`); this
 // maps them to the display labels the reference mockup uses.

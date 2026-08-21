@@ -149,6 +149,7 @@
     "emptyFiltered": "No documents match this filter.",
     "deleteAria": "Delete {{filename}}",
     "deleteConfirmPrefix": "Delete {{filename}}?",
+    "deleteBoundaryText": "Removes its passages, and any entities/relationships not shared with another document.",
     "deleting": "Deleting…",
     "sort": {
       "label": "Sort documents",
