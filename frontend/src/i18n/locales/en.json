@@ -1,0 +1,309 @@
+{
+  "common": {
+    "cancel": "Cancel",
+    "save": "Save",
+    "saving": "Saving...",
+    "delete": "Delete",
+    "loading": "Loading…"
+  },
+  "notFound": {
+    "message": "Page not found.",
+    "backHome": "Back to GraphMind"
+  },
+  "nav": {
+    "settings": "User Settings",
+    "documents": "Documents",
+    "chat": "Chat",
+    "graph": "Graph Preview",
+    "exit": "Exit"
+  },
+  "settings": {
+    "title": "User Settings",
+    "profile": {
+      "title": "Profile",
+      "fullName": "Full name",
+      "email": "Email",
+      "save": "Save",
+      "saving": "Saving...",
+      "savingStatus": "Saving profile...",
+      "savedStatus": "Profile saved.",
+      "saved": "Saved!",
+      "loadError": "Failed to load profile."
+    },
+    "changePassword": {
+      "title": "Change Password",
+      "currentPassword": "Current password",
+      "newPassword": "New password",
+      "submit": "Change Password",
+      "saving": "Saving...",
+      "savingStatus": "Changing password...",
+      "savedStatus": "Password changed.",
+      "saved": "Saved!"
+    },
+    "appearance": {
+      "title": "Appearance",
+      "darkMode": "Dark mode",
+      "savingStatus": "Saving appearance...",
+      "savedStatus": "Appearance saved.",
+      "saveError": "This didn't save to your account: {{message}}"
+    },
+    "language": {
+      "title": "Language",
+      "savingStatus": "Saving language...",
+      "savedStatus": "Language saved.",
+      "saveError": "This didn't save to your account: {{message}}"
+    },
+    "deleteAccount": {
+      "title": "Delete Account",
+      "description": "Permanently delete your account and all associated documents. This action cannot be undone.",
+      "button": "Delete Account",
+      "boundaryText": "Permanently deletes your account, every document you uploaded, and everything extracted from them. This cannot be undone.",
+      "confirm": "Delete My Account",
+      "deleting": "Deleting…",
+      "cancel": "Cancel"
+    }
+  },
+  "auth": {
+    "brandHome": "GraphMind home",
+    "login": {
+      "title": "Welcome back",
+      "subtitle": "Log in to your GraphMind workspace.",
+      "email": "Email",
+      "password": "Password",
+      "submit": "Log In",
+      "resendVerification": "Resend verification email",
+      "resendSent": "If that account exists and isn't verified yet, we've sent a new link.",
+      "noAccount": "Don't have an account?",
+      "registerLink": "Register"
+    },
+    "register": {
+      "title": "Create your account",
+      "subtitle": "Start asking grounded questions of your documents.",
+      "fullName": "Full name",
+      "email": "Email",
+      "password": "Password",
+      "submit": "Create Account",
+      "checkInboxPrefix": "Check your inbox at",
+      "checkInboxSuffix": "for a verification link before you log in.",
+      "resendVerification": "Resend verification email",
+      "resendSent": "If that account exists and isn't verified yet, we've sent a new link.",
+      "haveAccount": "Already have an account?",
+      "loginLink": "Log in"
+    },
+    "verifyEmail": {
+      "missingTokenTitle": "Verification link missing",
+      "missingTokenBodyPrefix": "This page needs a verification link -- open the one from your email, or",
+      "missingTokenBodySuffix": "to request a new one.",
+      "loginLinkText": "log in",
+      "verifyingTitle": "Verifying your email...",
+      "verifyingBody": "One moment.",
+      "verifiedTitle": "Email verified",
+      "verifiedBody": "Your account is ready. You can log in now.",
+      "verifiedButton": "Log In",
+      "failedTitle": "Verification failed",
+      "resendLabel": "Send me a new link",
+      "resendButton": "Resend verification email",
+      "resendSent": "If that account exists and isn't verified yet, we've sent a new link.",
+      "backToLogin": "Back to log in"
+    }
+  },
+  "landing": {
+    "logIn": "Log in",
+    "getStarted": "Get started",
+    "openWorkspace": "Open workspace",
+    "eyebrow": "Grounded document intelligence",
+    "heroTitleLine1": "Your documents,",
+    "heroTitleLine2": "finally answering back.",
+    "heroBody": "GraphMind reads everything you upload, maps who and what is connected to what, and answers your questions using only what your own documents actually say — with a citation on every claim.",
+    "createAccount": "Create your account",
+    "alreadyHaveOne": "I already have one",
+    "noAnswerWithoutEvidence": "No answer without evidence — if your documents don't support it, GraphMind says so.",
+    "heroSampleQuestion": "Who owns the migration project?",
+    "heroSampleAnswer": "Priya Raman leads it, with Platform Engineering as the owning team.",
+    "heroSampleCitation": "Q3-plan.pdf · Ch. 2",
+    "whatYouGet": "What you get",
+    "features": {
+      "upload": { "title": "Upload anything", "body": "Drop in PDFs, docs and notes. GraphMind extracts the text, chapter by chapter, and tracks every file through ingestion." },
+      "answers": { "title": "Answers with receipts", "body": "Every answer is grounded in your own documents and carries citation chips back to the exact chapter it came from. No evidence, no answer." },
+      "connections": { "title": "See the connections", "body": "People, organizations, projects, products and places are pulled out into a live knowledge graph you can explore — or read as a list." }
+    },
+    "howItWorks": "How it works",
+    "steps": {
+      "add": { "title": "Add your documents", "body": "Upload one file or a whole folder. Watch each one move from Uploaded to Ready." },
+      "ask": { "title": "Ask in plain language", "body": "Narrow the scope to the documents you care about, then just ask." },
+      "follow": { "title": "Follow the evidence", "body": "Open any citation to land on the source, or jump to the graph to see how it all connects." }
+    },
+    "closingTitle": "Start asking your documents questions.",
+    "closingBody": "Free to set up. Your library, your answers, your evidence.",
+    "getStartedFree": "Get started free",
+    "footerCopyright": "© {{year}} GraphMind",
+    "createAccountLink": "Create account"
+  },
+  "documents": {
+    "title": "Documents",
+    "eyebrow": "Your library",
+    "foldersHeading": "Folders",
+    "upload": "Upload",
+    "loading": "Loading documents...",
+    "emptyLibrary": "No documents yet.",
+    "emptyFiltered": "No documents match this filter.",
+    "deleteAria": "Delete {{filename}}",
+    "deleteConfirmPrefix": "Delete {{filename}}?",
+    "deleteBoundaryText": "Removes its passages, and any entities/relationships not shared with another document.",
+    "deleting": "Deleting…",
+    "sort": {
+      "label": "Sort documents",
+      "recent": "Sort: Most recent",
+      "title": "Sort: Title A–Z",
+      "status": "Sort: Status"
+    },
+    "filter": {
+      "label": "Filter documents by type",
+      "all": "Filter: All types",
+      "pdf": "PDF",
+      "markdown": "Markdown",
+      "html": "HTML"
+    },
+    "status": {
+      "Uploaded": "Uploaded",
+      "Extracting": "Extracting",
+      "Graphing": "Graphing",
+      "Ready": "Ready",
+      "Failed": "Failed"
+    },
+    "folderMenu": {
+      "moveAria": "Move {{filename}} to folder",
+      "moveToFolder": "Move to folder",
+      "ungrouped": "Ungrouped",
+      "createNewFolder": "Create new folder"
+    },
+    "folderGrid": {
+      "allDocuments": "All documents",
+      "newFolder": "New folder",
+      "editFolder": "Edit folder",
+      "nameLabel": "Name",
+      "colorLabel": "Color",
+      "saving": "Saving…",
+      "deleteConfirm": "Delete \"{{name}}\"? Its documents will become Ungrouped, never deleted.",
+      "editAria": "Edit {{name}}",
+      "deleteFolderAria": "Delete {{name}}",
+      "tileAria_one": "{{name}}, {{count}} document",
+      "tileAria_other": "{{name}}, {{count}} documents",
+      "documentCount_one": "{{count}} document",
+      "documentCount_other": "{{count}} documents"
+    },
+    "uploadModal": {
+      "heading": "Upload documents",
+      "dropzonePrefix": "Drag and drop files here, or",
+      "browse": "browse",
+      "supported": "Supported: {{extensions}} -- up to 20MB each",
+      "chooseFiles": "Choose files to upload",
+      "queued": "Queued",
+      "alreadyUploaded": "Already uploaded",
+      "viewDocument": "view document"
+    },
+    "previewModal": {
+      "close": "Close",
+      "loading": "Loading preview...",
+      "documentPreview": "Document preview"
+    }
+  },
+  "documentDetail": {
+    "backToDocuments": "Back to documents",
+    "loading": "Loading document...",
+    "preview": "Preview",
+    "deleting": "Deleting…",
+    "deleteConfirmPrefix": "Delete {{filename}}?",
+    "uploadedLabel": "Uploaded",
+    "uploadedOn": "Uploaded {{date}}",
+    "fileType": "File type",
+    "chapters": "Chapters",
+    "passagesIndexed": "Passages indexed",
+    "chapterBreakdownHeading": "Chapter breakdown",
+    "pending": "Pending",
+    "unavailable": "Unavailable",
+    "unavailableChapterBreakdown": "Unavailable — this document failed to process.",
+    "pendingChapterBreakdown": "Pending — the chapter breakdown appears once this document has been parsed and indexed.",
+    "reason": "Reason",
+    "noFurtherDetails": "No further details available."
+  },
+  "chat": {
+    "title": "Chat",
+    "eyebrow": "Ask your library",
+    "askLabel": "Ask a question about your documents",
+    "askPlaceholder": "Ask a question about your documents…",
+    "ask": "Ask",
+    "jumpToLatest": "Jump to latest messages",
+    "loadingEarlier": "Loading earlier messages…",
+    "conversation": "Conversation",
+    "serviceError": "Something went wrong generating an answer. Please try again.",
+    "citationPrefix": "Ch.",
+    "message": {
+      "youPrefix": "You:",
+      "assistantPrefix": "GraphMind:",
+      "refusalPrefix": "Refusal:",
+      "thinking": "Thinking…",
+      "noDocuments": "No documents are available to search yet.",
+      "emptyScope": "No content found in the documents you selected.",
+      "noAnswer": "GraphMind could not generate an answer for this question.",
+      "defaultNotice": "GraphMind has nothing to show for this question.",
+      "refusal": "No supporting evidence found in your documents for this question."
+    },
+    "searchPanel": {
+      "title": "Search in chat",
+      "placeholder": "Search in chat…",
+      "noMatches": "No matching messages loaded.",
+      "matchStatus": "Match {{active}} of {{result}} ({{total}} loaded).",
+      "prevMatch": "Previous match",
+      "nextMatch": "Next match"
+    },
+    "scopePanel": {
+      "title": "Documents in scope",
+      "noDocuments": "No documents yet.",
+      "askingAcrossAll_one": "Asking across all {{count}} document.",
+      "askingAcrossAll_other": "Asking across all {{count}} documents.",
+      "selected": "{{selected}} of {{total}} selected.",
+      "filterLabel": "Filter documents in scope",
+      "filterPlaceholder": "Search…",
+      "selectAll": "Select all",
+      "notAvailableYet": "{{filename}} — not available yet ({{status}})"
+    }
+  },
+  "graph": {
+    "title": "Graph Preview",
+    "eyebrow": "Knowledge graph",
+    "subtitle": "Every entity and relationship GraphMind extracted from your documents, drawn as one map.",
+    "retry": "Retry",
+    "loading": "Loading graph...",
+    "emptyState": "No graph yet. Once a document reaches Ready, its entities and relationships will appear here.",
+    "cappedNote": "Showing the {{shown}} most-connected entities of {{total}} total. Connections to entities outside this view aren't drawn.",
+    "stats": {
+      "entities": "Entities",
+      "relationships": "Relationships",
+      "entityTypes": "Entity types",
+      "ofTotal": "of {{total}} total"
+    },
+    "canvas": {
+      "ariaLabel": "Knowledge graph visualization",
+      "zoomOut": "Zoom out",
+      "zoomIn": "Zoom in",
+      "fit": "Fit",
+      "entityTypeKey": "Entity type key"
+    },
+    "summary": {
+      "readOnlyNote": "Read-only — hover, click and drag are disabled; the canvas can be zoomed and panned.",
+      "entityCount_one": "{{count}} entity",
+      "entityCount_other": "{{count}} entities",
+      "relationshipCount_one": "{{count}} relationship",
+      "relationshipCount_other": "{{count}} relationships",
+      "countsLine": "{{entities}}, {{relationships}} shown.",
+      "viewAsList": "View as list",
+      "searchLabel": "Search entities and relationships",
+      "searchPlaceholder": "Search entities…",
+      "typeChip": "{{type}} · {{count}}",
+      "clear": "Clear",
+      "noMatches": "Nothing matches that search.",
+      "relationships": "Relationships"
+    }
+  }
+}

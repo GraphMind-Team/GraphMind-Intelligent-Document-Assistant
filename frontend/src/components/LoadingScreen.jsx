@@ -4,10 +4,13 @@
 // check -- meant a stalled request (e.g. Render's ~1 min cold start) left a
 // first-time visitor looking at a blank white page with no signal anything
 // was happening.
+import { useTranslation } from 'react-i18next'
+
 export default function LoadingScreen() {
+  const { t } = useTranslation()
   return (
     <main className="flex min-h-screen items-center justify-center bg-bg">
-      <p className="text-sm text-text2">Loading…</p>
+      <p className="text-sm text-text2">{t('common.loading')}</p>
     </main>
   )
 }

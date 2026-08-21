@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '../../context/AuthContext'
 import { useTheme } from '../../context/ThemeContext'
 import { updateTheme } from '../../api/settingsClient'
@@ -10,6 +11,7 @@ const LABEL_ID = 'appearance-dark-mode-label'
 // DocumentCard/DocumentDetailPage call deleteDocument(authFetch, id)
 // directly rather than routing mutations through a context.
 export default function AppearanceCard() {
+  const { t } = useTranslation()
   const { authFetch, setAccountTheme } = useAuth()
   const { theme, setTheme } = useTheme()
   const [saving, setSaving] = useState(false)
@@ -37,7 +39,7 @@ export default function AppearanceCard() {
     } catch (err) {
       // Explicit about *what* failed (UX-DR19) -- the theme is still
       // applied here, it just isn't saved to the account yet.
-      setError(`This didn't save to your account: ${err.message}`)
+      setError(t('settings.appearance.saveError', { message: err.message }))
       setStatus(null)
     } finally {
       setSaving(false)
@@ -46,14 +48,14 @@ export default function AppearanceCard() {
 
   return (
     <div className="rounded-lg border border-border bg-card-bg p-[22px]">
-      <h2 className="text-base font-bold text-text">Appearance</h2>
+      <h2 className="text-base font-bold text-text">{t('settings.appearance.title')}</h2>
       <div className="mt-4 flex items-center justify-between">
         {/* Clickable, and the switch's aria-labelledby points here -- one
             source of truth for the wording instead of a duplicated
             aria-label, and clicking the text toggles too (as clicking a
             <label> next to a native control would). */}
         <span id={LABEL_ID} className="cursor-pointer text-sm text-text" onClick={() => !saving && handleToggle(!checked)}>
-          Dark mode
+          {t('settings.appearance.darkMode')}
         </span>
         <ToggleSwitch checked={checked} onChange={handleToggle} disabled={saving} busy={saving} labelledBy={LABEL_ID} />
       </div>
@@ -62,7 +64,7 @@ export default function AppearanceCard() {
           saving and no confirmation at all on success (only failure has an
           announced role="alert"). */}
       <p className="sr-only" aria-live="polite">
-        {status === 'saving' ? 'Saving appearance...' : status === 'saved' ? 'Appearance saved.' : ''}
+        {status === 'saving' ? t('settings.appearance.savingStatus') : status === 'saved' ? t('settings.appearance.savedStatus') : ''}
       </p>
       {error && (
         <p role="alert" className="mt-3 text-sm text-danger">

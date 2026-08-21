@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { registerAccount, resendVerification } from '../api/authClient'
 
 // Registration page (Story 1.3). Sits outside the authenticated shell but
 // still themes correctly via the CSS variable tokens in index.css
 // (UX-DR2). Layout follows the reference mockup's `.auth-wrap` card.
 export default function RegisterPage() {
+  const { t } = useTranslation()
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -52,26 +54,26 @@ export default function RegisterPage() {
         {/* The brand mark doubles as the way back to the public page --
             an auth form with no exit is a dead end for anyone who
             arrived by mistake. */}
-        <Link to="/" aria-label="GraphMind home" className="mb-4 inline-flex items-center gap-2.5">
+        <Link to="/" aria-label={t('auth.brandHome')} className="mb-4 inline-flex items-center gap-2.5">
           <span
             aria-hidden="true"
             className="relative block h-11 w-11 rounded-[15px] bg-[image:var(--grad-brand)] shadow-[var(--glow)] after:absolute after:inset-[11px] after:rounded-full after:border-2 after:border-white after:content-['']"
           />
           <span className="font-display text-[16px] font-bold text-text">GraphMind</span>
         </Link>
-        <h1 className="mb-1 text-auth-title text-text">Create your account</h1>
+        <h1 className="mb-1 text-auth-title text-text">{t('auth.register.title')}</h1>
         <p className="mb-6 text-sm text-text2">
-          Start asking grounded questions of your documents.
+          {t('auth.register.subtitle')}
         </p>
 
         {registered ? (
           <div>
             <p className="mb-4 text-sm text-text">
-              Check your inbox at <strong>{email}</strong> for a verification link before you log in.
+              {t('auth.register.checkInboxPrefix')} <strong>{email}</strong> {t('auth.register.checkInboxSuffix')}
             </p>
             {resendState === 'sent' ? (
               <p className="text-sm text-text2">
-                If that account exists and isn't verified yet, we've sent a new link.
+                {t('auth.register.resendSent')}
               </p>
             ) : (
               <button
@@ -80,13 +82,13 @@ export default function RegisterPage() {
                 disabled={resendState === 'sending'}
                 className="text-sm font-semibold text-link disabled:opacity-60"
               >
-                Resend verification email
+                {t('auth.register.resendVerification')}
               </button>
             )}
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="flex flex-col">
-            <label htmlFor="register-fullname" className="mb-1.5 block text-sm font-semibold text-text2">Full name</label>
+            <label htmlFor="register-fullname" className="mb-1.5 block text-sm font-semibold text-text2">{t('auth.register.fullName')}</label>
             <input
               id="register-fullname"
               type="text"
@@ -97,7 +99,7 @@ export default function RegisterPage() {
               className="mb-4 w-full rounded-xl border border-border bg-input-bg px-4 py-3 text-sm text-text"
             />
 
-            <label htmlFor="register-email" className="mb-1.5 block text-sm font-semibold text-text2">Email</label>
+            <label htmlFor="register-email" className="mb-1.5 block text-sm font-semibold text-text2">{t('auth.register.email')}</label>
             <input
               id="register-email"
               type="email"
@@ -108,7 +110,7 @@ export default function RegisterPage() {
               className="mb-4 w-full rounded-xl border border-border bg-input-bg px-4 py-3 text-sm text-text"
             />
 
-            <label htmlFor="register-password" className="mb-1.5 block text-sm font-semibold text-text2">Password</label>
+            <label htmlFor="register-password" className="mb-1.5 block text-sm font-semibold text-text2">{t('auth.register.password')}</label>
             <input
               id="register-password"
               type="password"
@@ -132,13 +134,13 @@ export default function RegisterPage() {
               disabled={submitting}
               className="btn-brand w-full rounded-full px-5 py-3 text-sm font-semibold disabled:opacity-60"
             >
-              Create Account
+              {t('auth.register.submit')}
             </button>
           </form>
         )}
 
         <p className="mt-3 text-center text-sm text-text2">
-          Already have an account? <Link to="/login" className="font-semibold text-link">Log in</Link>
+          {t('auth.register.haveAccount')} <Link to="/login" className="font-semibold text-link">{t('auth.register.loginLink')}</Link>
         </p>
       </div>
     </main>

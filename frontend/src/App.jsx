@@ -1,4 +1,5 @@
 import { BrowserRouter, Link, Route, Routes } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import ProtectedRoute from './components/ProtectedRoute'
 import PublicOnlyRoute from './components/PublicOnlyRoute'
 import Shell from './components/Shell'
@@ -13,14 +14,16 @@ import ChatPage from './pages/ChatPage'
 import GraphPage from './pages/GraphPage'
 import SettingsPage from './pages/SettingsPage'
 import ThemeAccountSync from './components/ThemeAccountSync'
+import LanguageAccountSync from './components/LanguageAccountSync'
 
 // Catch-all for anything that isn't a real route.
 function NotFoundPage() {
+  const { t } = useTranslation()
   return (
     <main className="app-aurora flex min-h-screen flex-col items-center justify-center gap-4 p-8 text-center">
-      <p className="font-display text-[22px] font-bold text-text">Page not found.</p>
+      <p className="font-display text-[22px] font-bold text-text">{t('notFound.message')}</p>
       <Link to="/" className="btn-brand rounded-full px-6 py-3 text-sm font-semibold">
-        Back to GraphMind
+        {t('notFound.backHome')}
       </Link>
     </main>
   )
@@ -30,6 +33,7 @@ function App() {
   return (
     <BrowserRouter>
       <ThemeAccountSync />
+      <LanguageAccountSync />
       <Routes>
         <Route path="/health" element={<HealthPage />} />
 

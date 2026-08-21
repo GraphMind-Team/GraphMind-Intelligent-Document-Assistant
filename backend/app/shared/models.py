@@ -37,6 +37,13 @@ class User(Base):
     # every ORM insert needs the value regardless of the migration's
     # server_default, which only exists to backfill pre-5.2 Postgres rows.
     theme: Mapped[str] = mapped_column(String(5), nullable=False, default="light")
+    # UI language, ISO 639-1 code ("en"/"bg"/"de"). Same Python-side-default
+    # rationale as `theme` above. Unlike `theme`, new rows don't always start
+    # at this default -- `auth/routes.py::register` overrides it per-request
+    # with the registration's resolved Accept-Language before the User is
+    # constructed, so this default only actually applies when that header is
+    # absent/unparseable.
+    language: Mapped[str] = mapped_column(String(5), nullable=False, default="en")
     # Story 1.6: `None` means "not yet verified"; a timestamp means
     # verified at that instant. A nullable timestamp, not a boolean --
     # records *when*, which a boolean would throw away, and every existing

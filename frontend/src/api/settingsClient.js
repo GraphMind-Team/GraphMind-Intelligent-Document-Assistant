@@ -19,6 +19,24 @@ export async function updateTheme(authFetch, theme) {
   return data
 }
 
+// Mirrors updateTheme's shape exactly: authFetch first, JSON body,
+// formatDetail for the error message.
+export async function updateLanguage(authFetch, language) {
+  const response = await authFetch('/auth/language', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ language }),
+  })
+  const data = await response.json().catch(() => null)
+
+  if (!response.ok) {
+    const message = formatDetail(data?.detail)
+    throw new Error(message || `Failed to save language (${response.status}).`)
+  }
+
+  return data
+}
+
 // Story 5.1. Mirrors updateTheme's shape exactly: authFetch first, JSON
 // body, formatDetail for the error message.
 export async function updateProfile(authFetch, { fullName }) {

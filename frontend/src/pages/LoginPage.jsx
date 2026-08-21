@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 import { resendVerification } from '../api/authClient'
 import { getRedirectTarget } from '../utils/authRedirect'
@@ -10,6 +11,7 @@ import { getRedirectTarget } from '../utils/authRedirect'
 // ProtectedRoute.jsx) if there was one, otherwise /documents, Story 1.5's
 // default post-login landing route.
 export default function LoginPage() {
+  const { t } = useTranslation()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState(null)
@@ -60,18 +62,18 @@ export default function LoginPage() {
         {/* The brand mark doubles as the way back to the public page --
             an auth form with no exit is a dead end for anyone who
             arrived by mistake. */}
-        <Link to="/" aria-label="GraphMind home" className="mb-4 inline-flex items-center gap-2.5">
+        <Link to="/" aria-label={t('auth.brandHome')} className="mb-4 inline-flex items-center gap-2.5">
           <span
             aria-hidden="true"
             className="relative block h-11 w-11 rounded-[15px] bg-[image:var(--grad-brand)] shadow-[var(--glow)] after:absolute after:inset-[11px] after:rounded-full after:border-2 after:border-white after:content-['']"
           />
           <span className="font-display text-[16px] font-bold text-text">GraphMind</span>
         </Link>
-        <h1 className="mb-1 text-auth-title text-text">Welcome back</h1>
-        <p className="mb-6 text-sm text-text2">Log in to your GraphMind workspace.</p>
+        <h1 className="mb-1 text-auth-title text-text">{t('auth.login.title')}</h1>
+        <p className="mb-6 text-sm text-text2">{t('auth.login.subtitle')}</p>
 
         <form onSubmit={handleSubmit} className="flex flex-col">
-          <label htmlFor="login-email" className="mb-1.5 block text-sm font-semibold text-text2">Email</label>
+          <label htmlFor="login-email" className="mb-1.5 block text-sm font-semibold text-text2">{t('auth.login.email')}</label>
           <input
             id="login-email"
             type="email"
@@ -82,7 +84,7 @@ export default function LoginPage() {
             className="mb-4 w-full rounded-xl border border-border bg-input-bg px-4 py-3 text-sm text-text"
           />
 
-          <label htmlFor="login-password" className="mb-1.5 block text-sm font-semibold text-text2">Password</label>
+          <label htmlFor="login-password" className="mb-1.5 block text-sm font-semibold text-text2">{t('auth.login.password')}</label>
           <input
             id="login-password"
             type="password"
@@ -103,7 +105,7 @@ export default function LoginPage() {
             <div className="mb-4">
               {resendState === 'sent' ? (
                 <p className="text-sm text-text2">
-                  If that account exists and isn't verified yet, we've sent a new link.
+                  {t('auth.login.resendSent')}
                 </p>
               ) : (
                 <button
@@ -112,7 +114,7 @@ export default function LoginPage() {
                   disabled={resendState === 'sending'}
                   className="text-sm font-semibold text-link disabled:opacity-60"
                 >
-                  Resend verification email
+                  {t('auth.login.resendVerification')}
                 </button>
               )}
             </div>
@@ -123,12 +125,12 @@ export default function LoginPage() {
             disabled={submitting}
             className="btn-brand w-full rounded-full px-5 py-3 text-sm font-semibold disabled:opacity-60"
           >
-            Log In
+            {t('auth.login.submit')}
           </button>
         </form>
 
         <p className="mt-3 text-center text-sm text-text2">
-          Don't have an account? <Link to="/register" className="font-semibold text-link">Register</Link>
+          {t('auth.login.noAccount')} <Link to="/register" className="font-semibold text-link">{t('auth.login.registerLink')}</Link>
         </p>
       </div>
     </main>

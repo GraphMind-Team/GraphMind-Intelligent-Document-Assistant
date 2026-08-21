@@ -60,6 +60,8 @@ class LoginResponse(BaseModel):
     # on login -- a second request would leave a render or two painted in
     # the wrong theme before it resolves (Story 5.2).
     theme: str
+    # Same reasoning as `theme` above, for the account's saved UI language.
+    language: str
 
 
 class MeResponse(BaseModel):
@@ -70,6 +72,7 @@ class MeResponse(BaseModel):
     email: str
     created_at: datetime
     theme: str
+    language: str
     # Story 1.6: `User` has no `email_verified` attribute -- `validation_alias`
     # points this field at the ORM object's `email_verified_at` instead (the
     # `from_attributes` lookup key), and the `mode="before"` validator below
@@ -90,6 +93,14 @@ class UpdateThemeRequest(BaseModel):
 
 class ThemeResponse(BaseModel):
     theme: str
+
+
+class UpdateLanguageRequest(BaseModel):
+    language: Literal["en", "bg", "de"]
+
+
+class LanguageResponse(BaseModel):
+    language: str
 
 
 class UpdateProfileRequest(BaseModel):

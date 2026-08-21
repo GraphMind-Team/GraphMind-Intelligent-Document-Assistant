@@ -55,6 +55,10 @@ export function AuthProvider({ children }) {
   // /auth/me check hasn't resolved); ThemeAccountSync treats that as
   // "nothing to sync".
   const [accountTheme, setAccountTheme] = useState(null)
+  // Same null-until-known semantics as accountTheme, for the account's
+  // saved UI language -- additive to the theme wiring above, not a
+  // replacement.
+  const [accountLanguage, setAccountLanguage] = useState(null)
 
   const setTokenEverywhere = useCallback((next) => {
     tokenRef.current = next
@@ -67,6 +71,7 @@ export function AuthProvider({ children }) {
       const data = await loginAccount({ email, password })
       setTokenEverywhere(data.access_token)
       setAccountTheme(data.theme)
+      setAccountLanguage(data.language)
       return data
     },
     [setTokenEverywhere],
@@ -75,6 +80,7 @@ export function AuthProvider({ children }) {
   const logout = useCallback(() => {
     setTokenEverywhere(null)
     setAccountTheme(null)
+    setAccountLanguage(null)
   }, [setTokenEverywhere])
 
   // Reusable by later stories (documents/chat/kg) for any authenticated
@@ -127,7 +133,10 @@ export function AuthProvider({ children }) {
         // already nulled out synchronously by setTokenEverywhere. Without
         // this check, the stale response would silently repopulate
         // accountTheme right after logout() just reset it to null.
-        if (data && tokenRef.current) setAccountTheme(data.theme)
+        if (data && tokenRef.current) {
+          setAccountTheme(data.theme)
+          setAccountLanguage(data.language)
+        }
       })
       .catch(() => {})
       .finally(() => {
@@ -147,6 +156,10 @@ export function AuthProvider({ children }) {
     // theme save -- otherwise accountTheme goes stale relative to the
     // just-persisted value until the next login/boot check.
     setAccountTheme,
+    accountLanguage,
+    // Exposed so LanguageCard can keep this in sync after a successful
+    // language save -- mirrors setAccountTheme's own reasoning.
+    setAccountLanguage,
     login,
     logout,
     authFetch,

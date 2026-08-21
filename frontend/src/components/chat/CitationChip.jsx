@@ -12,10 +12,13 @@
 // text; pinning a literal here again would just let the two drift apart
 // the next time the bubble's size moves. Weight and color still separate
 // it from prose.
+import { useTranslation } from 'react-i18next'
+
 export default function CitationChip({ chapter, documentFilename }) {
+  const { t } = useTranslation()
   return (
     <cite className="not-italic inline-block rounded-[6px] bg-citation px-2 py-0.5 font-bold text-citation-text whitespace-nowrap ml-1">
-      Ch. {chapter}, {documentFilename}
+      {t('chat.citationPrefix')} {chapter}, {documentFilename}
     </cite>
   )
 }

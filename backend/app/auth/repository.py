@@ -39,6 +39,12 @@ def update_user_theme(db: Session, user: User, theme: str) -> User:
     return user
 
 
+def update_user_language(db: Session, user: User, language: str) -> User:
+    user.language = language
+    db.flush()
+    return user
+
+
 def update_user_profile(db: Session, user: User, full_name: str) -> User:
     user.full_name = full_name
     db.flush()

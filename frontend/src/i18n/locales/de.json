@@ -1,0 +1,309 @@
+{
+  "common": {
+    "cancel": "Abbrechen",
+    "save": "Speichern",
+    "saving": "Speichert...",
+    "delete": "Löschen",
+    "loading": "Lädt…"
+  },
+  "notFound": {
+    "message": "Seite nicht gefunden.",
+    "backHome": "Zurück zu GraphMind"
+  },
+  "nav": {
+    "settings": "Benutzereinstellungen",
+    "documents": "Dokumente",
+    "chat": "Chat",
+    "graph": "Graph-Vorschau",
+    "exit": "Abmelden"
+  },
+  "settings": {
+    "title": "Benutzereinstellungen",
+    "profile": {
+      "title": "Profil",
+      "fullName": "Vollständiger Name",
+      "email": "E-Mail",
+      "save": "Speichern",
+      "saving": "Speichert...",
+      "savingStatus": "Profil wird gespeichert...",
+      "savedStatus": "Profil gespeichert.",
+      "saved": "Gespeichert!",
+      "loadError": "Profil konnte nicht geladen werden."
+    },
+    "changePassword": {
+      "title": "Passwort ändern",
+      "currentPassword": "Aktuelles Passwort",
+      "newPassword": "Neues Passwort",
+      "submit": "Passwort ändern",
+      "saving": "Speichert...",
+      "savingStatus": "Passwort wird geändert...",
+      "savedStatus": "Passwort geändert.",
+      "saved": "Gespeichert!"
+    },
+    "appearance": {
+      "title": "Erscheinungsbild",
+      "darkMode": "Dunkelmodus",
+      "savingStatus": "Erscheinungsbild wird gespeichert...",
+      "savedStatus": "Erscheinungsbild gespeichert.",
+      "saveError": "Das wurde nicht in deinem Konto gespeichert: {{message}}"
+    },
+    "language": {
+      "title": "Sprache",
+      "savingStatus": "Sprache wird gespeichert...",
+      "savedStatus": "Sprache gespeichert.",
+      "saveError": "Das wurde nicht in deinem Konto gespeichert: {{message}}"
+    },
+    "deleteAccount": {
+      "title": "Konto löschen",
+      "description": "Löscht dein Konto und alle zugehörigen Dokumente dauerhaft. Diese Aktion kann nicht rückgängig gemacht werden.",
+      "button": "Konto löschen",
+      "boundaryText": "Löscht dauerhaft dein Konto, jedes von dir hochgeladene Dokument und alles daraus Extrahierte. Dies kann nicht rückgängig gemacht werden.",
+      "confirm": "Mein Konto löschen",
+      "deleting": "Wird gelöscht…",
+      "cancel": "Abbrechen"
+    }
+  },
+  "auth": {
+    "brandHome": "GraphMind Startseite",
+    "login": {
+      "title": "Willkommen zurück",
+      "subtitle": "Melde dich in deinem GraphMind-Arbeitsbereich an.",
+      "email": "E-Mail",
+      "password": "Passwort",
+      "submit": "Anmelden",
+      "resendVerification": "Bestätigungs-E-Mail erneut senden",
+      "resendSent": "Falls dieses Konto existiert und noch nicht bestätigt wurde, haben wir einen neuen Link gesendet.",
+      "noAccount": "Noch kein Konto?",
+      "registerLink": "Registrieren"
+    },
+    "register": {
+      "title": "Konto erstellen",
+      "subtitle": "Stelle deinen Dokumenten fundierte Fragen.",
+      "fullName": "Vollständiger Name",
+      "email": "E-Mail",
+      "password": "Passwort",
+      "submit": "Konto erstellen",
+      "checkInboxPrefix": "Überprüfe dein Postfach unter",
+      "checkInboxSuffix": "auf einen Bestätigungslink, bevor du dich anmeldest.",
+      "resendVerification": "Bestätigungs-E-Mail erneut senden",
+      "resendSent": "Falls dieses Konto existiert und noch nicht bestätigt wurde, haben wir einen neuen Link gesendet.",
+      "haveAccount": "Bereits ein Konto?",
+      "loginLink": "Anmelden"
+    },
+    "verifyEmail": {
+      "missingTokenTitle": "Bestätigungslink fehlt",
+      "missingTokenBodyPrefix": "Diese Seite benötigt einen Bestätigungslink -- öffne den aus deiner E-Mail, oder",
+      "missingTokenBodySuffix": "um einen neuen anzufordern.",
+      "loginLinkText": "melde dich an",
+      "verifyingTitle": "E-Mail wird bestätigt...",
+      "verifyingBody": "Einen Moment.",
+      "verifiedTitle": "E-Mail bestätigt",
+      "verifiedBody": "Dein Konto ist bereit. Du kannst dich jetzt anmelden.",
+      "verifiedButton": "Anmelden",
+      "failedTitle": "Bestätigung fehlgeschlagen",
+      "resendLabel": "Sende mir einen neuen Link",
+      "resendButton": "Bestätigungs-E-Mail erneut senden",
+      "resendSent": "Falls dieses Konto existiert und noch nicht bestätigt wurde, haben wir einen neuen Link gesendet.",
+      "backToLogin": "Zurück zur Anmeldung"
+    }
+  },
+  "landing": {
+    "logIn": "Anmelden",
+    "getStarted": "Loslegen",
+    "openWorkspace": "Arbeitsbereich öffnen",
+    "eyebrow": "Intelligente Dokumentenanalyse mit Belegen",
+    "heroTitleLine1": "Deine Dokumente",
+    "heroTitleLine2": "antworten endlich.",
+    "heroBody": "GraphMind liest alles, was du hochlädst, zeigt dir, wie Personen, Themen und Fakten miteinander verknüpft sind, und beantwortet deine Fragen ausschließlich auf Basis dessen, was in deinen eigenen Dokumenten steht — mit einem Beleg für jede Aussage.",
+    "createAccount": "Konto erstellen",
+    "alreadyHaveOne": "Ich habe bereits eins",
+    "noAnswerWithoutEvidence": "Keine Antwort ohne Beleg — wenn deine Dokumente es nicht stützen, sagt GraphMind das.",
+    "heroSampleQuestion": "Wer leitet das Migrationsprojekt?",
+    "heroSampleAnswer": "Priya Raman leitet es, mit Platform Engineering als verantwortlichem Team.",
+    "heroSampleCitation": "Q3-plan.pdf · Kap. 2",
+    "whatYouGet": "Das bekommst du",
+    "features": {
+      "upload": { "title": "Lade alles hoch", "body": "Lade PDFs, Dokumente und Notizen hoch. GraphMind extrahiert den Text Kapitel für Kapitel und verfolgt jede Datei durch die gesamte Verarbeitung." },
+      "answers": { "title": "Antworten mit Belegen", "body": "Jede Antwort stützt sich auf deine eigenen Dokumente und verlinkt per Zitat genau zu dem Kapitel, aus dem sie stammt. Kein Beleg, keine Antwort." },
+      "connections": { "title": "Verbindungen erkennen", "body": "Personen, Organisationen, Projekte, Produkte und Orte werden automatisch in einem übersichtlichen Wissensgraphen erfasst, den du visuell erkunden oder einfach als Liste durchsehen kannst." }
+    },
+    "howItWorks": "So funktioniert's",
+    "steps": {
+      "add": { "title": "Füge deine Dokumente hinzu", "body": "Lade eine Datei oder einen ganzen Ordner hoch. Verfolge, wie jede von „Hochgeladen“ zu „Bereit“ wechselt." },
+      "ask": { "title": "Frage in einfacher Sprache", "body": "Grenze den Umfang auf die Dokumente ein, die dich interessieren, und frag einfach." },
+      "follow": { "title": "Folge dem Beleg", "body": "Öffne jedes Zitat, um zur Quelle zu gelangen, oder springe zum Graphen, um zu sehen, wie alles zusammenhängt." }
+    },
+    "closingTitle": "Stelle deinen Dokumenten Fragen.",
+    "closingBody": "Kostenlos einzurichten. Deine Bibliothek, deine Antworten, deine Belege.",
+    "getStartedFree": "Kostenlos starten",
+    "footerCopyright": "© {{year}} GraphMind",
+    "createAccountLink": "Konto erstellen"
+  },
+  "documents": {
+    "title": "Dokumente",
+    "eyebrow": "Deine Bibliothek",
+    "foldersHeading": "Ordner",
+    "upload": "Hochladen",
+    "loading": "Dokumente werden geladen...",
+    "emptyLibrary": "Noch keine Dokumente.",
+    "emptyFiltered": "Keine Dokumente entsprechen diesem Filter.",
+    "deleteAria": "{{filename}} löschen",
+    "deleteConfirmPrefix": "{{filename}} löschen?",
+    "deleteBoundaryText": "Entfernt die zugehörigen Textabschnitte sowie alle Entitäten und Beziehungen, die in keinem anderen Dokument vorkommen.",
+    "deleting": "Wird gelöscht…",
+    "sort": {
+      "label": "Dokumente sortieren",
+      "recent": "Sortieren: Neueste zuerst",
+      "title": "Sortieren: Titel A–Z",
+      "status": "Sortieren: Status"
+    },
+    "filter": {
+      "label": "Dokumente nach Typ filtern",
+      "all": "Filter: Alle Typen",
+      "pdf": "PDF",
+      "markdown": "Markdown",
+      "html": "HTML"
+    },
+    "status": {
+      "Uploaded": "Hochgeladen",
+      "Extracting": "Wird extrahiert",
+      "Graphing": "Graph wird erstellt",
+      "Ready": "Bereit",
+      "Failed": "Fehlgeschlagen"
+    },
+    "folderMenu": {
+      "moveAria": "{{filename}} in Ordner verschieben",
+      "moveToFolder": "In Ordner verschieben",
+      "ungrouped": "Ohne Ordner",
+      "createNewFolder": "Neuen Ordner erstellen"
+    },
+    "folderGrid": {
+      "allDocuments": "Alle Dokumente",
+      "newFolder": "Neuer Ordner",
+      "editFolder": "Ordner bearbeiten",
+      "nameLabel": "Name",
+      "colorLabel": "Farbe",
+      "saving": "Speichert…",
+      "deleteConfirm": "„{{name}}“ löschen? Die enthaltenen Dokumente werden ohne Ordner, aber nie gelöscht.",
+      "editAria": "{{name}} bearbeiten",
+      "deleteFolderAria": "{{name}} löschen",
+      "tileAria_one": "{{name}}, {{count}} Dokument",
+      "tileAria_other": "{{name}}, {{count}} Dokumente",
+      "documentCount_one": "{{count}} Dokument",
+      "documentCount_other": "{{count}} Dokumente"
+    },
+    "uploadModal": {
+      "heading": "Dokumente hochladen",
+      "dropzonePrefix": "Dateien hierher ziehen oder",
+      "browse": "durchsuchen",
+      "supported": "Unterstützt: {{extensions}} -- bis zu 20MB pro Datei",
+      "chooseFiles": "Dateien zum Hochladen auswählen",
+      "queued": "In Warteschlange",
+      "alreadyUploaded": "Bereits hochgeladen",
+      "viewDocument": "Dokument ansehen"
+    },
+    "previewModal": {
+      "close": "Schließen",
+      "loading": "Vorschau wird geladen...",
+      "documentPreview": "Dokumentvorschau"
+    }
+  },
+  "documentDetail": {
+    "backToDocuments": "Zurück zu den Dokumenten",
+    "loading": "Dokument wird geladen...",
+    "preview": "Vorschau",
+    "deleting": "Wird gelöscht…",
+    "deleteConfirmPrefix": "{{filename}} löschen?",
+    "uploadedLabel": "Hochgeladen",
+    "uploadedOn": "Hochgeladen am {{date}}",
+    "fileType": "Dateityp",
+    "chapters": "Kapitel",
+    "passagesIndexed": "Indizierte Abschnitte",
+    "chapterBreakdownHeading": "Kapitelübersicht",
+    "pending": "Ausstehend",
+    "unavailable": "Nicht verfügbar",
+    "unavailableChapterBreakdown": "Nicht verfügbar — die Verarbeitung dieses Dokuments ist fehlgeschlagen.",
+    "pendingChapterBreakdown": "Ausstehend — die Kapitelübersicht erscheint, sobald dieses Dokument analysiert und indiziert wurde.",
+    "reason": "Grund",
+    "noFurtherDetails": "Keine weiteren Details verfügbar."
+  },
+  "chat": {
+    "title": "Chat",
+    "eyebrow": "Frage deine Bibliothek",
+    "askLabel": "Stelle eine Frage zu deinen Dokumenten",
+    "askPlaceholder": "Stelle eine Frage zu deinen Dokumenten…",
+    "ask": "Fragen",
+    "jumpToLatest": "Zu den neuesten Nachrichten springen",
+    "loadingEarlier": "Frühere Nachrichten werden geladen…",
+    "conversation": "Unterhaltung",
+    "serviceError": "Beim Generieren einer Antwort ist ein Fehler aufgetreten. Bitte versuche es erneut.",
+    "citationPrefix": "Kap.",
+    "message": {
+      "youPrefix": "Du:",
+      "assistantPrefix": "GraphMind:",
+      "refusalPrefix": "Ablehnung:",
+      "thinking": "Denkt nach…",
+      "noDocuments": "Es sind noch keine Dokumente zum Durchsuchen verfügbar.",
+      "emptyScope": "In den ausgewählten Dokumenten wurde kein Inhalt gefunden.",
+      "noAnswer": "GraphMind konnte keine Antwort auf diese Frage generieren.",
+      "defaultNotice": "GraphMind hat nichts zu dieser Frage anzuzeigen.",
+      "refusal": "In deinen Dokumenten wurde kein Beleg für diese Frage gefunden."
+    },
+    "searchPanel": {
+      "title": "Im Chat suchen",
+      "placeholder": "Im Chat suchen…",
+      "noMatches": "Keine passenden Nachrichten geladen.",
+      "matchStatus": "Treffer {{active}} von {{result}} ({{total}} geladen).",
+      "prevMatch": "Vorheriger Treffer",
+      "nextMatch": "Nächster Treffer"
+    },
+    "scopePanel": {
+      "title": "Dokumente im Umfang",
+      "noDocuments": "Noch keine Dokumente.",
+      "askingAcrossAll_one": "Frage über alle {{count}} Dokument.",
+      "askingAcrossAll_other": "Frage über alle {{count}} Dokumente.",
+      "selected": "{{selected}} von {{total}} ausgewählt.",
+      "filterLabel": "Dokumente im Umfang filtern",
+      "filterPlaceholder": "Suchen…",
+      "selectAll": "Alle auswählen",
+      "notAvailableYet": "{{filename}} — noch nicht verfügbar ({{status}})"
+    }
+  },
+  "graph": {
+    "title": "Graph-Vorschau",
+    "eyebrow": "Wissensgraph",
+    "subtitle": "Jede Entität und Beziehung, die GraphMind aus deinen Dokumenten extrahiert hat, als eine Karte dargestellt.",
+    "retry": "Erneut versuchen",
+    "loading": "Graph wird geladen...",
+    "emptyState": "Noch kein Graph. Sobald ein Dokument den Status Bereit erreicht, erscheinen hier seine Entitäten und Beziehungen.",
+    "cappedNote": "Die {{shown}} am stärksten vernetzten Entitäten von insgesamt {{total}} werden angezeigt. Verbindungen zu Entitäten außerhalb dieser Ansicht werden nicht gezeichnet.",
+    "stats": {
+      "entities": "Entitäten",
+      "relationships": "Beziehungen",
+      "entityTypes": "Entitätstypen",
+      "ofTotal": "von insgesamt {{total}}"
+    },
+    "canvas": {
+      "ariaLabel": "Visualisierung des Wissensgraphen",
+      "zoomOut": "Verkleinern",
+      "zoomIn": "Vergrößern",
+      "fit": "Einpassen",
+      "entityTypeKey": "Legende der Entitätstypen"
+    },
+    "summary": {
+      "readOnlyNote": "Nur lesbar — Hover, Klicken und Ziehen sind deaktiviert; die Ansicht kann gezoomt und verschoben werden.",
+      "entityCount_one": "{{count}} Entität",
+      "entityCount_other": "{{count}} Entitäten",
+      "relationshipCount_one": "{{count}} Beziehung",
+      "relationshipCount_other": "{{count}} Beziehungen",
+      "countsLine": "{{entities}}, {{relationships}} angezeigt.",
+      "viewAsList": "Als Liste anzeigen",
+      "searchLabel": "Entitäten und Beziehungen suchen",
+      "searchPlaceholder": "Entitäten suchen…",
+      "typeChip": "{{type}} · {{count}}",
+      "clear": "Zurücksetzen",
+      "noMatches": "Nichts entspricht dieser Suche.",
+      "relationships": "Beziehungen"
+    }
+  }
+}

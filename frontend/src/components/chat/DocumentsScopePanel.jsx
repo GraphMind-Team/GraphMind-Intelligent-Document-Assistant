@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { listDocuments } from '../../api/documentsClient'
 import { useChatScope } from '../../context/ChatScopeContext'
 import StatusPill from '../StatusPill'
@@ -10,6 +11,7 @@ import StatusPill from '../StatusPill'
 // Selected ids live in ChatScopeContext, shared with ChatPage's submit
 // handler.
 export default function DocumentsScopePanel({ authFetch }) {
+  const { t } = useTranslation()
   const [documents, setDocuments] = useState([])
   const [error, setError] = useState(null)
   const [filterText, setFilterText] = useState('')
@@ -52,13 +54,13 @@ export default function DocumentsScopePanel({ authFetch }) {
     // under the chat column instead of spanning the stacked layout's
     // full width.
     <aside className="w-full shrink-0 self-start rounded-2xl border border-border bg-card-bg p-5 shadow-card min-[901px]:w-[260px]">
-      <h2 className="mb-2.5 text-[13px] font-bold text-primary">Documents in scope</h2>
+      <h2 className="mb-2.5 text-[13px] font-bold text-primary">{t('chat.scopePanel.title')}</h2>
       {error && (
         <p role="alert" className="text-xs text-danger">
           {error}
         </p>
       )}
-      {!error && documents.length === 0 && <p className="text-xs text-text2">No documents yet.</p>}
+      {!error && documents.length === 0 && <p className="text-xs text-text2">{t('chat.scopePanel.noDocuments')}</p>}
 
       {documents.length > 0 && (
         <>
@@ -66,20 +68,20 @@ export default function DocumentsScopePanel({ authFetch }) {
               everything," not "nothing selected" -- FR-11's default. */}
           <p className="mb-2 text-[11px] text-text2">
             {selectedDocumentIds.length === 0
-              ? `Asking across all ${documents.length} document${documents.length === 1 ? '' : 's'}.`
-              : `${selectedDocumentIds.length} of ${documents.length} selected.`}
+              ? t('chat.scopePanel.askingAcrossAll', { count: documents.length })
+              : t('chat.scopePanel.selected', { selected: selectedDocumentIds.length, total: documents.length })}
           </p>
 
           <div className="mb-2 flex items-center gap-2">
             <label htmlFor="scope-filter" className="sr-only">
-              Filter documents in scope
+              {t('chat.scopePanel.filterLabel')}
             </label>
             <input
               id="scope-filter"
               type="text"
               value={filterText}
               onChange={(event) => setFilterText(event.target.value)}
-              placeholder="Search…"
+              placeholder={t('chat.scopePanel.filterPlaceholder')}
               className="min-w-0 flex-1 rounded-full border border-border px-3.5 py-2 text-[12px]"
             />
             <button
@@ -90,7 +92,7 @@ export default function DocumentsScopePanel({ authFetch }) {
               onClick={() => selectAll(readyDocumentIds)}
               className="shrink-0 whitespace-nowrap text-[12px] font-semibold text-accent"
             >
-              Select all
+              {t('chat.scopePanel.selectAll')}
             </button>
           </div>
         </>
@@ -135,7 +137,7 @@ export default function DocumentsScopePanel({ authFetch }) {
                     // programmatically, not left as sighted-only inline
                     // text -- StatusPill next to it already covers "status
                     // noted inline" as real DOM text.
-                    aria-label={`${doc.filename} — not available yet (${doc.status})`}
+                    aria-label={t('chat.scopePanel.notAvailableYet', { filename: doc.filename, status: doc.status })}
                     className="shrink-0"
                   />
                   <span className="min-w-0 flex-1 truncate">{doc.filename}</span>

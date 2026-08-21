@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 import { deleteFolder } from '../api/foldersClient'
 import { updateDocumentFolder } from '../api/documentsClient'
@@ -19,6 +20,7 @@ export const UNGROUPED_FILTER = 'ungrouped'
 const DRAG_DOCUMENT_ID_TYPE = 'text/plain'
 
 function FolderTile({ folder, count, isActive, onSelect, onEdit, onDeleted, onDropDocument }) {
+  const { t } = useTranslation()
   const { authFetch } = useAuth()
   const [isConfirming, setIsConfirming] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
@@ -105,7 +107,7 @@ function FolderTile({ folder, count, isActive, onSelect, onEdit, onDeleted, onDr
         className="flex flex-col gap-2 rounded-xl border border-danger/30 bg-danger/5 p-3"
       >
         <p className="text-xs text-text">
-          Delete "{folder.name}"? Its documents will become Ungrouped, never deleted.
+          {t('documents.folderGrid.deleteConfirm', { name: folder.name })}
         </p>
         {error && (
           <p role="alert" className="text-xs text-danger">
@@ -120,7 +122,7 @@ function FolderTile({ folder, count, isActive, onSelect, onEdit, onDeleted, onDr
             disabled={isDeleting}
             className="rounded-lg border border-border bg-card-bg px-3 py-1.5 text-xs font-semibold text-primary"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -128,7 +130,7 @@ function FolderTile({ folder, count, isActive, onSelect, onEdit, onDeleted, onDr
             disabled={isDeleting}
             className="rounded-lg border border-border bg-card-bg px-3 py-1.5 text-xs font-semibold text-danger"
           >
-            {isDeleting ? 'Deleting…' : 'Delete'}
+            {isDeleting ? t('documents.deleting') : t('common.delete')}
           </button>
         </div>
       </div>
@@ -149,7 +151,7 @@ function FolderTile({ folder, count, isActive, onSelect, onEdit, onDeleted, onDr
       <button
         type="button"
         aria-pressed={isActive}
-        aria-label={`${folder.name}, ${count} ${count === 1 ? 'document' : 'documents'}`}
+        aria-label={t('documents.folderGrid.tileAria', { name: folder.name, count })}
         onClick={() => onSelect(folder.id)}
         className="flex flex-col items-start gap-1.5 pr-10 text-left"
       >
@@ -161,14 +163,14 @@ function FolderTile({ folder, count, isActive, onSelect, onEdit, onDeleted, onDr
           {folder.name}
         </span>
         <span className="text-xs text-text2">
-          {count} {count === 1 ? 'document' : 'documents'}
+          {t('documents.folderGrid.documentCount', { count })}
         </span>
       </button>
 
       <div className="absolute right-2 top-2 flex gap-0.5">
         <button
           type="button"
-          aria-label={`Edit ${folder.name}`}
+          aria-label={t('documents.folderGrid.editAria', { name: folder.name })}
           onClick={(event) => {
             event.stopPropagation()
             onEdit(folder)
@@ -183,7 +185,7 @@ function FolderTile({ folder, count, isActive, onSelect, onEdit, onDeleted, onDr
         <button
           ref={deleteButtonRef}
           type="button"
-          aria-label={`Delete ${folder.name}`}
+          aria-label={t('documents.folderGrid.deleteFolderAria', { name: folder.name })}
           aria-expanded={isConfirming}
           onClick={openConfirm}
           className="rounded-lg p-1 text-text2 hover:bg-danger/10 hover:text-danger"
@@ -200,11 +202,12 @@ function FolderTile({ folder, count, isActive, onSelect, onEdit, onDeleted, onDr
 }
 
 function FixedTile({ label, count, isActive, onSelect }) {
+  const { t } = useTranslation()
   return (
     <button
       type="button"
       aria-pressed={isActive}
-      aria-label={`${label}, ${count} ${count === 1 ? 'document' : 'documents'}`}
+      aria-label={t('documents.folderGrid.tileAria', { name: label, count })}
       onClick={onSelect}
       className={[
         'card-lift flex flex-col items-start gap-1.5 rounded-xl border p-3.5 text-left',
@@ -213,7 +216,7 @@ function FixedTile({ label, count, isActive, onSelect }) {
     >
       <span className="text-[13.5px] font-semibold text-text">{label}</span>
       <span className="text-xs text-text2">
-        {count} {count === 1 ? 'document' : 'documents'}
+        {t('documents.folderGrid.documentCount', { count })}
       </span>
     </button>
   )
@@ -241,6 +244,7 @@ export default function FolderGrid({
   onFolderDeleted,
   onDocumentFolderChanged,
 }) {
+  const { t } = useTranslation()
   const { authFetch } = useAuth()
   const [modalState, setModalState] = useState(null) // null | 'create' | <folder>
   const [dropError, setDropError] = useState(null)
@@ -290,12 +294,12 @@ export default function FolderGrid({
         </p>
       )}
       <ul
-        aria-label="Folders"
+        aria-label={t('documents.foldersHeading')}
         className="grid list-none grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-3 p-0"
       >
         <li>
           <FixedTile
-            label="All documents"
+            label={t('documents.folderGrid.allDocuments')}
             count={allCount}
             isActive={activeFilter === ALL_DOCUMENTS_FILTER}
             onSelect={() => onSelectFilter(ALL_DOCUMENTS_FILTER)}
@@ -303,7 +307,7 @@ export default function FolderGrid({
         </li>
         <li>
           <FixedTile
-            label="Ungrouped"
+            label={t('documents.folderMenu.ungrouped')}
             count={ungroupedCount}
             isActive={activeFilter === UNGROUPED_FILTER}
             onSelect={() => onSelectFilter(UNGROUPED_FILTER)}
@@ -329,7 +333,7 @@ export default function FolderGrid({
             className="flex h-full min-h-[4.75rem] w-full flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-border p-3.5 text-text2 hover:border-accent hover:text-accent"
           >
             <span aria-hidden="true" className="text-lg leading-none">+</span>
-            <span className="text-xs font-semibold">New folder</span>
+            <span className="text-xs font-semibold">{t('documents.folderGrid.newFolder')}</span>
           </button>
         </li>
       </ul>

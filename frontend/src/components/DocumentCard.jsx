@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import StatusPill from './StatusPill'
 import FolderModal from './FolderModal'
 import { useAuth } from '../context/AuthContext'
 import { deleteDocument, updateDocumentFolder } from '../api/documentsClient'
-import { DELETE_BOUNDARY_TEXT, formatFileTypeShort, formatUploadedDate } from '../utils/documentFormat'
+import { formatFileTypeShort, formatUploadedDate } from '../utils/documentFormat'
 
 // The MIME type `onDragStart` below writes the dragged document's id
 // under, and every other card's `onDrop` reads it back from (Round 2:
@@ -49,6 +50,7 @@ export default function DocumentCard({
   onFolderChanged = () => {},
   onFolderCreated = () => {},
 }) {
+  const { t } = useTranslation()
   const detailHref = `/documents/${document.id}`
   const { authFetch } = useAuth()
 
@@ -306,7 +308,7 @@ export default function DocumentCard({
                 type="button"
                 aria-haspopup="menu"
                 aria-expanded={isMenuOpen}
-                aria-label={`Move ${document.filename} to folder`}
+                aria-label={t('documents.folderMenu.moveAria', { filename: document.filename })}
                 onClick={toggleMenu}
                 className="-mt-1 rounded-lg p-1.5 text-text2 hover:bg-accent/10 hover:text-accent"
               >
@@ -321,13 +323,13 @@ export default function DocumentCard({
                 <div
                   ref={menuRef}
                   role="menu"
-                  aria-label="Move to folder"
+                  aria-label={t('documents.folderMenu.moveToFolder')}
                   onClick={(event) => event.stopPropagation()}
                   onKeyDown={handleMenuKeyDown}
                   className="absolute right-0 top-full z-10 mt-1 w-48 rounded-lg border border-border bg-card-bg py-1 shadow-modal"
                 >
                   <p className="px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.02em] text-text2">
-                    Move to folder
+                    {t('documents.folderMenu.moveToFolder')}
                   </p>
                   {document.folder_id && (
                     <button
@@ -336,7 +338,7 @@ export default function DocumentCard({
                       onClick={(event) => handleMoveToFolder(event, null)}
                       className="block w-full px-3 py-1.5 text-left text-[13px] text-text hover:bg-surface2"
                     >
-                      Ungrouped
+                      {t('documents.folderMenu.ungrouped')}
                     </button>
                   )}
                   {folders.map((folder) => (
@@ -356,7 +358,7 @@ export default function DocumentCard({
                     onClick={handleCreateNewFolder}
                     className="block w-full border-t border-border px-3 py-1.5 text-left text-[13px] font-semibold text-primary hover:bg-surface2"
                   >
-                    Create new folder
+                    {t('documents.folderMenu.createNewFolder')}
                   </button>
                 </div>
               )}
@@ -370,7 +372,7 @@ export default function DocumentCard({
             <button
               ref={trashButtonRef}
               type="button"
-              aria-label={`Delete ${document.filename}`}
+              aria-label={t('documents.deleteAria', { filename: document.filename })}
               aria-expanded={isConfirming}
               onClick={openConfirm}
               className="-mt-1 shrink-0 rounded-lg p-1.5 text-text2 hover:bg-danger/10 hover:text-danger"
@@ -435,7 +437,7 @@ export default function DocumentCard({
             className="flex flex-col gap-2 rounded-xl border border-danger/30 bg-danger/5 p-3"
           >
             <p id={boundaryTextId} className="text-xs text-text">
-              Delete {document.filename}? {DELETE_BOUNDARY_TEXT}
+              {t('documents.deleteConfirmPrefix', { filename: document.filename })} {t('documents.deleteBoundaryText')}
             </p>
             {error && (
               <p role="alert" className="text-xs text-danger">
@@ -451,7 +453,7 @@ export default function DocumentCard({
                 disabled={isDeleting}
                 className="rounded-lg border border-border bg-card-bg px-3 py-1.5 text-xs font-semibold text-primary"
               >
-                Cancel
+                {t('common.cancel')}
               </button>
               <button
                 type="button"
@@ -460,7 +462,7 @@ export default function DocumentCard({
                 disabled={isDeleting}
                 className="rounded-lg border border-border bg-card-bg px-3 py-1.5 text-xs font-semibold text-danger"
               >
-                {isDeleting ? 'Deleting…' : 'Delete'}
+                {isDeleting ? t('documents.deleting') : t('common.delete')}
               </button>
             </div>
           </div>

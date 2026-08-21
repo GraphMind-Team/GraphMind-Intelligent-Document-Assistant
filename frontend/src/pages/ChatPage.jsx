@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 import { ChatScopeProvider, useChatScope } from '../context/ChatScopeContext'
 import { askQuestion, getChatHistory } from '../api/chatClient'
@@ -84,6 +85,7 @@ export default function ChatPage() {
 }
 
 function ChatPageContent() {
+  const { t } = useTranslation()
   const { authFetch } = useAuth()
   const { selectedDocumentIds } = useChatScope()
   const [messages, setMessages] = useState([])
@@ -460,8 +462,8 @@ function ChatPageContent() {
   return (
     <>
       <header className="mb-5">
-        <p className="text-eyebrow uppercase text-accent">Ask your library</p>
-        <h1 className="text-page-title text-text">Chat</h1>
+        <p className="text-eyebrow uppercase text-accent">{t('chat.eyebrow')}</p>
+        <h1 className="text-page-title text-text">{t('chat.title')}</h1>
       </header>
 
       <div className="grid grid-cols-[1fr_260px] gap-[20px] max-[900px]:grid-cols-1">
@@ -504,7 +506,7 @@ function ChatPageContent() {
               prepend scroll-restore's `scrollHeight` math. */}
           {isLoadingHistory && (
             <div className="flex justify-center border-b border-border px-5 py-2">
-              <p className="text-[11px] text-text2">Loading earlier messages…</p>
+              <p className="text-[11px] text-text2">{t('chat.loadingEarlier')}</p>
             </div>
           )}
 
@@ -517,7 +519,7 @@ function ChatPageContent() {
               ref={messageListRef}
               role="log"
               tabIndex={0}
-              aria-label="Conversation"
+              aria-label={t('chat.conversation')}
               aria-live={liveAnnouncementsEnabled ? 'polite' : 'off'}
               aria-atomic="false"
               aria-busy={isLoadingHistory}
@@ -548,7 +550,7 @@ function ChatPageContent() {
                     el.scrollTo({ top: el.scrollHeight, behavior: prefersReducedMotion() ? 'instant' : 'smooth' })
                   }
                 }}
-                aria-label="Jump to latest messages"
+                aria-label={t('chat.jumpToLatest')}
                 className="absolute bottom-4 left-1/2 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-border bg-card-bg text-text2 shadow-card transition hover:text-accent"
               >
                 <svg
@@ -571,7 +573,7 @@ function ChatPageContent() {
           {error && (
             <p role="alert" className="mx-5 mb-2 text-xs text-danger">
               {error.kind === 'service'
-                ? 'Something went wrong generating an answer. Please try again.'
+                ? t('chat.serviceError')
                 : error.message}
             </p>
           )}
@@ -584,7 +586,7 @@ function ChatPageContent() {
               <RobotMascot state={isAsking ? 'thinking' : mascotBeat ?? 'idle'} />
               <div className="flex w-full items-stretch gap-2">
                 <label htmlFor="chat-question" className="sr-only">
-                  Ask a question about your documents
+                  {t('chat.askLabel')}
                 </label>
                 <input
                   id="chat-question"
@@ -605,7 +607,7 @@ function ChatPageContent() {
                   // already covers double-submit protection regardless of
                   // which of the two attributes is used here.
                   readOnly={isAsking}
-                  placeholder="Ask a question about your documents…"
+                  placeholder={t('chat.askPlaceholder')}
                   className={`min-w-0 flex-1 rounded-full border border-border px-5 py-3 text-[14px] shadow-card ${isAsking ? 'opacity-60' : ''}`}
                 />
                 <button
@@ -622,7 +624,7 @@ function ChatPageContent() {
                   aria-disabled={isAsking}
                   className={`btn-brand inline-flex shrink-0 items-center gap-1.5 rounded-full px-5 py-3 text-[13px] font-semibold ${isAsking ? 'cursor-not-allowed opacity-60' : ''}`}
                 >
-                  Ask
+                  {t('chat.ask')}
                   <svg
                     aria-hidden="true"
                     viewBox="0 0 24 24"

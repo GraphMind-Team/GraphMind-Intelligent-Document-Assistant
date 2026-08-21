@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 import { getGraph } from '../api/graphClient'
 import GraphCanvas from '../components/graph/GraphCanvas'
@@ -53,6 +54,7 @@ function StatTile({ label, value, hint }) {
 }
 
 export default function GraphPage() {
+  const { t } = useTranslation()
   const { authFetch } = useAuth()
   const [graph, setGraph] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -85,11 +87,11 @@ export default function GraphPage() {
     <>
       <header className="mb-6">
         <p className="text-eyebrow uppercase" style={{ color: 'var(--graph-accent-text)' }}>
-          Knowledge graph
+          {t('graph.eyebrow')}
         </p>
-        <h1 className="text-page-title text-text">Graph Preview</h1>
+        <h1 className="text-page-title text-text">{t('graph.title')}</h1>
         <p className="mt-1 max-w-[62ch] text-sm text-text2">
-          Every entity and relationship GraphMind extracted from your documents, drawn as one map.
+          {t('graph.subtitle')}
         </p>
       </header>
 
@@ -104,7 +106,7 @@ export default function GraphPage() {
             onClick={fetchGraph}
             className="btn-ghost shrink-0 rounded-full px-4 py-1.5 text-xs font-semibold"
           >
-            Retry
+            {t('graph.retry')}
           </button>
         </div>
       )}
@@ -124,7 +126,7 @@ export default function GraphPage() {
           }}
         >
           <p className="p-5 text-sm" style={{ color: 'var(--graph-ink2)' }}>
-            Loading graph...
+            {t('graph.loading')}
           </p>
         </div>
       )}
@@ -153,8 +155,7 @@ export default function GraphPage() {
             <circle cx="11" cy="18" r="2.4" />
           </svg>
           <p className="mx-auto max-w-[46ch] text-sm" style={{ color: 'var(--graph-ink2)' }}>
-            No graph yet. Once a document reaches Ready, its entities and relationships will appear
-            here.
+            {t('graph.emptyState')}
           </p>
         </div>
       )}
@@ -163,18 +164,17 @@ export default function GraphPage() {
         <>
           <div className="mb-5 grid gap-4 sm:grid-cols-3">
             <StatTile
-              label="Entities"
+              label={t('graph.stats.entities')}
               value={graph.nodes.length}
-              hint={isCapped ? `of ${graph.total_node_count} total` : undefined}
+              hint={isCapped ? t('graph.stats.ofTotal', { total: graph.total_node_count }) : undefined}
             />
-            <StatTile label="Relationships" value={graph.edges.length} />
-            <StatTile label="Entity types" value={typeCount} />
+            <StatTile label={t('graph.stats.relationships')} value={graph.edges.length} />
+            <StatTile label={t('graph.stats.entityTypes')} value={typeCount} />
           </div>
 
           {isCapped && (
             <p className="mb-4 text-sm" style={{ color: 'var(--graph-ink2)' }}>
-              Showing the {graph.nodes.length} most-connected entities of {graph.total_node_count}{' '}
-              total. Connections to entities outside this view aren't drawn.
+              {t('graph.cappedNote', { shown: graph.nodes.length, total: graph.total_node_count })}
             </p>
           )}
 

@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next'
+
 // Search within the conversation (sits above the documents-in-scope
 // panel in ChatPage's right column). Filters the thread that is already
 // loaded -- deliberately not a server-side history search, so it never
@@ -23,13 +25,14 @@ export default function ChatSearchPanel({
   onPrevMatch,
   onNextMatch,
 }) {
+  const { t } = useTranslation()
   return (
     <section className="w-full shrink-0 self-start rounded-2xl border border-border bg-card-bg p-5 shadow-card">
-      <h2 className="mb-2.5 text-[13px] font-bold text-primary">Search in chat</h2>
+      <h2 className="mb-2.5 text-[13px] font-bold text-primary">{t('chat.searchPanel.title')}</h2>
 
       <form role="search" onSubmit={(event) => event.preventDefault()}>
         <label htmlFor="chat-search" className="sr-only">
-          Search in chat
+          {t('chat.searchPanel.title')}
         </label>
         <div className="relative">
           <svg
@@ -50,7 +53,7 @@ export default function ChatSearchPanel({
             type="search"
             value={value}
             onChange={(event) => onChange(event.target.value)}
-            placeholder="Search in chat…"
+            placeholder={t('chat.searchPanel.placeholder')}
             className="w-full min-w-0 rounded-full border border-border py-2 pl-9 pr-3.5 text-[12px]"
           />
         </div>
@@ -63,8 +66,8 @@ export default function ChatSearchPanel({
               search deliberately doesn't re-announce. */}
           <p aria-live="polite" className="text-[11px] text-text2">
             {resultCount === 0
-              ? 'No matching messages loaded.'
-              : `Match ${activeMatchNumber} of ${resultCount} (${totalCount} loaded).`}
+              ? t('chat.searchPanel.noMatches')
+              : t('chat.searchPanel.matchStatus', { active: activeMatchNumber, result: resultCount, total: totalCount })}
           </p>
 
           {resultCount > 0 && (
@@ -72,7 +75,7 @@ export default function ChatSearchPanel({
               <button
                 type="button"
                 onClick={onPrevMatch}
-                aria-label="Previous match"
+                aria-label={t('chat.searchPanel.prevMatch')}
                 className="btn-ghost flex h-6 w-6 items-center justify-center rounded-full"
               >
                 <svg
@@ -91,7 +94,7 @@ export default function ChatSearchPanel({
               <button
                 type="button"
                 onClick={onNextMatch}
-                aria-label="Next match"
+                aria-label={t('chat.searchPanel.nextMatch')}
                 className="btn-ghost flex h-6 w-6 items-center justify-center rounded-full"
               >
                 <svg

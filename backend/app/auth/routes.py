@@ -14,6 +14,7 @@ from app.auth.rate_limiter import (
 from app.auth.schemas import (
     ChangePasswordRequest,
     ChangePasswordResponse,
+    LanguageResponse,
     LoginRequest,
     LoginResponse,
     MeResponse,
@@ -23,12 +24,14 @@ from app.auth.schemas import (
     ResendVerificationRequest,
     ResendVerificationResponse,
     ThemeResponse,
+    UpdateLanguageRequest,
     UpdateProfileRequest,
     UpdateThemeRequest,
     VerifyEmailRequest,
     VerifyEmailResponse,
 )
 from app.shared.data_access import get_db_session
+from app.shared.i18n.catalogs import resolve_language
 from app.shared.models import User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -50,12 +53,18 @@ def register(
     # login's reset() exempts a user's own repeat logins.
     client_ip = request.client.host if request.client else "unknown"
     limiter.check(client_ip)
-    user = service.register_user(db, data)
+    # Resolved once here and reused both for the new account's initial
+    # `language` (there's no saved preference yet to read instead) and for
+    # the verification email below, rather than each re-deriving it.
+    language = resolve_language(request.headers.get("accept-language"))
+    user = service.register_user(db, data, language=language)
     # Story 1.6: scheduled as a background task, same pattern as
     # documents.routes' ingest_document -- sending mail (an SMTP round
     # trip, up to 10s) must not hold the 201 response open, and a mail
     # outage must not turn a successful registration into a failed one.
-    background_tasks.add_task(service.send_verification_email, user.id, user.email, user.full_name)
+    background_tasks.add_task(
+        service.send_verification_email, user.id, user.email, user.full_name, user.language
+    )
     return RegisterResponse.model_validate(user)
 
 
@@ -68,10 +77,11 @@ def login(
 ) -> LoginResponse:
     client_ip = request.client.host if request.client else "unknown"
     limiter.check(client_ip, data.email)
-    user = service.authenticate_user(db, data.email, data.password)
+    language = resolve_language(request.headers.get("accept-language"))
+    user = service.authenticate_user(db, data.email, data.password, language=language)
     limiter.reset(client_ip, data.email)
     token = service.create_access_token(user.id)
-    return LoginResponse(access_token=token, token_type="bearer", theme=user.theme)
+    return LoginResponse(access_token=token, token_type="bearer", theme=user.theme, language=user.language)
 
 
 @router.get("/me", response_model=MeResponse)
@@ -87,6 +97,16 @@ def update_theme(
 ) -> ThemeResponse:
     service.update_theme(db, current_user, data.theme)
     return ThemeResponse(theme=data.theme)
+
+
+@router.patch("/language", response_model=LanguageResponse)
+def update_language(
+    data: UpdateLanguageRequest,
+    db: Session = Depends(get_db_session),
+    current_user: User = Depends(get_current_user),
+) -> LanguageResponse:
+    service.update_language(db, current_user, data.language)
+    return LanguageResponse(language=data.language)
 
 
 @router.patch("/me", response_model=ProfileResponse)
