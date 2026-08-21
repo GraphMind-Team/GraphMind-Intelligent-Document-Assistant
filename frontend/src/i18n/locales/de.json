@@ -45,13 +45,13 @@
       "darkMode": "Dunkelmodus",
       "savingStatus": "Erscheinungsbild wird gespeichert...",
       "savedStatus": "Erscheinungsbild gespeichert.",
-      "saveError": "Das wurde nicht in deinem Konto gespeichert: {{message}}"
+      "saveError": "Die Änderung wurde nicht in deinem Konto gespeichert: {{message}}"
     },
     "language": {
       "title": "Sprache",
       "savingStatus": "Sprache wird gespeichert...",
       "savedStatus": "Sprache gespeichert.",
-      "saveError": "Das wurde nicht in deinem Konto gespeichert: {{message}}"
+      "saveError": "Die Änderung wurde nicht in deinem Konto gespeichert: {{message}}"
     },
     "deleteAccount": {
       "title": "Konto löschen",
@@ -272,7 +272,7 @@
   "graph": {
     "title": "Graph-Vorschau",
     "eyebrow": "Wissensgraph",
-    "subtitle": "Jede Entität und Beziehung, die GraphMind aus deinen Dokumenten extrahiert hat, als eine Karte dargestellt.",
+    "subtitle": "Alle Entitäten und Beziehungen, die GraphMind aus deinen Dokumenten extrahiert hat, in einer einzigen Karte dargestellt.",
     "retry": "Erneut versuchen",
     "loading": "Graph wird geladen...",
     "emptyState": "Noch kein Graph. Sobald ein Dokument den Status Bereit erreicht, erscheinen hier seine Entitäten und Beziehungen.",
