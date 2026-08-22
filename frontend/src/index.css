@@ -7,6 +7,19 @@ button:not(:disabled) {
   cursor: pointer;
 }
 
+/* Native search-input clear ("x") control -- not a real element in the DOM,
+   so it can't take a Tailwind class; targeted directly instead. */
+input[type='search']::-webkit-search-cancel-button {
+  cursor: pointer;
+}
+
+/* <option> items inside a <select>'s dropdown (Sort/Filter on the Documents
+   page, language picker) -- a separate element from the <select> itself, so
+   the cursor-pointer class on the trigger doesn't reach the open menu. */
+select option {
+  cursor: pointer;
+}
+
 /*
  * ============================================================
  *  GraphMind Design System v2 -- "Aurora Sky" (2026 refresh)
