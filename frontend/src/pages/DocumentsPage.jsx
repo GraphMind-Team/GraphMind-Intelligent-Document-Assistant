@@ -405,7 +405,7 @@ export default function DocumentsPage() {
           id="documents-sort"
           value={sortBy}
           onChange={(event) => setSortBy(event.target.value)}
-          className="rounded-full border border-border bg-input-bg px-3.5 py-2 text-[13px] text-text"
+          className="cursor-pointer rounded-full border border-border bg-input-bg px-3.5 py-2 text-[13px] text-text"
         >
           {SORT_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
@@ -421,7 +421,7 @@ export default function DocumentsPage() {
           id="documents-type-filter"
           value={typeFilter}
           onChange={(event) => setTypeFilter(event.target.value)}
-          className="rounded-full border border-border bg-input-bg px-3.5 py-2 text-[13px] text-text"
+          className="cursor-pointer rounded-full border border-border bg-input-bg px-3.5 py-2 text-[13px] text-text"
         >
           {TYPE_FILTER_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>

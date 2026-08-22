@@ -53,7 +53,7 @@ export default function LanguageCard() {
           value={i18n.resolvedLanguage}
           disabled={saving}
           onChange={(event) => handleChange(event.target.value)}
-          className="rounded-md border border-border bg-card-bg px-3 py-1.5 text-sm text-text"
+          className="cursor-pointer rounded-md border border-border bg-card-bg px-3 py-1.5 text-sm text-text"
         >
           {SUPPORTED_LANGUAGES.map((code) => (
             <option key={code} value={code}>

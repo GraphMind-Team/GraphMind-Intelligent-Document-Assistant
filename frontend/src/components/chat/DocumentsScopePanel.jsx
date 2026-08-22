@@ -114,7 +114,7 @@ export default function DocumentsScopePanel({ authFetch }) {
                     type="checkbox"
                     checked={selectedDocumentIds.includes(doc.id)}
                     onChange={() => toggleDocument(doc.id)}
-                    className="shrink-0"
+                    className="shrink-0 cursor-pointer"
                   />
                   <span className="min-w-0 flex-1 truncate">{doc.filename}</span>
                 </label>
