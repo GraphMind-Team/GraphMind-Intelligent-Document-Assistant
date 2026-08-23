@@ -157,7 +157,10 @@
     "deleteAria": "Delete {{filename}}",
     "readyToast": {
       "title": "{{filename}} is ready",
+      "entitiesFound_one": "{{count}} entity found in the graph",
+      "entitiesFound_other": "{{count}} entities found in the graph",
       "cta": "Ask about it",
+      "viewGraphCta": "View in graph",
       "dismissAria": "Dismiss"
     },
     "deleteConfirmPrefix": "Delete {{filename}}?",

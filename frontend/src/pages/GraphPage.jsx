@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 import { getGraph } from '../api/graphClient'
@@ -57,11 +58,16 @@ function StatTile({ label, value, hint }) {
 export default function GraphPage() {
   const { t } = useTranslation()
   const { authFetch } = useAuth()
+  // The ready-toast's "View in graph" CTA (DocumentReadyToasts.jsx) arrives
+  // here with `{ presetDocumentId }` in navigation state -- same shape
+  // ChatPage.jsx already reads for its own "Ask about it" CTA.
+  const location = useLocation()
+  const presetDocumentId = location.state?.presetDocumentId ?? null
   const [graph, setGraph] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [selectedDocumentIds, setSelectedDocumentIds] = useState([])
-  const [isScopePanelOpen, setIsScopePanelOpen] = useState(false)
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState(() => (presetDocumentId ? [presetDocumentId] : []))
+  const [isScopePanelOpen, setIsScopePanelOpen] = useState(Boolean(presetDocumentId))
 
   const fetchGraph = useCallback(
     async (ignoreRef) => {

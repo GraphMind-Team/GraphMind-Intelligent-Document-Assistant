@@ -157,7 +157,10 @@
     "deleteAria": "{{filename}} löschen",
     "readyToast": {
       "title": "{{filename}} ist bereit",
+      "entitiesFound_one": "{{count}} Entität im Graph gefunden",
+      "entitiesFound_other": "{{count}} Entitäten im Graph gefunden",
       "cta": "Frag dazu",
+      "viewGraphCta": "Im Graph ansehen",
       "dismissAria": "Schließen"
     },
     "deleteConfirmPrefix": "{{filename}} löschen?",
