@@ -280,7 +280,9 @@ def test_llm_extraction_failure_deletes_weaviate_passages_and_marks_failed(clien
     assert row.chapter_breakdown is None
     assert row.failed_reason is not None
     assert row.failed_reason.startswith("Could not extract entities from this document")
-    assert "OpenRouter entity extraction failed after 2 attempts" in row.failed_reason
+    # `ExtractionError` is not on `_USER_SAFE_EXCEPTIONS` -- its message can
+    # carry the provider's raw response body, so none of it is shown.
+    assert "OpenRouter" not in row.failed_reason
 
     # Once up front (before the Weaviate batch loop) and once more as the
     # AD-1 compensating rollback after the Graphing-step failure.
@@ -305,7 +307,7 @@ def test_neo4j_write_failure_deletes_weaviate_passages_and_marks_failed(client, 
     assert row.chapter_breakdown is None
     assert row.failed_reason is not None
     assert row.failed_reason.startswith("Could not save extracted entities to the graph")
-    assert "Neo4j is unreachable" in row.failed_reason
+    assert "Neo4j is unreachable" not in row.failed_reason
     assert fake_delete.call_count == 2
 
 

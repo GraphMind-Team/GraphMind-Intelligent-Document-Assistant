@@ -36,25 +36,30 @@ logger = logging.getLogger(__name__)
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-# Free-tier default -- overridable via OPENROUTER_MODEL without a code
-# change, which is the intended fix if this slug stops being offered free
-# (see below) rather than editing this line under time pressure.
+# Free-tier default.
 #
 # Chosen by measuring candidates from OpenRouter's live free-tier list
-# against this module's actual prompt: it returned correctly-shaped,
-# correctly-typed entities *and* relationships for English and Bulgarian
-# (this project supports Bulgarian documents -- matching the multilingual
-# embedding model in `weaviate_client.EMBEDDING_MODEL`), and was the fastest of the
-# candidates that did. Rejected: `meta-llama/llama-3.3-70b-instruct:free`,
-# the previous default, which now 404s with "unavailable for free";
-# `openrouter/free`, which returned `entities` as bare strings instead of
-# objects, so every entity was dropped by `_parse_and_validate` and its
-# relationships then had nothing to resolve against.
+# against both of this module's actual prompts: it returned
+# correctly-shaped, correctly-typed entities *and* relationships, and
+# correctly-cited answer segments in fluent Bulgarian (this project
+# supports Bulgarian documents -- matching the multilingual embedding model
+# in `weaviate_client.EMBEDDING_MODEL`). Rejected:
+# `nvidia/nemotron-nano-9b-v2:free`, faster and fine at extraction but it
+# garbled Bulgarian mid-sentence when generating answers;
+# `z-ai/glm-5.2:free` and `google/gemma-4-31b-it:free`, both 429 on every
+# attempt from the shared free pool; `openai/gpt-oss-20b:free` and
+# `meta-llama/llama-3.3-70b-instruct:free`, successive previous defaults,
+# each of which now 404s with "unavailable for free"; `openrouter/free`,
+# which returned `entities` as bare strings instead of objects, so every
+# entity was dropped by `_parse_and_validate` and its relationships then
+# had nothing to resolve against.
 #
-# Free slugs are not a stable contract -- they get withdrawn, as the
-# previous default did. A 404 here is (correctly) non-retryable and fails
-# the document, so the symptom is loud rather than silent.
-DEFAULT_MODEL = "openai/gpt-oss-20b:free"
+# Free slugs are not a stable contract -- they get withdrawn, as both
+# previous defaults did. A 404 here is (correctly) non-retryable and fails
+# the document, so the symptom is loud rather than silent. Overridable via
+# OPENROUTER_MODEL without a code change, which is the intended fix when
+# this slug goes the same way.
+DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b:free"
 
 # OD-1's closed type sets (resolved by the human before this spec was
 # written -- see the spec's Intent section). The prompt below asks the
@@ -435,8 +440,21 @@ def _call_openrouter(text: str) -> str:
     try:
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
+        # Body logged, not carried on the exception. `documents/service.py`
+        # builds `Document.failed_reason` -- shown verbatim in the UI --
+        # from the exceptions this module raises, so a provider payload
+        # embedded here is a payload on someone's screen (it reached the UI
+        # as raw JSON including the account's OpenRouter `user_id` when a
+        # withdrawn free model started 404ing). That caller now allowlists
+        # which exceptions may show their message, so this is the second of
+        # two independent guards rather than the only one.
+        logger.error(
+            "OpenRouter returned a non-retryable %s for extraction: %s",
+            response.status_code,
+            response.text[:500],
+        )
         raise ExtractionError(
-            f"OpenRouter returned a non-retryable {response.status_code}: {response.text[:500]}"
+            f"OpenRouter returned a non-retryable {response.status_code}"
         ) from exc
 
     try:
@@ -892,8 +910,17 @@ def _call_openrouter_for_chat(system_prompt: str, question: str) -> str:
     try:
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
+        # Same split as extraction's above: body to the log, status code to
+        # the exception. `chat/service.py` already replaces this message
+        # wholesale with a generic 503 detail, so this is defense in depth
+        # for that path rather than a fix to it.
+        logger.error(
+            "OpenRouter returned a non-retryable %s for chat generation: %s",
+            response.status_code,
+            response.text[:500],
+        )
         raise ChatCompletionError(
-            f"OpenRouter returned a non-retryable {response.status_code}: {response.text[:500]}"
+            f"OpenRouter returned a non-retryable {response.status_code}"
         ) from exc
 
     try:

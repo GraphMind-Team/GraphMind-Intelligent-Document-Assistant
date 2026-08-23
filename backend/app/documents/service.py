@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException
 
 from app.documents import repository
-from app.documents.parsing import CHUNK_OVERLAP_WORDS, parse_document
+from app.documents.parsing import CHUNK_OVERLAP_WORDS, UnparseableDocument, parse_document
 # Safe import direction, same as `auth/service.py -> documents/service.py`
 # (see that module's Design Notes comment): `folders/` never imports
 # `documents/`, so this introduces no cycle. Used only to check that a
@@ -91,10 +91,10 @@ _SUPPORTED_FORMATS_LABEL: Final = ".pdf, .md, .markdown, .html, .htm"
 # to whether ingestion is scheduled.
 UploadOutcome = Literal["created", "duplicate", "reingested"]
 
-# Story 2.5: short, human-readable, stage-aware labels prefixed onto a
-# truncated `str(exc)` to build `Document.failed_reason` -- never a raw
-# traceback or provider payload. In pipeline order; `_reason` below joins
-# whichever one was current when the exception was caught.
+# Story 2.5: short, human-readable, stage-aware labels that build
+# `Document.failed_reason` -- never a raw traceback or provider payload. In
+# pipeline order; `_reason` below picks whichever one was current when the
+# exception was caught.
 _STAGE_LABEL_PARSING: Final = "Could not read this document"
 _STAGE_LABEL_INDEXING: Final = "Could not index this document's content"
 _STAGE_LABEL_EXTRACTION: Final = "Could not extract entities from this document"
@@ -103,9 +103,41 @@ _STAGE_LABEL_GRAPH_WRITE: Final = "Could not save extracted entities to the grap
 # Long tracebacks or provider payloads never land in the DB or UI.
 _FAILED_REASON_MAX_CHARS: Final = 300
 
+# Only exceptions this project raises *itself*, with a message written to be
+# read by a user, may have that message shown. Everything else contributes
+# its stage label alone.
+#
+# An allowlist rather than sanitizing `str(exc)`, because the untrusted side
+# is unbounded and its contents are not ours: `ExtractionError` embeds up to
+# 500 characters of raw OpenRouter response body, and the Weaviate/Neo4j/
+# SQLAlchemy drivers put hostnames, ports, and occasionally
+# credential-bearing URLs into their messages. That is how an OpenRouter 404
+# once reached the UI as a wall of JSON complete with the account's provider
+# `user_id` -- the previous `str(exc)[:300]` truncation bounded the *length*
+# of the leak without preventing it. Full detail is still captured for
+# operators by the `logger.exception` in `ingest_document`'s handler, so
+# nothing is lost for debugging; it just stops being the user's problem to
+# look at.
+#
+# Deliberately a tuple of types, not a "does this look safe" heuristic: a
+# new exception type is opaque here until someone deliberately adds it,
+# which is the safe default to fail toward.
+_USER_SAFE_EXCEPTIONS: Final = (UnparseableDocument,)
+
+# Appended when the underlying detail is withheld, so the row still says
+# something actionable rather than only naming the stage that broke. Most of
+# these failures (provider 4xx/5xx, an unreachable Weaviate/Neo4j) genuinely
+# do clear on a retry, which Story 2.6's reingest path makes a real option.
+_GENERIC_RETRY_HINT: Final = "Please try uploading it again."
+
 
 def _reason(stage_label: str, exc: Exception) -> str:
-    return f"{stage_label}: {str(exc)[:_FAILED_REASON_MAX_CHARS]}"
+    """Stage label plus, *only* for an exception this project authored for
+    a user to read, that exception's own message. See
+    `_USER_SAFE_EXCEPTIONS` for why this is an allowlist."""
+    if isinstance(exc, _USER_SAFE_EXCEPTIONS):
+        return f"{stage_label}: {str(exc)[:_FAILED_REASON_MAX_CHARS]}"
+    return f"{stage_label}. {_GENERIC_RETRY_HINT}"
 
 
 def _normalize_content_type(content_type: str | None) -> str | None:
