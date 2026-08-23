@@ -306,21 +306,29 @@ def test_ingest_weaviate_write_failure_marks_failed(client, db_session, monkeypa
     assert row.status == "Failed"
     assert row.failed_reason is not None
     assert row.failed_reason.startswith("Could not index this document's content")
-    assert "Weaviate is unreachable" in row.failed_reason
+    # A driver's own message is NOT user-facing text -- Weaviate/Neo4j/
+    # SQLAlchemy errors carry hostnames, ports and sometimes
+    # credential-bearing URLs. Only the stage label reaches the row.
+    assert "Weaviate is unreachable" not in row.failed_reason
 
 
-def test_ingest_failure_with_a_long_message_truncates_failed_reason(client, db_session, monkeypatch):
-    """Story 2.5: a provider payload or long exception message never lands
-    in `failed_reason` untruncated -- capped at 300 chars of `str(exc)`,
-    on top of the stage label."""
+def test_ingest_failure_from_an_opaque_exception_withholds_its_message(
+    client, db_session, monkeypatch
+):
+    """Story 2.5: an exception this project didn't author for a user to
+    read contributes its stage label only -- never its message, however
+    short. Regression test for an OpenRouter 404 whose raw JSON body (with
+    the account's provider `user_id` in it) reached the UI verbatim; the
+    old behaviour truncated `str(exc)` to 300 chars, which bounded the
+    length of that leak without preventing it."""
     import app.documents.service as service_module
 
     _stub_embeddings(monkeypatch)
 
-    long_message = "x" * 5000
+    secret = "postgres://admin:hunter2@db.internal:5432 -- " + "x" * 5000
 
     def _raise(passages):
-        raise RuntimeError(long_message)
+        raise RuntimeError(secret)
 
     monkeypatch.setattr(service_module, "write_passages", _raise)
 
@@ -335,8 +343,39 @@ def test_ingest_failure_with_a_long_message_truncates_failed_reason(client, db_s
     assert row.status == "Failed"
     assert row.failed_reason is not None
     label = "Could not index this document's content"
-    assert row.failed_reason == f"{label}: {'x' * 300}"
-    assert len(row.failed_reason) == len(label) + 2 + 300
+    assert row.failed_reason == f"{label}. Please try uploading it again."
+    assert "hunter2" not in row.failed_reason
+    assert "x" * 50 not in row.failed_reason
+
+
+def test_ingest_failure_from_an_unparseable_document_keeps_its_message(
+    client, db_session, monkeypatch
+):
+    """The other side of the allowlist: `UnparseableDocument` is raised by
+    this project with a message written to be read, so it still reaches the
+    user -- that's the difference between redacting and going silent."""
+    import app.documents.service as service_module
+    from app.documents.parsing import UnparseableDocument
+
+    _stub_embeddings(monkeypatch)
+
+    def _raise(file_type, content):
+        raise UnparseableDocument("Could not decode Markdown as UTF-8.")
+
+    monkeypatch.setattr(service_module, "parse_document", _raise)
+
+    token = _register_and_login(
+        client, full_name="Ingest User", email="ingest-unparseable@example.com", password="password12345"
+    )
+    doc = _upload(client, token, "notes.md", _MARKDOWN, "text/markdown")
+
+    real_ingest_document(uuid.UUID(doc["id"]), session_factory=_session_factory(db_session))
+
+    row = db_session.get(Document, uuid.UUID(doc["id"]))
+    assert row.status == "Failed"
+    assert row.failed_reason == (
+        "Could not read this document: Could not decode Markdown as UTF-8."
+    )
 
 
 def test_ingest_missing_document_returns_silently(db_session):

@@ -440,8 +440,21 @@ def _call_openrouter(text: str) -> str:
     try:
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
+        # Body logged, not carried on the exception. `documents/service.py`
+        # builds `Document.failed_reason` -- shown verbatim in the UI --
+        # from the exceptions this module raises, so a provider payload
+        # embedded here is a payload on someone's screen (it reached the UI
+        # as raw JSON including the account's OpenRouter `user_id` when a
+        # withdrawn free model started 404ing). That caller now allowlists
+        # which exceptions may show their message, so this is the second of
+        # two independent guards rather than the only one.
+        logger.error(
+            "OpenRouter returned a non-retryable %s for extraction: %s",
+            response.status_code,
+            response.text[:500],
+        )
         raise ExtractionError(
-            f"OpenRouter returned a non-retryable {response.status_code}: {response.text[:500]}"
+            f"OpenRouter returned a non-retryable {response.status_code}"
         ) from exc
 
     try:
@@ -897,8 +910,17 @@ def _call_openrouter_for_chat(system_prompt: str, question: str) -> str:
     try:
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
+        # Same split as extraction's above: body to the log, status code to
+        # the exception. `chat/service.py` already replaces this message
+        # wholesale with a generic 503 detail, so this is defense in depth
+        # for that path rather than a fix to it.
+        logger.error(
+            "OpenRouter returned a non-retryable %s for chat generation: %s",
+            response.status_code,
+            response.text[:500],
+        )
         raise ChatCompletionError(
-            f"OpenRouter returned a non-retryable {response.status_code}: {response.text[:500]}"
+            f"OpenRouter returned a non-retryable {response.status_code}"
         ) from exc
 
     try:
