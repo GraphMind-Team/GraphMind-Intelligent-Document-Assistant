@@ -5,20 +5,23 @@ import { useAuth } from '../context/AuthContext'
 import DocumentReadyToasts from './DocumentReadyToasts'
 import Icon from './Icon'
 
-// Authenticated shell: fixed-width sidebar + fluid content, per UX-DR1.
-// DOM order matches visual order (sidebar first, then <Outlet/>) so tab
+// Authenticated shell: fixed-height top bar + fluid content, per UX-DR1.
+// DOM order matches visual order (bar first, then <Outlet/>) so tab
 // order is correct with zero tabIndex management (UX-DR18 -- no CSS
 // `order`/`row-reverse` on this layout).
 //
-// Design system v2: the rail is now a *floating glass card* (sticky,
-// inset from the viewport edges) over the app's ambient aurora ground,
-// rather than a solid primary-fill block flush to the edge, and the nav
-// items are pill-shaped with a gradient active state plus a left
-// indicator bar. The emoji glyphs are replaced by inline stroke icons --
-// emoji render as a different typeface (and often a different color)
-// on every platform, which is exactly the inconsistency a design system
-// exists to remove. They stay `aria-hidden`; the link text is the label,
-// as before.
+// Design system v2: the rail is a *floating glass card* (sticky, inset
+// from the viewport edges) over the app's ambient aurora ground, rather
+// than a solid primary-fill block flush to the edge, and the nav items
+// are pill-shaped with a gradient active state plus a bottom indicator
+// bar. Moved from a left sidebar to a top bar so page content gets the
+// full viewport width instead of losing a fixed-width column to the
+// rail -- same glass card, same items, same indicator/hover/active
+// treatment, just laid out horizontally. The emoji glyphs are replaced
+// by inline stroke icons -- emoji render as a different typeface (and
+// often a different color) on every platform, which is exactly the
+// inconsistency a design system exists to remove. They stay
+// `aria-hidden`; the link text is the label, as before.
 //
 // NavLink's className render-prop supplies the `active` state from the
 // current URL, so exactly one link is ever active with no manual
@@ -81,10 +84,19 @@ const NAV_LINK_CLASS = ({ isActive }) =>
     // what makes the active item legible without relying on the tint
     // alone -- the fill, the indicator bar and the font weight are three
     // redundant cues, not one.
-    'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13.5px]',
+    'group relative flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[13.5px]',
     isActive
       ? 'bg-sidebar-active-bg font-semibold text-sidebar-active-foreground shadow-[inset_0_1px_0_rgba(255,255,255,.2)]'
       : 'text-sidebar-foreground hover:bg-sidebar-hover-bg hover:text-sidebar-active-foreground',
+  ].join(' ')
+
+// Same brand-gradient indicator as before, rotated from a left bar (when
+// the rail was a vertical sidebar) to a bottom bar now that items sit
+// side by side in a top bar.
+const NAV_INDICATOR_CLASS = (isActive) =>
+  [
+    'absolute bottom-0.5 left-1/2 h-[3px] w-5 -translate-x-1/2 rounded-full bg-[image:var(--grad-brand)]',
+    isActive ? 'opacity-100' : 'opacity-0',
   ].join(' ')
 
 // First letter of each of the first two words -- "Priya Raman" -> "PR",
@@ -142,25 +154,25 @@ export default function Shell() {
   }
 
   return (
-    <div className="app-aurora flex min-h-screen gap-4 p-3 sm:p-4">
+    <div className="app-aurora flex min-h-screen flex-col gap-4 p-3 sm:p-4">
       <nav
         aria-label="Main"
-        className="glass sticky top-4 flex h-[calc(100vh-2rem)] w-[236px] shrink-0 flex-col gap-1 rounded-2xl p-3.5 shadow-card max-[900px]:w-[76px]"
+        className="glass sticky top-3 z-10 flex w-full shrink-0 items-center gap-2 rounded-2xl p-1.5 shadow-card sm:top-4 sm:gap-3"
       >
         {/* Logo lockup. The mark is the brand gradient with a knocked-out
             ring -- the same gradient the primary button and the mascot
             use, so the identity is one object seen in three places. */}
-        <div className="mb-6 flex items-center gap-3 px-1.5 pt-1">
+        <div className="mr-3 flex shrink-0 items-center gap-2 pl-1 sm:mr-5">
           <span
             aria-hidden="true"
-            className="relative block h-9 w-9 shrink-0 rounded-[12px] bg-[image:var(--grad-brand)] shadow-[var(--glow)] after:absolute after:inset-[9px] after:rounded-full after:border-2 after:border-white after:content-['']"
+            className="relative block h-7 w-7 shrink-0 rounded-[10px] bg-[image:var(--grad-brand)] shadow-[var(--glow)] after:absolute after:inset-[7px] after:rounded-full after:border-2 after:border-white after:content-['']"
           />
-          <span className="font-display text-[17px] font-bold tracking-[-0.02em] text-sidebar-active-foreground max-[900px]:hidden">
+          <span className="font-display text-[15px] font-bold tracking-[-0.02em] text-sidebar-active-foreground max-[640px]:hidden">
             GraphMind
           </span>
         </div>
 
-        <ul className="flex flex-col gap-1">
+        <ul className="flex flex-1 items-center gap-1 overflow-x-auto">
           {NAV_ITEMS.map((item) => (
             <li key={item.to}>
               <NavLink to={item.to} className={NAV_LINK_CLASS}>
@@ -168,15 +180,9 @@ export default function Shell() {
                   <>
                     {/* Active indicator bar -- a second, non-color cue
                         (position + presence) alongside the tint. */}
-                    <span
-                      aria-hidden="true"
-                      className={[
-                        'absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-[image:var(--grad-brand)]',
-                        isActive ? 'opacity-100' : 'opacity-0',
-                      ].join(' ')}
-                    />
+                    <span aria-hidden="true" className={NAV_INDICATOR_CLASS(isActive)} />
                     <Icon>{item.icon}</Icon>
-                    <span className="max-[900px]:sr-only">{t(item.labelKey)}</span>
+                    <span className="max-[640px]:sr-only">{t(item.labelKey)}</span>
                   </>
                 )}
               </NavLink>
@@ -184,20 +190,21 @@ export default function Shell() {
           ))}
         </ul>
 
-        {/* Bottom-anchored via margin-top:auto, separated from the nav
+        {/* Right-anchored via ml-auto (flex order stays after the nav
+            list, so tab order is unaffected), separated from the nav
             destinations by spacing plus a hairline rule -- whose account
             is signed in, then the way out, grouped together since neither
             is a working screen. */}
-        <div className="mt-auto flex flex-col gap-1 border-t border-sidebar-border pt-1">
+        <div className="ml-auto flex shrink-0 items-center gap-1 border-l border-sidebar-border pl-2">
           {accountFullName && (
-            <div className="flex items-center gap-3 px-3 py-2" title={`${accountFullName} · ${accountEmail}`}>
+            <div className="flex items-center gap-2 px-2 py-1.5" title={`${accountFullName} · ${accountEmail}`}>
               <span
                 aria-hidden="true"
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[image:var(--grad-brand)] text-[12px] font-bold text-white"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[image:var(--grad-brand)] text-[11px] font-bold text-white"
               >
                 {initialsFor(accountFullName)}
               </span>
-              <div className="min-w-0 flex-1 max-[900px]:sr-only">
+              <div className="min-w-0 max-[900px]:hidden">
                 <p className="truncate text-[13px] font-semibold text-sidebar-active-foreground">
                   {accountFullName}
                 </p>
@@ -208,19 +215,19 @@ export default function Shell() {
           <button
             type="button"
             onClick={handleExit}
-            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[13.5px] text-sidebar-foreground hover:bg-sidebar-hover-bg hover:text-sidebar-active-foreground"
+            className="flex shrink-0 items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-left text-[13.5px] text-sidebar-foreground hover:bg-sidebar-hover-bg hover:text-sidebar-active-foreground"
           >
             <Icon>
               <path d="M15 17l5-5-5-5" />
               <path d="M20 12H9" />
               <path d="M12 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6" />
             </Icon>
-            <span className="max-[900px]:sr-only">{t('nav.logout')}</span>
+            <span className="max-[640px]:sr-only">{t('nav.logout')}</span>
           </button>
         </div>
       </nav>
 
-      <main className="min-w-0 flex-1 px-2 py-4 sm:px-6">
+      <main className="min-w-0 flex-1 px-6 pb-4 sm:px-10">
         <Outlet />
       </main>
 
