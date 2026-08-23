@@ -273,6 +273,20 @@
   "graph": {
     "title": "Преглед на графа",
     "eyebrow": "Граф на знанието",
+    "entityTypes": {
+      "Person": "Лице",
+      "Organization": "Организация",
+      "Project": "Проект",
+      "Product": "Продукт",
+      "Location": "Място"
+    },
+    "relationshipTypes": {
+      "WORKS_AT": "Работи в",
+      "SUPPLIES": "Доставя на",
+      "PART_OF": "Част от",
+      "LOCATED_IN": "Намира се в",
+      "RELATED_TO": "Свързан с"
+    },
     "subtitle": "Всички обекти и връзки, които GraphMind е извлякъл от документите ви, представени в единна карта.",
     "retry": "Опитай отново",
     "loading": "Зареждане на графа...",

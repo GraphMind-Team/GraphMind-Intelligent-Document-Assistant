@@ -273,6 +273,20 @@
   "graph": {
     "title": "Graph Preview",
     "eyebrow": "Knowledge graph",
+    "entityTypes": {
+      "Person": "Person",
+      "Organization": "Organization",
+      "Project": "Project",
+      "Product": "Product",
+      "Location": "Location"
+    },
+    "relationshipTypes": {
+      "WORKS_AT": "Works at",
+      "SUPPLIES": "Supplies",
+      "PART_OF": "Part of",
+      "LOCATED_IN": "Located in",
+      "RELATED_TO": "Related to"
+    },
     "subtitle": "Every entity and relationship GraphMind extracted from your documents, drawn as one map.",
     "retry": "Retry",
     "loading": "Loading graph...",

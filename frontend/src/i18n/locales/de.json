@@ -273,6 +273,20 @@
   "graph": {
     "title": "Graph-Vorschau",
     "eyebrow": "Wissensgraph",
+    "entityTypes": {
+      "Person": "Person",
+      "Organization": "Organisation",
+      "Project": "Projekt",
+      "Product": "Produkt",
+      "Location": "Ort"
+    },
+    "relationshipTypes": {
+      "WORKS_AT": "Arbeitet bei",
+      "SUPPLIES": "Beliefert",
+      "PART_OF": "Teil von",
+      "LOCATED_IN": "Befindet sich in",
+      "RELATED_TO": "Verbunden mit"
+    },
     "subtitle": "Alle Entitäten und Beziehungen, die GraphMind aus deinen Dokumenten extrahiert hat, in einer einzigen Karte dargestellt.",
     "retry": "Erneut versuchen",
     "loading": "Graph wird geladen...",

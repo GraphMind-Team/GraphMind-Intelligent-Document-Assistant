@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { badgeFor, paletteFor, relationshipLabelFor, typeColorFor } from './graphTheme'
+import { badgeFor, entityTypeLabelFor, paletteFor, relationshipLabelFor, typeColorFor } from './graphTheme'
 
 // The accessible equivalent Story 4.1 (AC7/UX-DR28) requires: the canvas
 // (GraphCanvas.jsx) has all pointer interaction disabled, so nothing on
@@ -88,7 +88,7 @@ export default function GraphSummary({ nodes, edges, theme }) {
         !needle ||
         source.toLowerCase().includes(needle) ||
         target.toLowerCase().includes(needle) ||
-        relationshipLabelFor(edge.type).toLowerCase().includes(needle)
+        relationshipLabelFor(t, edge.type).toLowerCase().includes(needle)
       if (!matchesQuery) return false
       if (!activeType) return true
       const endpointTypes = nodes
@@ -172,7 +172,7 @@ export default function GraphSummary({ nodes, edges, theme }) {
                     : { ...chipStyle, color: palette.ink }
                 }
               >
-                {t('graph.summary.typeChip', { type, count: typeNodes.length })}
+                {t('graph.summary.typeChip', { type: entityTypeLabelFor(t, type), count: typeNodes.length })}
               </button>
             )
           })}
@@ -213,7 +213,7 @@ export default function GraphSummary({ nodes, edges, theme }) {
                     {badgeFor(type)}
                   </span>
                   <span className="font-semibold" style={{ color: palette.ink }}>
-                    {type}
+                    {entityTypeLabelFor(t, type)}
                   </span>
                   <span className="text-[12px]" style={{ color: palette.accentText }}>
                     {typeNodes.length}
@@ -288,7 +288,7 @@ export default function GraphSummary({ nodes, edges, theme }) {
                     className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold"
                     style={chipStyle}
                   >
-                    {relationshipLabelFor(edge.type)}
+                    {relationshipLabelFor(t, edge.type)}
                   </span>
                   {/* Direction is meaningful (a Person works at an
                       Organization, not the reverse) -- the canvas draws an
