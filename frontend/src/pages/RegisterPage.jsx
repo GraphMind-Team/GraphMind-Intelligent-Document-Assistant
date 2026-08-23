@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { registerAccount, resendVerification } from '../api/authClient'
+import { useSlowRequestHint } from '../hooks/useSlowRequestHint'
 
 // Registration page (Story 1.3). Sits outside the authenticated shell but
 // still themes correctly via the CSS variable tokens in index.css
@@ -17,6 +18,9 @@ export default function RegisterPage() {
   // Story 1.6: lets the "check your inbox" panel offer a resend without
   // making the visitor retype their address.
   const [resendState, setResendState] = useState('idle') // idle | sending | sent
+  // Registration is often the very first request the app makes -- see
+  // LoginPage.jsx's own comment on `useSlowRequestHint`.
+  const isSlow = useSlowRequestHint(submitting)
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -136,6 +140,12 @@ export default function RegisterPage() {
             >
               {t('auth.register.submit')}
             </button>
+
+            {isSlow && (
+              <p role="status" className="mt-3 text-center text-xs text-text2">
+                {t('common.slowServerHint')}
+              </p>
+            )}
           </form>
         )}
 

@@ -4,7 +4,9 @@
     "save": "Speichern",
     "saving": "Speichert...",
     "delete": "Löschen",
-    "loading": "Lädt…"
+    "loading": "Lädt…",
+    "slowServerHint": "Der Server war inaktiv und wacht gerade auf — das kann bis zu einer Minute dauern.",
+    "retry": "Erneut versuchen"
   },
   "notFound": {
     "message": "Seite nicht gefunden.",
@@ -13,9 +15,9 @@
   "nav": {
     "settings": "Benutzereinstellungen",
     "documents": "Dokumente",
-    "chat": "Chat",
-    "graph": "Graph-Vorschau",
-    "exit": "Abmelden"
+    "chat": "Fragen",
+    "graph": "Wissensgraph",
+    "logout": "Abmelden"
   },
   "settings": {
     "title": "Benutzereinstellungen",
@@ -147,7 +149,17 @@
     "loading": "Dokumente werden geladen...",
     "emptyLibrary": "Noch keine Dokumente.",
     "emptyFiltered": "Keine Dokumente entsprechen diesem Filter.",
+    "emptyState": {
+      "title": "Lade dein erstes Dokument hoch",
+      "body": "Füge eine PDF-, Markdown- oder HTML-Datei hinzu. GraphMind liest sie, extrahiert das Wesentliche und beantwortet Fragen ausschließlich auf Basis ihres Inhalts.",
+      "cta": "Dokument hochladen"
+    },
     "deleteAria": "{{filename}} löschen",
+    "readyToast": {
+      "title": "{{filename}} ist bereit",
+      "cta": "Frag dazu",
+      "dismissAria": "Schließen"
+    },
     "deleteConfirmPrefix": "{{filename}} löschen?",
     "deleteBoundaryText": "Entfernt die zugehörigen Textabschnitte sowie alle Entitäten und Beziehungen, die in keinem anderen Dokument vorkommen.",
     "deleting": "Wird gelöscht…",
@@ -164,15 +176,21 @@
       "markdown": "Markdown",
       "html": "HTML"
     },
+    "search": {
+      "label": "Dokumente nach Namen suchen",
+      "placeholder": "Suchen…"
+    },
     "status": {
       "Uploaded": "Hochgeladen",
-      "Extracting": "Wird extrahiert",
-      "Graphing": "Graph wird erstellt",
+      "Extracting": "Dokument wird gelesen",
+      "Graphing": "Verbindungen werden gesucht",
       "Ready": "Bereit",
       "Failed": "Fehlgeschlagen"
     },
+    "cardMenu": {
+      "aria": "Weitere Aktionen für {{filename}}"
+    },
     "folderMenu": {
-      "moveAria": "{{filename}} in Ordner verschieben",
       "moveToFolder": "In Ordner verschieben",
       "ungrouped": "Ohne Ordner",
       "createNewFolder": "Neuen Ordner erstellen"
@@ -213,6 +231,7 @@
     "backToDocuments": "Zurück zu den Dokumenten",
     "loading": "Dokument wird geladen...",
     "preview": "Vorschau",
+    "askAboutThis": "Frag zu diesem Dokument",
     "deleting": "Wird gelöscht…",
     "deleteConfirmPrefix": "{{filename}} löschen?",
     "uploadedLabel": "Hochgeladen",
@@ -234,6 +253,17 @@
     "askLabel": "Stelle eine Frage zu deinen Dokumenten",
     "askPlaceholder": "Stelle eine Frage zu deinen Dokumenten…",
     "ask": "Fragen",
+    "welcome": {
+      "noDocumentsTitle": "Lade ein Dokument hoch, um zu starten",
+      "noDocumentsBody": "GraphMind antwortet nur auf Basis deiner hochgeladenen Dokumente. Füge eine PDF-, Markdown- oder HTML-Datei hinzu und komm dann zurück, um Fragen zu stellen.",
+      "noDocumentsCta": "Zu den Dokumenten",
+      "readyTitle": "Stelle deine erste Frage",
+      "readyBody": "Frag etwas zu deinen Dokumenten. Jede Antwort enthält einen Verweis auf die Fundstelle.",
+      "tryLabel": "Frag zum Beispiel:",
+      "sample1": "Worum geht es in diesem Dokument?",
+      "sample2": "Fasse die wichtigsten Punkte zusammen.",
+      "sample3": "Wer oder was wird am häufigsten erwähnt?"
+    },
     "jumpToLatest": "Zu den neuesten Nachrichten springen",
     "loadingEarlier": "Frühere Nachrichten werden geladen…",
     "conversation": "Unterhaltung",
@@ -259,7 +289,7 @@
       "nextMatch": "Nächster Treffer"
     },
     "scopePanel": {
-      "title": "Dokumente im Umfang",
+      "title": "In welchen Dokumenten gesucht wird",
       "noDocuments": "Noch keine Dokumente.",
       "askingAcrossAll_one": "Frage über alle {{count}} Dokument.",
       "askingAcrossAll_other": "Frage über alle {{count}} Dokumente.",
@@ -268,6 +298,11 @@
       "filterPlaceholder": "Suchen…",
       "selectAll": "Alle auswählen",
       "notAvailableYet": "{{filename}} — noch nicht verfügbar ({{status}})"
+    },
+    "scopeChip": {
+      "label_one": "Du fragst in {{count}} Dokument",
+      "label_other": "Du fragst in {{count}} Dokumenten",
+      "clearAria": "Stattdessen in allen Dokumenten fragen"
     }
   },
   "graph": {

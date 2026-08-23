@@ -71,6 +71,18 @@ const MD_DOC = {
 
 const FOLDER_A = { id: 'folder-a', name: 'Contracts', color: 'mint', created_at: '2026-08-10T00:00:00Z' }
 
+// A Ready document's title renders as a Preview-opening button rather
+// than a detail-page link (DocumentCard.jsx), so a plain
+// `getAllByRole('link')` no longer finds every card the way it did
+// before that existed -- this reads each card's own title text directly,
+// in DOM order, regardless of which element type rendered it.
+function documentTitles() {
+  const documentsList = screen.getByRole('list', { name: 'Documents' })
+  return within(documentsList)
+    .getAllByRole('listitem')
+    .map((card) => within(card).getByText(/\.(pdf|md|html?)$/).textContent)
+}
+
 describe('DocumentsPage', () => {
   it('renders type, title, status pill, uploaded date and a trash icon per card', async () => {
     useAuth.mockReturnValue({ authFetch: vi.fn() })
@@ -108,14 +120,15 @@ describe('DocumentsPage', () => {
     expect(screen.queryByText(/unexpected EOF/)).not.toBeInTheDocument()
   })
 
-  it('shows "No documents yet." with an empty library, and keeps Upload actionable', async () => {
+  it('shows the empty-library state with an empty library, and keeps Upload actionable', async () => {
     useAuth.mockReturnValue({ authFetch: vi.fn() })
     vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([])
 
     renderPage()
 
-    expect(await screen.findByText('No documents yet.')).toBeInTheDocument()
+    expect(await screen.findByText('Upload your first document')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^upload$/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Upload a document' })).toBeEnabled()
   })
 
   it('reorders rows client-side on sort, without refetching', async () => {
@@ -126,14 +139,16 @@ describe('DocumentsPage', () => {
     renderPage()
     await screen.findByRole('link', { name: 'beta-report.pdf' })
 
-    // Default is most-recent-first, so the newer PDF leads.
-    const initialTitles = screen.getAllByRole('link').map((link) => link.textContent)
-    expect(initialTitles).toEqual(['beta-report.pdf', 'alpha-notes.md'])
+    // Default is most-recent-first, so the newer PDF leads. MD_DOC is
+    // Ready, so its title is a Preview-opening button rather than a link
+    // (DocumentCard.jsx) -- `documentTitles` below reads each card's own
+    // title text directly rather than assuming every card uses the same
+    // element type.
+    expect(documentTitles()).toEqual(['beta-report.pdf', 'alpha-notes.md'])
 
     await user.selectOptions(screen.getByLabelText('Sort documents'), 'title')
 
-    const sortedTitles = screen.getAllByRole('link').map((link) => link.textContent)
-    expect(sortedTitles).toEqual(['alpha-notes.md', 'beta-report.pdf'])
+    expect(documentTitles()).toEqual(['alpha-notes.md', 'beta-report.pdf'])
     expect(listSpy).toHaveBeenCalledTimes(1)
   })
 
@@ -152,6 +167,36 @@ describe('DocumentsPage', () => {
     expect(listSpy).toHaveBeenCalledTimes(1)
   })
 
+  it('narrows rows client-side by name as the search field is typed, without refetching', async () => {
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    const listSpy = vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([PDF_DOC, MD_DOC])
+    const user = userEvent.setup()
+
+    renderPage()
+    await screen.findByRole('link', { name: 'beta-report.pdf' })
+
+    // Case-insensitive, substring match -- not the full filename.
+    await user.type(screen.getByLabelText('Search documents by name'), 'ALPHA')
+
+    expect(screen.getByText('alpha-notes.md')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'beta-report.pdf' })).not.toBeInTheDocument()
+    expect(listSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the filtered-empty state (not the empty-library one) when the search matches nothing', async () => {
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([PDF_DOC, MD_DOC])
+    const user = userEvent.setup()
+
+    renderPage()
+    await screen.findByRole('link', { name: 'beta-report.pdf' })
+
+    await user.type(screen.getByLabelText('Search documents by name'), 'nothing-matches-this')
+
+    expect(screen.getByText('No documents match this filter.')).toBeInTheDocument()
+    expect(screen.queryByText('Upload your first document')).not.toBeInTheDocument()
+  })
+
   it('distinguishes "no match for this filter" from a genuinely empty library', async () => {
     useAuth.mockReturnValue({ authFetch: vi.fn() })
     vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([PDF_DOC, MD_DOC])
@@ -163,7 +208,7 @@ describe('DocumentsPage', () => {
     await user.selectOptions(screen.getByLabelText('Filter documents by type'), 'html')
 
     expect(screen.getByText('No documents match this filter.')).toBeInTheDocument()
-    expect(screen.queryByText('No documents yet.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Upload your first document')).not.toBeInTheDocument()
   })
 
   it('opens Detail when the card is clicked outside the trash icon', async () => {
@@ -229,7 +274,11 @@ describe('DocumentsPage', () => {
 
     renderPage()
     await screen.findByRole('link', { name: 'beta-report.pdf' })
-    await screen.findByRole('link', { name: 'alpha-notes.md' })
+    // MD_DOC is Ready, so its title renders as a Preview-opening button
+    // rather than a detail-page link (DocumentCard.jsx) -- `getByText`
+    // finds it either way, which is what these presence checks actually
+    // care about.
+    await screen.findByText('alpha-notes.md')
 
     const trash = screen.getByRole('button', { name: 'Delete beta-report.pdf' })
     await user.click(trash)
@@ -241,7 +290,7 @@ describe('DocumentsPage', () => {
     )
     expect(deleteSpy).toHaveBeenCalledWith(expect.any(Function), PDF_DOC.id)
     // The other document is untouched.
-    expect(screen.getByRole('link', { name: 'alpha-notes.md' })).toBeInTheDocument()
+    expect(screen.getByText('alpha-notes.md')).toBeInTheDocument()
     expect(within(screen.getByRole('list', { name: 'Documents' })).getAllByRole('listitem')).toHaveLength(1)
 
     // Focus lands on Upload, the one always-present stable control, since
@@ -275,6 +324,24 @@ describe('DocumentsPage', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Not authenticated.')
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  })
+
+  it('Retry on the error banner refetches, and a successful retry replaces the error with the grid', async () => {
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    const listSpy = vi
+      .spyOn(documentsClient, 'listDocuments')
+      .mockRejectedValueOnce(new Error('Not authenticated.'))
+      .mockResolvedValue([PDF_DOC])
+    const user = userEvent.setup()
+
+    renderPage()
+    await screen.findByRole('alert')
+
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+
+    expect(await screen.findByRole('link', { name: 'beta-report.pdf' })).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(listSpy).toHaveBeenCalledTimes(2)
   })
 
   describe('ingestion status polling (Story 2.3, extended in 2.4)', () => {
@@ -556,7 +623,7 @@ describe('DocumentsPage', () => {
 
       renderPage()
       await screen.findByRole('link', { name: 'beta-report.pdf' })
-      await screen.findByRole('link', { name: 'alpha-notes.md' })
+      await screen.findByText('alpha-notes.md')
       await user.click(screen.getByRole('button', { name: 'Folders' }))
 
       // Selecting the folder tile narrows to just its member. The panel
@@ -564,17 +631,17 @@ describe('DocumentsPage', () => {
       // click or the trigger closes it, not a tile pick.
       await user.click(screen.getByRole('button', { name: /^Contracts,/ }))
       expect(screen.getByRole('link', { name: 'beta-report.pdf' })).toBeInTheDocument()
-      expect(screen.queryByRole('link', { name: 'alpha-notes.md' })).not.toBeInTheDocument()
+      expect(screen.queryByText('alpha-notes.md')).not.toBeInTheDocument()
 
       // "Ungrouped" narrows to the document with no folder_id.
       await user.click(screen.getByRole('button', { name: /^Ungrouped,/ }))
       expect(screen.queryByRole('link', { name: 'beta-report.pdf' })).not.toBeInTheDocument()
-      expect(screen.getByRole('link', { name: 'alpha-notes.md' })).toBeInTheDocument()
+      expect(screen.getByText('alpha-notes.md')).toBeInTheDocument()
 
       // "All documents" shows everything again.
       await user.click(screen.getByRole('button', { name: /^All documents,/ }))
       expect(screen.getByRole('link', { name: 'beta-report.pdf' })).toBeInTheDocument()
-      expect(screen.getByRole('link', { name: 'alpha-notes.md' })).toBeInTheDocument()
+      expect(screen.getByText('alpha-notes.md')).toBeInTheDocument()
 
       // No server round trip for any of the above -- filtering stayed
       // entirely client-side over the one initial fetch, matching the
@@ -603,7 +670,7 @@ describe('DocumentsPage', () => {
       // The card's own "⋮" menu stops its clicks from propagating (so they
       // never navigate to Detail), which also means the folders panel
       // stays open across this whole interaction -- it's still open below.
-      await user.click(screen.getByRole('button', { name: `Move ${PDF_DOC.filename} to folder` }))
+      await user.click(screen.getByRole('button', { name: `More actions for ${PDF_DOC.filename}` }))
       await user.click(screen.getByRole('menuitem', { name: 'Contracts' }))
 
       // The tile's count reflects the reassignment immediately...
@@ -632,7 +699,7 @@ describe('DocumentsPage', () => {
       renderPage()
       await screen.findByRole('link', { name: 'beta-report.pdf' })
 
-      await user.click(screen.getByRole('button', { name: `Move ${PDF_DOC.filename} to folder` }))
+      await user.click(screen.getByRole('button', { name: `More actions for ${PDF_DOC.filename}` }))
       expect(screen.queryByText(/detail probe/i)).not.toBeInTheDocument()
 
       await user.click(screen.getByRole('menuitem', { name: 'Contracts' }))
@@ -750,7 +817,7 @@ describe('DocumentsPage', () => {
       // Ungrouped -- its "⋮" menu no longer offers an "Ungrouped" item
       // (nothing to unassign from) or "Contracts" (the folder is gone).
       expect(screen.getByRole('link', { name: 'beta-report.pdf' })).toBeInTheDocument()
-      await user.click(screen.getByRole('button', { name: `Move ${PDF_DOC.filename} to folder` }))
+      await user.click(screen.getByRole('button', { name: `More actions for ${PDF_DOC.filename}` }))
       const menu = screen.getByRole('menu')
       expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
         'Create new folder',

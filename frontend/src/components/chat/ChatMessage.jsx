@@ -2,6 +2,7 @@ import { forwardRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import CitationChip from './CitationChip'
 import highlightMatches from './highlightMatches'
+import Icon from '../Icon'
 
 // Story 3.3/FR-11: `empty_scope` is distinct from `no_documents` -- the
 // library isn't empty, the documents currently in scope just have no
@@ -80,18 +81,26 @@ const ChatMessage = forwardRef(function ChatMessage({ message, highlight = '', i
   // rather than looking like "GraphMind answered" in a different color.
   // The refusal token pair (not --surface/--text, the assistant bubble's
   // fill, and not --danger, reserved for real errors per AD-6 -- a
-  // refusal is correct behavior, not a failure) plus font-medium give it
-  // two more differentiators than color alone. The sr-only "Refusal: "
-  // prefix mirrors the "You:"/"GraphMind:" sender-cue mechanism below, so
-  // a screen reader hears a distinct announcement, not merely a
-  // differently-styled one (UX-DR15/UX-DR24) -- the same mechanism that
-  // already passed Story 3.1's own accessibility review.
+  // refusal is correct behavior, not a failure) plus the icon give it two
+  // more differentiators than color alone -- deliberately not oversized
+  // or shouting, though: a capped width (`max-w-[420px]`, not `78%` of
+  // whatever wide the message pane happens to be) and body-text sizing,
+  // since this reads as a plain, matter-of-fact statement, not an alert.
+  // The sr-only "Refusal: " prefix mirrors the "You:"/"GraphMind:"
+  // sender-cue mechanism below, so a screen reader hears a distinct
+  // announcement, not merely a differently-styled one (UX-DR15/UX-DR24)
+  // -- the same mechanism that already passed Story 3.1's own
+  // accessibility review.
   if (message.role === 'refusal') {
     return (
       <div
         ref={ref}
-        className="anim-rise max-w-[78%] self-center rounded-2xl border border-warning/40 bg-refusal-bg px-4 py-3 text-center text-[14px] font-medium text-refusal-text"
+        className="anim-rise mx-auto flex w-fit max-w-full items-center gap-2 self-center whitespace-nowrap rounded-full border border-border bg-refusal-bg px-3.5 py-2 text-[13px] text-refusal-text"
       >
+        <Icon className="h-[15px] w-[15px] shrink-0">
+          <circle cx="11" cy="11" r="7" />
+          <path d="M21 21l-4.3-4.3" />
+        </Icon>
         <span className="sr-only">{t('chat.message.refusalPrefix')} </span>
         {t('chat.message.refusal')}
       </div>

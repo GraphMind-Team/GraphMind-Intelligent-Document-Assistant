@@ -2,12 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
-import { listDocuments } from '../api/documentsClient'
+import { ALLOWED_EXTENSIONS, listDocuments } from '../api/documentsClient'
 import { listFolders } from '../api/foldersClient'
 import DocumentCard from '../components/DocumentCard'
 import FolderGrid, { ALL_DOCUMENTS_FILTER, UNGROUPED_FILTER } from '../components/FolderGrid'
 import { DOCUMENT_STATUSES } from '../components/StatusPill'
 import UploadModal from '../components/UploadModal'
+import { RobotFigure } from '../components/chat/RobotMascot'
+import Icon from '../components/Icon'
+import { useSlowRequestHint } from '../hooks/useSlowRequestHint'
 
 // Documents library (Story 2.2): a card grid (file-type tile, title,
 // status pill, uploaded date, trash icon per card), a toolbar above it,
@@ -82,8 +85,15 @@ export default function DocumentsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const isSlow = useSlowRequestHint(isLoading)
   const [sortBy, setSortBy] = useState('recent')
   const [typeFilter, setTypeFilter] = useState('all')
+  // Client-side, same as sortBy/typeFilter -- there's no server-side
+  // search param to reach for here any more than there is a sort one
+  // (this file's own top-of-file note on that still applies). Matters
+  // once a library grows past a screenful: sort and type-filter alone
+  // don't help find one specific file by name.
+  const [searchText, setSearchText] = useState('')
   const uploadButtonRef = useRef(null)
 
   // Folder-grouping feature: `folders` is fetched once (no polling -- only
@@ -245,6 +255,11 @@ export default function DocumentsPage() {
       filtered = filtered.filter((doc) => doc.folder_id === folderFilter)
     }
 
+    const needle = searchText.trim().toLowerCase()
+    if (needle) {
+      filtered = filtered.filter((doc) => doc.filename.toLowerCase().includes(needle))
+    }
+
     // Copy before sorting -- `documents` is state, and Array#sort mutates.
     const sorted = [...filtered]
     if (sortBy === 'title') {
@@ -255,7 +270,7 @@ export default function DocumentsPage() {
       sorted.sort(byMostRecent)
     }
     return sorted
-  }, [documents, sortBy, typeFilter, folderFilter])
+  }, [documents, sortBy, typeFilter, folderFilter, searchText])
 
   // Single boolean gate, one <UploadModal/> ever rendered -- structurally
   // no second modal can open on top of it (Story 2.1 AC1).
@@ -429,6 +444,30 @@ export default function DocumentsPage() {
             </option>
           ))}
         </select>
+
+        {/* Sort and type-filter only get you so far once a library grows
+            past a screenful -- neither helps find one specific file by
+            name. `ml-auto` on desktop pushes it to the row's own right
+            edge, separate from the Folders/Sort/Filter cluster; it just
+            wraps to its own line on narrow viewports like every other
+            control here already does. */}
+        <div className="relative ml-auto">
+          <label className="sr-only" htmlFor="documents-search">
+            {t('documents.search.label')}
+          </label>
+          <Icon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text2">
+            <circle cx="11" cy="11" r="7" />
+            <path d="M21 21l-4.3-4.3" />
+          </Icon>
+          <input
+            id="documents-search"
+            type="text"
+            value={searchText}
+            onChange={(event) => setSearchText(event.target.value)}
+            placeholder={t('documents.search.placeholder')}
+            className="w-44 rounded-full border border-border bg-input-bg py-2 pl-9 pr-3.5 text-[13px] text-text"
+          />
+        </div>
       </div>
 
       {/* The folders panel (when open) sits to the right of the document
@@ -439,15 +478,61 @@ export default function DocumentsPage() {
           silently dropping a column to the panel. */}
       <div className="flex items-start gap-4">
         <div className="min-w-0 flex-1">
+          {/* Mirrors GraphPage.jsx's own error-banner shape (card, not a
+              bare paragraph) plus the one thing it had that this didn't:
+              a Retry button, so a failed load isn't a dead end that only
+              a full page refresh can get past. */}
           {error && (
-            <p role="alert" className="mb-4 text-sm text-danger">
-              {error}
+            <div
+              role="alert"
+              className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-danger/30 bg-danger/5 px-5 py-4"
+            >
+              <p className="text-sm text-danger">{error}</p>
+              <button
+                type="button"
+                onClick={() => fetchDocuments()}
+                className="btn-ghost shrink-0 rounded-full px-4 py-1.5 text-xs font-semibold"
+              >
+                {t('common.retry')}
+              </button>
+            </div>
+          )}
+
+          {!error && isLoading && (
+            <p className="text-sm text-text2">
+              {t('documents.loading')}
+              {isSlow && <span className="block text-xs">{t('common.slowServerHint')}</span>}
             </p>
           )}
 
-          {!error && isLoading && <p className="text-sm text-text2">{t('documents.loading')}</p>}
-
-          {showEmptyLibrary && <p className="text-sm text-text2">{t('documents.emptyLibrary')}</p>}
+          {/* A real front door for a brand-new account, not one gray
+              sentence -- this is the first thing a just-registered user
+              sees, and the old text-only state gave them nothing to do
+              next. Reuses the mascot (already the app's own identity
+              element, per LandingPage.jsx) and the upload button's own
+              `handleOpenModal`, so "Upload a document" here opens the
+              exact same modal as the toolbar's button above. */}
+          {showEmptyLibrary && (
+            <div className="flex flex-col items-center gap-4 rounded-2xl border border-dashed border-border bg-surface2 px-6 py-16 text-center">
+              <RobotFigure state="idle" className="w-20" />
+              <div className="max-w-[46ch]">
+                <h2 className="font-display text-[18px] font-bold text-text">
+                  {t('documents.emptyState.title')}
+                </h2>
+                <p className="mt-2 text-sm leading-relaxed text-text2">{t('documents.emptyState.body')}</p>
+              </div>
+              <button
+                type="button"
+                onClick={handleOpenModal}
+                className="btn-brand rounded-full px-6 py-3 text-sm font-semibold"
+              >
+                {t('documents.emptyState.cta')}
+              </button>
+              <p className="text-xs text-text2">
+                {t('documents.uploadModal.supported', { extensions: ALLOWED_EXTENSIONS.join(', ') })}
+              </p>
+            </div>
+          )}
 
           {showFilteredEmpty && <p className="text-sm text-text2">{t('documents.emptyFiltered')}</p>}
 

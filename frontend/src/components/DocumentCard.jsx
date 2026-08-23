@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import StatusPill from './StatusPill'
 import FolderModal from './FolderModal'
+import PreviewModal from './PreviewModal'
+import Icon from './Icon'
 import { useAuth } from '../context/AuthContext'
 import { deleteDocument, updateDocumentFolder } from '../api/documentsClient'
 import { formatFileTypeShort, formatUploadedDate } from '../utils/documentFormat'
+import { folderSwatchClass } from '../utils/folderFormat'
 
 // The MIME type `onDragStart` below writes the dragged document's id
 // under, and every other card's `onDrop` reads it back from (Round 2:
@@ -53,6 +56,8 @@ export default function DocumentCard({
   const { t } = useTranslation()
   const detailHref = `/documents/${document.id}`
   const { authFetch } = useAuth()
+  const navigate = useNavigate()
+  const isReady = document.status === 'Ready'
 
   // Local, not lifted to DocumentsPage: each card's confirm state is its
   // own -- the only thing the parent needs is the single `onDeleted(id)`
@@ -60,6 +65,13 @@ export default function DocumentCard({
   const [isConfirming, setIsConfirming] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [error, setError] = useState(null)
+
+  // Preview (shared by the filename link and the "⋮" menu's own Preview
+  // item, both below) and "Ask about this document" -- both gated on
+  // `isReady`, same as DocumentDetailPage's own entry points, since
+  // there's nothing to preview and no scope to hand off for a document
+  // that hasn't finished processing.
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false)
 
   // Folder assignment (folder-grouping feature) -- its own small local
   // state, same "own it locally, notify the parent on success" shape as
@@ -118,6 +130,18 @@ export default function DocumentCard({
     closeMenu()
     setFolderError(null)
     setCreateFolderState('menu')
+  }
+
+  function openPreview(event) {
+    event.stopPropagation()
+    closeMenu()
+    setIsPreviewOpen(true)
+  }
+
+  function askAboutThisDocument(event) {
+    event.stopPropagation()
+    closeMenu()
+    navigate('/chat', { state: { presetDocumentId: document.id } })
   }
 
   // Focus moves into the menu on open, to its first item -- the same
@@ -301,14 +325,20 @@ export default function DocumentCard({
                 minimal: a plain absolutely-positioned list, role="menu"
                 /role="menuitem", Escape + outside-click to close (the
                 effect above), matching this file's own confirm-box focus
-                conventions rather than introducing a new pattern. */}
+                conventions rather than introducing a new pattern.
+                Originally folder-move only (hence the "moveAria" copy this
+                once carried); now also holds Preview/Ask about this
+                document (mirrors DocumentDetailPage's own two entry
+                points), so both the button and the menu's own label
+                describe it as general actions rather than the narrower
+                thing it used to be. */}
             <div className="relative">
               <button
                 ref={menuButtonRef}
                 type="button"
                 aria-haspopup="menu"
                 aria-expanded={isMenuOpen}
-                aria-label={t('documents.folderMenu.moveAria', { filename: document.filename })}
+                aria-label={t('documents.cardMenu.aria', { filename: document.filename })}
                 onClick={toggleMenu}
                 className="-mt-1 rounded-lg p-1.5 text-text2 hover:bg-accent/10 hover:text-accent"
               >
@@ -323,11 +353,52 @@ export default function DocumentCard({
                 <div
                   ref={menuRef}
                   role="menu"
-                  aria-label={t('documents.folderMenu.moveToFolder')}
+                  aria-label={t('documents.cardMenu.aria', { filename: document.filename })}
                   onClick={(event) => event.stopPropagation()}
                   onKeyDown={handleMenuKeyDown}
                   className="absolute right-0 top-full z-10 mt-1 w-48 rounded-lg border border-border bg-card-bg py-1 shadow-modal"
                 >
+                  {/* Preview/Ask about this document -- only once there's
+                      something to preview and a scope worth handing off
+                      (same Ready gate as DocumentDetailPage's own entry
+                      points). Icons on every item (not just these two) so
+                      the whole menu reads as one designed thing rather
+                      than the folder-only list this used to be with two
+                      unstyled extras bolted above it -- the same `Icon`
+                      frame DocumentDetailPage's own button row and Shell's
+                      nav rail use, so all three surfaces share one visual
+                      language. The `border-b` below only draws when this
+                      pair actually renders, so a non-Ready document's menu
+                      still opens straight on "Move to folder" with no
+                      orphaned divider above it. */}
+                  {isReady && (
+                    <>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={openPreview}
+                        className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-text hover:bg-surface2"
+                      >
+                        <Icon className="h-4 w-4 text-text2">
+                          <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z" />
+                          <circle cx="12" cy="12" r="3" />
+                        </Icon>
+                        {t('documentDetail.preview')}
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={askAboutThisDocument}
+                        className="flex w-full items-center gap-2.5 border-b border-border px-3 py-1.5 text-left text-[13px] text-text hover:bg-surface2"
+                      >
+                        <Icon className="h-4 w-4 text-text2">
+                          <path d="M20 14a3 3 0 0 1-3 3H8l-4 3V7a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3Z" />
+                          <path d="M8.5 10.5h.01M12 10.5h.01M15.5 10.5h.01" />
+                        </Icon>
+                        {t('documentDetail.askAboutThis')}
+                      </button>
+                    </>
+                  )}
                   <p className="px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.02em] text-text2">
                     {t('documents.folderMenu.moveToFolder')}
                   </p>
@@ -336,8 +407,9 @@ export default function DocumentCard({
                       type="button"
                       role="menuitem"
                       onClick={(event) => handleMoveToFolder(event, null)}
-                      className="block w-full px-3 py-1.5 text-left text-[13px] text-text hover:bg-surface2"
+                      className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-text hover:bg-surface2"
                     >
+                      <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full border border-border" />
                       {t('documents.folderMenu.ungrouped')}
                     </button>
                   )}
@@ -347,8 +419,15 @@ export default function DocumentCard({
                       type="button"
                       role="menuitem"
                       onClick={(event) => handleMoveToFolder(event, folder.id)}
-                      className="block w-full px-3 py-1.5 text-left text-[13px] text-text hover:bg-surface2"
+                      className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-text hover:bg-surface2"
                     >
+                      {/* Same circular-swatch convention FolderModal's own
+                          color picker uses -- a folder picked here should
+                          be recognizable as the same one there. */}
+                      <span
+                        aria-hidden="true"
+                        className={`h-2.5 w-2.5 shrink-0 rounded-full ${folderSwatchClass(folder.color)}`}
+                      />
                       {folder.name}
                     </button>
                   ))}
@@ -356,8 +435,11 @@ export default function DocumentCard({
                     type="button"
                     role="menuitem"
                     onClick={handleCreateNewFolder}
-                    className="block w-full border-t border-border px-3 py-1.5 text-left text-[13px] font-semibold text-primary hover:bg-surface2"
+                    className="flex w-full items-center gap-2.5 border-t border-border px-3 py-1.5 text-left text-[13px] font-semibold text-primary hover:bg-surface2"
                   >
+                    <Icon className="h-4 w-4">
+                      <path d="M12 5v14M5 12h14" />
+                    </Icon>
                     {t('documents.folderMenu.createNewFolder')}
                   </button>
                 </div>
@@ -399,20 +481,38 @@ export default function DocumentCard({
         {/* `break-words` rather than truncate: filenames are the one thing
             a user scans this grid for, and a silently clipped name is
             worse than a taller card. `line-clamp-2` bounds it so one
-            pathological name can't stretch its whole grid row. */}
-        {/* `draggable={false}`: an <a href> is natively draggable by
+            pathological name can't stretch its whole grid row.
+            The rest of the card still opens the detail page on click (the
+            `<li>`'s own handler above) -- only the name itself opens the
+            preview directly once there's something to preview, since
+            that's the one piece of this card a user is most likely to
+            click expecting to see the document's actual content rather
+            than its metadata. A non-Ready document has no preview to open
+            yet, so its name keeps navigating to the detail page instead
+            (`draggable={false}`: an <a href> is natively draggable by
             default, and starting a drag from directly over the filename
             would otherwise let the browser take over with its own
             link-drag ghost (filename + full URL in a gray chip) instead of
             this card's own `onDragStart` above -- stepping on the "Move to
-            {folder}" tooltip FolderGrid.jsx shows during that same drag. */}
-        <Link
-          to={detailHref}
-          draggable={false}
-          className="line-clamp-2 text-[14.5px] font-semibold break-words text-text hover:text-primary hover:underline"
-        >
-          {document.filename}
-        </Link>
+            {folder}" tooltip FolderGrid.jsx shows during that same drag;
+            a <button> has no such native drag behavior to begin with). */}
+        {isReady ? (
+          <button
+            type="button"
+            onClick={openPreview}
+            className="line-clamp-2 text-left text-[14.5px] font-semibold break-words text-text hover:text-primary hover:underline"
+          >
+            {document.filename}
+          </button>
+        ) : (
+          <Link
+            to={detailHref}
+            draggable={false}
+            className="line-clamp-2 text-[14.5px] font-semibold break-words text-text hover:text-primary hover:underline"
+          >
+            {document.filename}
+          </Link>
+        )}
 
         {folderError && (
           <p role="alert" className="-mt-2 text-xs text-danger">
@@ -500,6 +600,18 @@ export default function DocumentCard({
                 }
                 assignFolder(document.id, saved.id)
               }}
+            />,
+            ownerDocument.body,
+          )}
+
+        {/* Same portal reasoning as FolderModal above. */}
+        {isPreviewOpen &&
+          createPortal(
+            <PreviewModal
+              documentId={document.id}
+              filename={document.filename}
+              fileType={document.file_type}
+              onClose={() => setIsPreviewOpen(false)}
             />,
             ownerDocument.body,
           )}

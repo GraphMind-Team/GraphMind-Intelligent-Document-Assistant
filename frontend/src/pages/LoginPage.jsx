@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 import { resendVerification } from '../api/authClient'
 import { getRedirectTarget } from '../utils/authRedirect'
+import { useSlowRequestHint } from '../hooks/useSlowRequestHint'
 
 // Login page (Story 1.4). Mirrors RegisterPage.jsx's structure/styling.
 // On success, navigates into the authenticated shell -- back to wherever
@@ -24,6 +25,11 @@ export default function LoginPage() {
   const { login } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+  // Login is often the very first request the app makes -- exactly the
+  // one a Render cold start (README.md: idles down after ~15 min, up to
+  // a minute to wake) leaves stuck on a disabled button with no
+  // indication anything is happening, otherwise.
+  const isSlow = useSlowRequestHint(submitting)
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -127,6 +133,12 @@ export default function LoginPage() {
           >
             {t('auth.login.submit')}
           </button>
+
+          {isSlow && (
+            <p role="status" className="mt-3 text-center text-xs text-text2">
+              {t('common.slowServerHint')}
+            </p>
+          )}
         </form>
 
         <p className="mt-3 text-center text-sm text-text2">

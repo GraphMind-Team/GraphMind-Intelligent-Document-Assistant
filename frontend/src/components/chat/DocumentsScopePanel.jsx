@@ -10,7 +10,7 @@ import StatusPill from '../StatusPill'
 // this panel's own list only (OD-5 -- never a library-wide search).
 // Selected ids live in ChatScopeContext, shared with ChatPage's submit
 // handler.
-export default function DocumentsScopePanel({ authFetch }) {
+export default function DocumentsScopePanel({ authFetch, onDocumentsLoaded }) {
   const { t } = useTranslation()
   const [documents, setDocuments] = useState([])
   const [error, setError] = useState(null)
@@ -27,6 +27,12 @@ export default function DocumentsScopePanel({ authFetch }) {
         // ChatScopeContext.jsx's retainOnly comment. A no-op on this
         // first load since the selection starts empty.
         retainOnly(data.filter((doc) => doc.status === 'Ready').map((doc) => doc.id))
+        // ChatPage's empty-thread welcome placeholder (document count) and
+        // its preset-scope handoff from DocumentDetailPage (needs each
+        // document's own `status`) both read off this -- this panel
+        // already owns the fetch, so it reports the full list up rather
+        // than ChatPage duplicating the request.
+        onDocumentsLoaded?.(data)
       })
       .catch((err) => {
         if (!cancelled) setError(err.message)
@@ -34,7 +40,7 @@ export default function DocumentsScopePanel({ authFetch }) {
     return () => {
       cancelled = true
     }
-  }, [authFetch, retainOnly])
+  }, [authFetch, retainOnly, onDocumentsLoaded])
 
   const readyDocumentIds = useMemo(
     () => documents.filter((doc) => doc.status === 'Ready').map((doc) => doc.id),
@@ -136,8 +142,16 @@ export default function DocumentsScopePanel({ authFetch }) {
                     // UX-DR27: the disabled reason must be exposed
                     // programmatically, not left as sighted-only inline
                     // text -- StatusPill next to it already covers "status
-                    // noted inline" as real DOM text.
-                    aria-label={t('chat.scopePanel.notAvailableYet', { filename: doc.filename, status: doc.status })}
+                    // noted inline" as real DOM text. The status itself is
+                    // translated the same way StatusPill renders it (not
+                    // the raw backend value) -- a screen-reader user
+                    // hearing "not available yet (Extracting)" while
+                    // StatusPill visibly says "Reading document" would be
+                    // hearing pipeline jargon a sighted user never sees.
+                    aria-label={t('chat.scopePanel.notAvailableYet', {
+                      filename: doc.filename,
+                      status: t(`documents.status.${doc.status}`, { defaultValue: doc.status }),
+                    })}
                     className="shrink-0"
                   />
                   <span className="min-w-0 flex-1 truncate">{doc.filename}</span>

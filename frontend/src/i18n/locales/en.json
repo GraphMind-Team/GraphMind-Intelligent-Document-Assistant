@@ -4,7 +4,9 @@
     "save": "Save",
     "saving": "Saving...",
     "delete": "Delete",
-    "loading": "Loading…"
+    "loading": "Loading…",
+    "slowServerHint": "The server was idle and is waking up — this can take up to a minute.",
+    "retry": "Retry"
   },
   "notFound": {
     "message": "Page not found.",
@@ -13,9 +15,9 @@
   "nav": {
     "settings": "User Settings",
     "documents": "Documents",
-    "chat": "Chat",
-    "graph": "Graph Preview",
-    "exit": "Exit"
+    "chat": "Ask",
+    "graph": "Knowledge Graph",
+    "logout": "Log out"
   },
   "settings": {
     "title": "User Settings",
@@ -147,7 +149,17 @@
     "loading": "Loading documents...",
     "emptyLibrary": "No documents yet.",
     "emptyFiltered": "No documents match this filter.",
+    "emptyState": {
+      "title": "Upload your first document",
+      "body": "Add a PDF, Markdown or HTML file and GraphMind will read it, extract what matters, and let you ask questions grounded in exactly what it says.",
+      "cta": "Upload a document"
+    },
     "deleteAria": "Delete {{filename}}",
+    "readyToast": {
+      "title": "{{filename}} is ready",
+      "cta": "Ask about it",
+      "dismissAria": "Dismiss"
+    },
     "deleteConfirmPrefix": "Delete {{filename}}?",
     "deleteBoundaryText": "Removes its passages, and any entities/relationships not shared with another document.",
     "deleting": "Deleting…",
@@ -164,15 +176,21 @@
       "markdown": "Markdown",
       "html": "HTML"
     },
+    "search": {
+      "label": "Search documents by name",
+      "placeholder": "Search…"
+    },
     "status": {
       "Uploaded": "Uploaded",
-      "Extracting": "Extracting",
-      "Graphing": "Graphing",
+      "Extracting": "Reading document",
+      "Graphing": "Finding connections",
       "Ready": "Ready",
       "Failed": "Failed"
     },
+    "cardMenu": {
+      "aria": "More actions for {{filename}}"
+    },
     "folderMenu": {
-      "moveAria": "Move {{filename}} to folder",
       "moveToFolder": "Move to folder",
       "ungrouped": "Ungrouped",
       "createNewFolder": "Create new folder"
@@ -213,6 +231,7 @@
     "backToDocuments": "Back to documents",
     "loading": "Loading document...",
     "preview": "Preview",
+    "askAboutThis": "Ask about this document",
     "deleting": "Deleting…",
     "deleteConfirmPrefix": "Delete {{filename}}?",
     "uploadedLabel": "Uploaded",
@@ -234,6 +253,17 @@
     "askLabel": "Ask a question about your documents",
     "askPlaceholder": "Ask a question about your documents…",
     "ask": "Ask",
+    "welcome": {
+      "noDocumentsTitle": "Add a document to get started",
+      "noDocumentsBody": "GraphMind answers using only what you upload. Add a PDF, Markdown or HTML file, then come back and ask.",
+      "noDocumentsCta": "Go to Documents",
+      "readyTitle": "Ask your first question",
+      "readyBody": "Ask about anything in your documents. Every answer comes with a citation back to where it was found.",
+      "tryLabel": "Try asking:",
+      "sample1": "What is this document about?",
+      "sample2": "Summarize the key points.",
+      "sample3": "Who or what is mentioned most often?"
+    },
     "jumpToLatest": "Jump to latest messages",
     "loadingEarlier": "Loading earlier messages…",
     "conversation": "Conversation",
@@ -259,7 +289,7 @@
       "nextMatch": "Next match"
     },
     "scopePanel": {
-      "title": "Documents in scope",
+      "title": "Which documents to search",
       "noDocuments": "No documents yet.",
       "askingAcrossAll_one": "Asking across all {{count}} document.",
       "askingAcrossAll_other": "Asking across all {{count}} documents.",
@@ -268,6 +298,11 @@
       "filterPlaceholder": "Search…",
       "selectAll": "Select all",
       "notAvailableYet": "{{filename}} — not available yet ({{status}})"
+    },
+    "scopeChip": {
+      "label_one": "Asking in {{count}} document",
+      "label_other": "Asking in {{count}} documents",
+      "clearAria": "Ask across all documents instead"
     }
   },
   "graph": {

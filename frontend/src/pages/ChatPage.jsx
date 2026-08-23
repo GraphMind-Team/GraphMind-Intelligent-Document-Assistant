@@ -1,12 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 import { ChatScopeProvider, useChatScope } from '../context/ChatScopeContext'
 import { askQuestion, getChatHistory } from '../api/chatClient'
 import ChatMessage from '../components/chat/ChatMessage'
-import RobotMascot from '../components/chat/RobotMascot'
+import RobotMascot, { RobotFigure } from '../components/chat/RobotMascot'
 import DocumentsScopePanel from '../components/chat/DocumentsScopePanel'
 import ChatSearchPanel from '../components/chat/ChatSearchPanel'
+import { useSlowRequestHint } from '../hooks/useSlowRequestHint'
 
 // UX-DR29/Story 3.4: one page size for both the initial load and every
 // scroll-up page after it.
@@ -87,7 +89,15 @@ export default function ChatPage() {
 function ChatPageContent() {
   const { t } = useTranslation()
   const { authFetch } = useAuth()
-  const { selectedDocumentIds } = useChatScope()
+  const { selectedDocumentIds, selectAll } = useChatScope()
+  // DocumentDetailPage's "Ask about this document" link arrives here with
+  // `{ presetDocumentId }` in navigation state -- picked up once below,
+  // as soon as the scope panel's own document list confirms that id is
+  // actually Ready (a Pending/Failed one can't be selected, same as the
+  // scope panel's own checkboxes).
+  const location = useLocation()
+  const presetDocumentId = location.state?.presetDocumentId ?? null
+  const hasAppliedPresetRef = useRef(false)
   const [messages, setMessages] = useState([])
   const [question, setQuestion] = useState('')
   // Chat-history search (right column). Filters `messages` at render
@@ -96,6 +106,35 @@ function ChatPageContent() {
   // list while a query is active.
   const [chatSearch, setChatSearch] = useState('')
   const [isAsking, setIsAsking] = useState(false)
+  // A slow answer is normally just LLM latency, but the backend itself
+  // can also be a Render cold start (see useSlowRequestHint) -- either
+  // way, "Thinking…" alone reads the same as a hang past a few seconds.
+  const isSlowToAnswer = useSlowRequestHint(isAsking)
+  // Reported up by DocumentsScopePanel once its own fetch resolves (it
+  // already owns the document list -- this mirrors it rather than
+  // duplicating the fetch). `null` means "not known yet", which the
+  // welcome placeholder below (and the preset-scope effect) treat the
+  // same as "still loading".
+  const [scopeDocuments, setScopeDocuments] = useState(null)
+  const documentCount = scopeDocuments ? scopeDocuments.length : null
+
+  // Applies the incoming preset once the scope panel's document list has
+  // loaded -- not on `presetDocumentId` alone, since that's known
+  // immediately but the id can't be validated (or selected -- `selectAll`
+  // just overwrites `selectedDocumentIds` outright) until the real list
+  // is in. `hasAppliedPresetRef` makes this a one-time thing per mount:
+  // without it, a later scope-panel refetch (there isn't one today, but
+  // nothing guarantees that stays true) would silently re-clobber
+  // whatever the user had since selected by hand back down to just the
+  // preset document.
+  useEffect(() => {
+    if (!presetDocumentId || hasAppliedPresetRef.current || !scopeDocuments) return
+    const target = scopeDocuments.find((doc) => doc.id === presetDocumentId)
+    if (target && target.status === 'Ready') {
+      selectAll([presetDocumentId])
+    }
+    hasAppliedPresetRef.current = true
+  }, [presetDocumentId, scopeDocuments, selectAll])
   // { kind: 'service' | 'other', message } -- a 503 (or client-side
   // timeout/abort) renders as a banner here, structurally separate from
   // `messages`, so it can never render as an answer or a refusal (AC12).
@@ -138,6 +177,11 @@ function ChatPageContent() {
   const [historyCursor, setHistoryCursor] = useState(null)
   const [hasMoreHistory, setHasMoreHistory] = useState(false)
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  // Set once the mount-time history fetch below settles (success or
+  // failure) -- gates the empty-thread welcome placeholder so a returning
+  // user with real history never sees it flash before their messages
+  // arrive.
+  const [isInitialHistoryLoaded, setIsInitialHistoryLoaded] = useState(false)
   // Governs the message list's own `aria-live` value -- 'polite' by
   // default (so a screen reader hears a genuinely new answer land), but
   // switched to 'off' once history has just been revealed (initial load
@@ -233,6 +277,9 @@ function ChatPageContent() {
         // stronger structural fix above.
         if (cancelled || hasSubmittedLiveQuestionRef.current) return
         setError({ kind: err.isServiceError ? 'service' : 'other', message: err.message })
+      })
+      .finally(() => {
+        if (!cancelled) setIsInitialHistoryLoaded(true)
       })
     return () => {
       cancelled = true
@@ -526,6 +573,55 @@ function ChatPageContent() {
               onScroll={handleMessageListScroll}
               className="flex h-full flex-col gap-3 overflow-y-auto p-5"
             >
+              {/* Empty-thread welcome (in place of a blank scroller): gated
+                  on `isInitialHistoryLoaded` so a returning user with real
+                  history never sees this flash before their messages
+                  arrive, and on `documentCount !== null` so it doesn't
+                  guess which of its two variants applies before
+                  DocumentsScopePanel's own fetch (which owns that count)
+                  has resolved. `m-auto` centers it in the flex-column
+                  scroller since it's the only child whenever it renders. */}
+              {messages.length === 0 && isInitialHistoryLoaded && documentCount !== null && (
+                <div className="m-auto flex max-w-[380px] flex-col items-center gap-3 py-8 text-center">
+                  <RobotFigure state="idle" className="w-16" />
+                  {documentCount === 0 ? (
+                    <>
+                      <h2 className="font-display text-[16px] font-bold text-text">
+                        {t('chat.welcome.noDocumentsTitle')}
+                      </h2>
+                      <p className="text-[13.5px] leading-relaxed text-text2">
+                        {t('chat.welcome.noDocumentsBody')}
+                      </p>
+                      <Link to="/documents" className="btn-brand mt-1 rounded-full px-5 py-2.5 text-[13px] font-semibold">
+                        {t('chat.welcome.noDocumentsCta')}
+                      </Link>
+                    </>
+                  ) : (
+                    <>
+                      <h2 className="font-display text-[16px] font-bold text-text">{t('chat.welcome.readyTitle')}</h2>
+                      <p className="text-[13.5px] leading-relaxed text-text2">{t('chat.welcome.readyBody')}</p>
+                      <div className="mt-1 flex flex-col items-center gap-1.5">
+                        <p className="text-[11.5px] font-semibold text-text2">{t('chat.welcome.tryLabel')}</p>
+                        <div className="flex flex-wrap justify-center gap-2">
+                          {[t('chat.welcome.sample1'), t('chat.welcome.sample2'), t('chat.welcome.sample3')].map(
+                            (sample) => (
+                              <button
+                                key={sample}
+                                type="button"
+                                onClick={() => setQuestion(sample)}
+                                className="rounded-full border border-border bg-surface2 px-3.5 py-1.5 text-[12.5px] text-text hover:border-accent hover:text-accent"
+                              >
+                                {sample}
+                              </button>
+                            ),
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
               {messages.map((message, index) => (
                 <ChatMessage
                   key={index}
@@ -539,6 +635,11 @@ function ChatPageContent() {
                 />
               ))}
               {isAsking && <ChatMessage message={{ role: 'thinking' }} />}
+              {isAsking && isSlowToAnswer && (
+                <p role="status" className="mr-auto max-w-[78%] px-1 text-xs text-text2">
+                  {t('common.slowServerHint')}
+                </p>
+              )}
             </div>
 
             {!isNearBottom && (
@@ -580,6 +681,34 @@ function ChatPageContent() {
 
           <form onSubmit={handleSubmit} className="border-t border-border bg-surface2/60 p-4">
             <div className="relative mt-9 w-full">
+              {/* Otherwise a narrowed scope is only visible in the
+                  right-hand panel -- easy to select 3 of 12 documents,
+                  scroll down to ask, and have no reminder anywhere near
+                  the question that the answer will only ever be grounded
+                  in those 3. Shares the mascot's own reserved band above
+                  the input (`bottom-full`) rather than adding a new row
+                  of its own, so a narrowed scope doesn't make the
+                  composer any taller than it already is. Only appears
+                  once something's actually selected (UX-DR9's own
+                  "all-unchecked reads as ask-everything" default needs no
+                  chip -- there's nothing narrowed to call out). The ×
+                  clears back to that default via the same `selectAll`
+                  the scope panel's own "Select all" uses, just empty. */}
+              {selectedDocumentIds.length > 0 && (
+                <span className="absolute bottom-full right-0 mb-2.5 inline-flex items-center gap-1.5 rounded-full bg-accent/10 py-1 pl-3 pr-1.5 text-[12.5px] font-semibold text-accent">
+                  {t('chat.scopeChip.label', { count: selectedDocumentIds.length })}
+                  <button
+                    type="button"
+                    onClick={() => selectAll([])}
+                    aria-label={t('chat.scopeChip.clearAria')}
+                    className="flex h-4 w-4 items-center justify-center rounded-full hover:bg-accent/20"
+                  >
+                    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" className="h-3 w-3">
+                      <path d="M6 6l12 12M18 6L6 18" />
+                    </svg>
+                  </button>
+                </span>
+              )}
               {/* The mascot mirrors the request state -- decorative
                   reinforcement of the "Thinking…" bubble, never the only
                   signal that something is in flight. */}
@@ -656,7 +785,7 @@ function ChatPageContent() {
             onPrevMatch={() => stepMatch(-1)}
             onNextMatch={() => stepMatch(1)}
           />
-          <DocumentsScopePanel authFetch={authFetch} />
+          <DocumentsScopePanel authFetch={authFetch} onDocumentsLoaded={setScopeDocuments} />
         </div>
       </div>
     </>

@@ -1,10 +1,19 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import DocumentDetailPage from './DocumentDetailPage'
 import { useAuth } from '../context/AuthContext'
 import * as documentsClient from '../api/documentsClient'
+
+// Renders the incoming navigation `state` as plain text so the "Ask about
+// this document" tests below can assert on it without a real ChatPage
+// mount (which needs its own auth/history-fetch mocking, none of which is
+// this page's concern to set up).
+function ChatRouteStub() {
+  const location = useLocation()
+  return <div>Chat page: {JSON.stringify(location.state)}</div>
+}
 
 vi.mock('../context/AuthContext', () => ({ useAuth: vi.fn() }))
 
@@ -27,6 +36,7 @@ function renderDetail(documentId = 'doc-1') {
       <Routes>
         <Route path="/documents" element={<div>Documents library</div>} />
         <Route path="/documents/:documentId" element={<DocumentDetailPage />} />
+        <Route path="/chat" element={<ChatRouteStub />} />
       </Routes>
     </MemoryRouter>,
   )
@@ -219,7 +229,10 @@ describe('DocumentDetailPage', () => {
       renderDetail()
       await screen.findByRole('heading', { name: 'vendor-agreement.pdf', level: 1 })
 
-      await user.click(screen.getByRole('button', { name: 'Delete' }))
+      // Icon-only trigger (mirrors DocumentCard.jsx's own trash button) --
+      // its accessible name carries the filename, so it's never just
+      // "Delete" the way a plain-text button would be.
+      await user.click(screen.getByRole('button', { name: 'Delete vendor-agreement.pdf' }))
 
       const box = screen.getByRole('alert')
       expect(box).toHaveTextContent(/Removes its passages/)
@@ -234,7 +247,7 @@ describe('DocumentDetailPage', () => {
 
       renderDetail()
       await screen.findByRole('heading', { name: 'vendor-agreement.pdf', level: 1 })
-      const deleteButton = screen.getByRole('button', { name: 'Delete' })
+      const deleteButton = screen.getByRole('button', { name: 'Delete vendor-agreement.pdf' })
 
       await user.click(deleteButton)
 
@@ -245,12 +258,12 @@ describe('DocumentDetailPage', () => {
       const boundaryId = boundaryText.getAttribute('id')
       expect(boundaryId).toBeTruthy()
       expect(cancelButton).toHaveAttribute('aria-describedby', boundaryId)
-      // Two buttons render the visible label "Delete" once the box is
-      // open (the trigger and the confirm action) -- select the one
-      // inside the alert box for this assertion.
-      const confirmButton = within(screen.getByRole('alert')).getByRole('button', {
-        name: 'Delete',
-      })
+      // The trigger's own accessible name carries the filename (icon-only,
+      // mirrors DocumentCard.jsx), so it no longer collides with the
+      // confirm box's plain-text "Delete" action the way two identically-
+      // named buttons once did -- no `within(alert)` scoping needed to
+      // tell them apart.
+      const confirmButton = screen.getByRole('button', { name: 'Delete' })
       expect(confirmButton).toHaveAttribute('aria-describedby', boundaryId)
 
       await user.keyboard('{Escape}')
@@ -266,7 +279,7 @@ describe('DocumentDetailPage', () => {
 
       renderDetail()
       await screen.findByRole('heading', { name: 'vendor-agreement.pdf', level: 1 })
-      const deleteButton = screen.getByRole('button', { name: 'Delete' })
+      const deleteButton = screen.getByRole('button', { name: 'Delete vendor-agreement.pdf' })
       await user.click(deleteButton)
 
       await user.click(screen.getByRole('button', { name: 'Cancel' }))
@@ -283,7 +296,7 @@ describe('DocumentDetailPage', () => {
 
       renderDetail()
       await screen.findByRole('heading', { name: 'vendor-agreement.pdf', level: 1 })
-      await user.click(screen.getByRole('button', { name: 'Delete' }))
+      await user.click(screen.getByRole('button', { name: 'Delete vendor-agreement.pdf' }))
       await user.click(within(screen.getByRole('alert')).getByRole('button', { name: 'Delete' }))
 
       await waitFor(() => expect(screen.getByText('Documents library')).toBeInTheDocument())
@@ -300,7 +313,7 @@ describe('DocumentDetailPage', () => {
 
       renderDetail()
       await screen.findByRole('heading', { name: 'vendor-agreement.pdf', level: 1 })
-      await user.click(screen.getByRole('button', { name: 'Delete' }))
+      await user.click(screen.getByRole('button', { name: 'Delete vendor-agreement.pdf' }))
       await user.click(within(screen.getByRole('alert')).getByRole('button', { name: 'Delete' }))
 
       expect(await screen.findByText('Document not found.')).toBeInTheDocument()
@@ -339,7 +352,7 @@ describe('DocumentDetailPage', () => {
       expect(screen.queryByRole('button', { name: 'Preview' })).not.toBeInTheDocument()
       // Delete is still offered at every status -- this gate is Preview's
       // alone, not the whole action row's.
-      expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Delete vendor-agreement.pdf' })).toBeInTheDocument()
     })
 
     it('offers no Preview entry point for a Failed document either', async () => {
@@ -407,6 +420,35 @@ describe('DocumentDetailPage', () => {
       // The modal restores this itself on unmount -- the page holds no ref
       // of its own for it.
       expect(screen.getByRole('button', { name: 'Preview' })).toHaveFocus()
+    })
+  })
+
+  describe('ask about this document', () => {
+    it('offers no entry point until the document is Ready', async () => {
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      vi.spyOn(documentsClient, 'getDocument').mockResolvedValue(UPLOADED_DOC)
+
+      renderDetail()
+
+      await screen.findByRole('heading', { name: 'vendor-agreement.pdf', level: 1 })
+      expect(screen.queryByRole('button', { name: 'Ask about this document' })).not.toBeInTheDocument()
+    })
+
+    it('navigates to /chat with this document preset as the scope once Ready', async () => {
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      vi.spyOn(documentsClient, 'getDocument').mockResolvedValue({
+        ...UPLOADED_DOC,
+        status: 'Ready',
+        chapter_breakdown: { 'Chapter One': 5 },
+      })
+      const user = userEvent.setup()
+
+      renderDetail()
+      await screen.findByRole('heading', { name: 'vendor-agreement.pdf', level: 1 })
+
+      await user.click(screen.getByRole('button', { name: 'Ask about this document' }))
+
+      expect(await screen.findByText(/Chat page:/)).toHaveTextContent('"presetDocumentId":"doc-1"')
     })
   })
 })

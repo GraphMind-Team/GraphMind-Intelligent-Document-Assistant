@@ -59,6 +59,15 @@ export function AuthProvider({ children }) {
   // saved UI language -- additive to the theme wiring above, not a
   // replacement.
   const [accountLanguage, setAccountLanguage] = useState(null)
+  // Same null-until-known convention again, for full_name/email -- Shell's
+  // sidebar identity block reads these so it can show who's signed in.
+  // Unlike theme/language, `login()` has no value to seed these from
+  // (LoginResponse doesn't carry full_name/email -- see schemas.py's own
+  // comment on why theme/language *are* returned there), so they start
+  // null after every login and are only ever populated by an `/auth/me`
+  // response, below and in Shell.jsx.
+  const [accountFullName, setAccountFullName] = useState(null)
+  const [accountEmail, setAccountEmail] = useState(null)
 
   const setTokenEverywhere = useCallback((next) => {
     tokenRef.current = next
@@ -81,6 +90,8 @@ export function AuthProvider({ children }) {
     setTokenEverywhere(null)
     setAccountTheme(null)
     setAccountLanguage(null)
+    setAccountFullName(null)
+    setAccountEmail(null)
   }, [setTokenEverywhere])
 
   // Reusable by later stories (documents/chat/kg) for any authenticated
@@ -136,6 +147,8 @@ export function AuthProvider({ children }) {
         if (data && tokenRef.current) {
           setAccountTheme(data.theme)
           setAccountLanguage(data.language)
+          setAccountFullName(data.full_name)
+          setAccountEmail(data.email)
         }
       })
       .catch(() => {})
@@ -160,6 +173,15 @@ export function AuthProvider({ children }) {
     // Exposed so LanguageCard can keep this in sync after a successful
     // language save -- mirrors setAccountTheme's own reasoning.
     setAccountLanguage,
+    accountFullName,
+    accountEmail,
+    // Exposed so ProfileCard can push a freshly-loaded or just-saved
+    // full_name/email back here -- mirrors setAccountTheme/
+    // setAccountLanguage's own reasoning, and is what lets Shell's
+    // identity block update the moment a name change is saved, instead
+    // of showing the old name until the next full reload.
+    setAccountFullName,
+    setAccountEmail,
     login,
     logout,
     authFetch,

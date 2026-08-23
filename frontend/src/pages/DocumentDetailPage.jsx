@@ -5,11 +5,13 @@ import { useAuth } from '../context/AuthContext'
 import { deleteDocument, getDocument } from '../api/documentsClient'
 import PreviewModal from '../components/PreviewModal'
 import StatusPill from '../components/StatusPill'
+import Icon from '../components/Icon'
 import {
   formatFileSize,
   formatFileType,
   formatUploadedDate,
 } from '../utils/documentFormat'
+import { useSlowRequestHint } from '../hooks/useSlowRequestHint'
 
 // Document Detail (Story 2.2), rendered at `/documents/:documentId`.
 //
@@ -55,6 +57,7 @@ export default function DocumentDetailPage() {
   const navigate = useNavigate()
   const [doc, setDoc] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
+  const isSlow = useSlowRequestHint(isLoading)
   const [error, setError] = useState(null)
 
   // Story 2.7: same inline-confirm pattern as DocumentCard.jsx, local to
@@ -133,7 +136,12 @@ export default function DocumentDetailPage() {
         {t('documentDetail.backToDocuments')}
       </Link>
 
-      {isLoading && <p className="text-sm text-text2">{t('documentDetail.loading')}</p>}
+      {isLoading && (
+        <p className="text-sm text-text2">
+          {t('documentDetail.loading')}
+          {isSlow && <span className="block text-xs">{t('common.slowServerHint')}</span>}
+        </p>
+      )}
 
       {/* A document that belongs to another account returns the same 404
           -- and therefore the same message -- as one that doesn't exist.
@@ -165,33 +173,50 @@ export default function DocumentDetailPage() {
           <div className="rounded-xl border border-border bg-card-bg p-[26px]">
             <div className="flex items-start justify-between gap-3">
               <h1 className="text-[18px] font-bold text-primary">{doc.filename}</h1>
-              <div className="flex shrink-0 items-center gap-2">
-                {/* Only offered once a document is Ready: a Pending/Failed
-                    document has no reliably-parsed content worth
-                    previewing, even though the raw bytes exist earlier
-                    too -- a UX choice, not a backend restriction. */}
+
+              {/* Compact icon buttons next to the title, not full pills --
+                  the same `rounded-lg p-1.5` icon-button treatment
+                  DocumentCard.jsx's own "⋮"/trash controls already use,
+                  so this row reads as the same design language as the
+                  card grid rather than a heavier, differently-styled
+                  toolbar of its own. `title` gives mouse users a hover
+                  label; `aria-label` (below) is the real accessible name.
+                  Only offered once a document is Ready: a Pending/Failed
+                  document has nothing worth previewing yet, even though
+                  the raw bytes exist earlier too -- a UX choice, not a
+                  backend restriction. */}
+              <div className="flex shrink-0 items-center gap-1.5">
                 {doc.status === 'Ready' && (
                   <button
                     type="button"
                     onClick={() => setIsPreviewOpen(true)}
-                    className="rounded-md border border-border bg-surface2 px-3 py-1.5 text-xs font-semibold text-primary"
+                    aria-label={t('documentDetail.preview')}
+                    title={t('documentDetail.preview')}
+                    className="rounded-lg p-2 text-text2 hover:bg-accent/10 hover:text-accent"
                   >
-                    {t('documentDetail.preview')}
+                    <Icon className="h-[18px] w-[18px]">
+                      <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </Icon>
                   </button>
                 )}
                 {/* Story 2.7: Document Detail's own entry point to the same
-                    delete action DocumentCard.jsx's trash icon offers.
-                    "Danger: same shape as secondary, danger-colored text"
-                    (DESIGN.md) -- not a filled-red button until the
-                    confirmation step below. */}
+                    delete action DocumentCard.jsx's trash icon offers. */}
                 <button
                   ref={deleteButtonRef}
                   type="button"
                   aria-expanded={isConfirmingDelete}
+                  aria-label={t('documents.deleteAria', { filename: doc.filename })}
+                  title={t('common.delete')}
                   onClick={openDeleteConfirm}
-                  className="rounded-md border border-border bg-surface2 px-3 py-1.5 text-xs font-semibold text-danger"
+                  className="rounded-lg p-2 text-text2 hover:bg-danger/10 hover:text-danger"
                 >
-                  {t('common.delete')}
+                  <Icon className="h-[18px] w-[18px]">
+                    <path d="M3 6h18" />
+                    <path d="M8 6V4h8v2" />
+                    <path d="M6 6l1 14h10l1-14" />
+                    <path d="M10 11v6M14 11v6" />
+                  </Icon>
                 </button>
               </div>
             </div>
@@ -242,9 +267,29 @@ export default function DocumentDetailPage() {
               </div>
             )}
 
+            {/* "Ask about this document" lives in this same metadata line
+                now, not as its own big CTA row above -- at 13px and
+                text-weight rather than a filled pill, it reads as one more
+                fact about the document (right where "Uploaded"/the status
+                already sit) instead of competing with the title for
+                visual weight. `ml-auto` pins it to the row's right edge
+                regardless of how long the date/status text ends up being. */}
             <p className="mt-0.5 flex flex-wrap items-center gap-2 text-[13px] text-text2">
               <span>{t('documentDetail.uploadedOn', { date: formatUploadedDate(doc.created_at) })}</span>
               <StatusPill status={doc.status} />
+              {doc.status === 'Ready' && (
+                <button
+                  type="button"
+                  onClick={() => navigate('/chat', { state: { presetDocumentId: doc.id } })}
+                  className="ml-auto flex items-center gap-1.5 font-semibold text-accent hover:underline"
+                >
+                  <Icon className="h-[15px] w-[15px]">
+                    <path d="M20 14a3 3 0 0 1-3 3H8l-4 3V7a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3Z" />
+                    <path d="M8.5 10.5h.01M12 10.5h.01M15.5 10.5h.01" />
+                  </Icon>
+                  {t('documentDetail.askAboutThis')}
+                </button>
+              )}
             </p>
 
             <dl className="my-[18px] grid grid-cols-2 gap-3.5">
