@@ -2,12 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
-import { listDocuments } from '../api/documentsClient'
+import { ALLOWED_EXTENSIONS, listDocuments } from '../api/documentsClient'
 import { listFolders } from '../api/foldersClient'
 import DocumentCard from '../components/DocumentCard'
 import FolderGrid, { ALL_DOCUMENTS_FILTER, UNGROUPED_FILTER } from '../components/FolderGrid'
 import { DOCUMENT_STATUSES } from '../components/StatusPill'
 import UploadModal from '../components/UploadModal'
+import { RobotFigure } from '../components/chat/RobotMascot'
 
 // Documents library (Story 2.2): a card grid (file-type tile, title,
 // status pill, uploaded date, trash icon per card), a toolbar above it,
@@ -447,7 +448,34 @@ export default function DocumentsPage() {
 
           {!error && isLoading && <p className="text-sm text-text2">{t('documents.loading')}</p>}
 
-          {showEmptyLibrary && <p className="text-sm text-text2">{t('documents.emptyLibrary')}</p>}
+          {/* A real front door for a brand-new account, not one gray
+              sentence -- this is the first thing a just-registered user
+              sees, and the old text-only state gave them nothing to do
+              next. Reuses the mascot (already the app's own identity
+              element, per LandingPage.jsx) and the upload button's own
+              `handleOpenModal`, so "Upload a document" here opens the
+              exact same modal as the toolbar's button above. */}
+          {showEmptyLibrary && (
+            <div className="flex flex-col items-center gap-4 rounded-2xl border border-dashed border-border bg-surface2 px-6 py-16 text-center">
+              <RobotFigure state="idle" className="w-20" />
+              <div className="max-w-[46ch]">
+                <h2 className="font-display text-[18px] font-bold text-text">
+                  {t('documents.emptyState.title')}
+                </h2>
+                <p className="mt-2 text-sm leading-relaxed text-text2">{t('documents.emptyState.body')}</p>
+              </div>
+              <button
+                type="button"
+                onClick={handleOpenModal}
+                className="btn-brand rounded-full px-6 py-3 text-sm font-semibold"
+              >
+                {t('documents.emptyState.cta')}
+              </button>
+              <p className="text-xs text-text2">
+                {t('documents.uploadModal.supported', { extensions: ALLOWED_EXTENSIONS.join(', ') })}
+              </p>
+            </div>
+          )}
 
           {showFilteredEmpty && <p className="text-sm text-text2">{t('documents.emptyFiltered')}</p>}
 

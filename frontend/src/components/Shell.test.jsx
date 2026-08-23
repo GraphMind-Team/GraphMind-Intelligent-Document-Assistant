@@ -7,10 +7,13 @@ import { useAuth } from '../context/AuthContext'
 
 vi.mock('../context/AuthContext', () => ({ useAuth: vi.fn() }))
 
-describe('Shell Exit handler', () => {
-  it('logs out and navigates to /login when Exit is clicked', async () => {
+describe('Shell Log out handler', () => {
+  it('logs out and navigates to /login when Log out is clicked', async () => {
     const logout = vi.fn()
-    useAuth.mockReturnValue({ logout })
+    // authFetch is used for the identity block's own `/auth/me` fetch --
+    // unresolved here since this test isn't exercising that display, just
+    // the logout action.
+    useAuth.mockReturnValue({ logout, authFetch: vi.fn().mockResolvedValue({ ok: false }) })
     const user = userEvent.setup()
 
     render(
@@ -22,7 +25,7 @@ describe('Shell Exit handler', () => {
       </MemoryRouter>,
     )
 
-    await user.click(screen.getByRole('button', { name: /exit/i }))
+    await user.click(screen.getByRole('button', { name: /log out/i }))
 
     expect(logout).toHaveBeenCalledOnce()
     expect(screen.getByText('Login page')).toBeInTheDocument()

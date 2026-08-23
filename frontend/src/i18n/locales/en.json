@@ -15,7 +15,7 @@
     "documents": "Documents",
     "chat": "Chat",
     "graph": "Graph Preview",
-    "exit": "Exit"
+    "logout": "Log out"
   },
   "settings": {
     "title": "User Settings",
@@ -147,6 +147,11 @@
     "loading": "Loading documents...",
     "emptyLibrary": "No documents yet.",
     "emptyFiltered": "No documents match this filter.",
+    "emptyState": {
+      "title": "Upload your first document",
+      "body": "Add a PDF, Markdown or HTML file and GraphMind will read it, extract what matters, and let you ask questions grounded in exactly what it says.",
+      "cta": "Upload a document"
+    },
     "deleteAria": "Delete {{filename}}",
     "deleteConfirmPrefix": "Delete {{filename}}?",
     "deleteBoundaryText": "Removes its passages, and any entities/relationships not shared with another document.",
@@ -234,6 +239,17 @@
     "askLabel": "Ask a question about your documents",
     "askPlaceholder": "Ask a question about your documents…",
     "ask": "Ask",
+    "welcome": {
+      "noDocumentsTitle": "Add a document to get started",
+      "noDocumentsBody": "GraphMind answers using only what you upload. Add a PDF, Markdown or HTML file, then come back and ask.",
+      "noDocumentsCta": "Go to Documents",
+      "readyTitle": "Ask your first question",
+      "readyBody": "Ask about anything in your documents. Every answer comes with a citation back to where it was found.",
+      "tryLabel": "Try asking:",
+      "sample1": "What is this document about?",
+      "sample2": "Summarize the key points.",
+      "sample3": "Who or what is mentioned most often?"
+    },
     "jumpToLatest": "Jump to latest messages",
     "loadingEarlier": "Loading earlier messages…",
     "conversation": "Conversation",

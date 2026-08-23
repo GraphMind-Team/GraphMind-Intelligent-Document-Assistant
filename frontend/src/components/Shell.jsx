@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
@@ -40,17 +41,12 @@ function Icon({ children }) {
   )
 }
 
+// Ordered by how often a session actually touches each destination --
+// Documents/Chat/Graph are the working screens, so they lead; Settings is
+// a once-in-a-while destination and now sits last, next to the identity
+// block and Log out it's conceptually grouped with (was first, ahead of
+// every screen the product is actually for).
 const NAV_ITEMS = [
-  {
-    to: '/settings',
-    labelKey: 'nav.settings',
-    icon: (
-      <>
-        <circle cx="12" cy="12" r="3.2" />
-        <path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7.5 19l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 7.5l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 2.7-1.1V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1.3Z" />
-      </>
-    ),
-  },
   {
     to: '/documents',
     labelKey: 'nav.documents',
@@ -84,6 +80,16 @@ const NAV_ITEMS = [
       </>
     ),
   },
+  {
+    to: '/settings',
+    labelKey: 'nav.settings',
+    icon: (
+      <>
+        <circle cx="12" cy="12" r="3.2" />
+        <path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7.5 19l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 7.5l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 2.7-1.1V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1.3Z" />
+      </>
+    ),
+  },
 ]
 
 const NAV_LINK_CLASS = ({ isActive }) =>
@@ -98,10 +104,43 @@ const NAV_LINK_CLASS = ({ isActive }) =>
       : 'text-sidebar-foreground hover:bg-sidebar-hover-bg hover:text-sidebar-active-foreground',
   ].join(' ')
 
+// First letter of each of the first two words -- "Priya Raman" -> "PR",
+// a single-word name -> just that letter. Mirrors ProfileCard.jsx's own
+// `/auth/me` fetch below: nothing here needs the rest of that response,
+// just enough to render an avatar and confirm which account this is.
+function initialsFor(fullName) {
+  return fullName
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase()
+}
+
 export default function Shell() {
-  const { logout } = useAuth()
+  const { logout, authFetch } = useAuth()
   const navigate = useNavigate()
   const { t } = useTranslation()
+
+  // AuthContext only tracks the token and account theme/language -- it has
+  // no full_name/email fields (ProfileCard.jsx fetches its own copy for
+  // the same reason). This is purely identity display, so a failed fetch
+  // is swallowed rather than surfaced as an error banner: the rail still
+  // works with no name shown, same as before this existed.
+  const [account, setAccount] = useState(null)
+  useEffect(() => {
+    let cancelled = false
+    authFetch('/auth/me')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (!cancelled && data) setAccount({ fullName: data.full_name, email: data.email })
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [authFetch])
 
   function handleExit() {
     logout()
@@ -152,19 +191,39 @@ export default function Shell() {
         </ul>
 
         {/* Bottom-anchored via margin-top:auto, separated from the nav
-            destinations by spacing plus a hairline rule. */}
-        <button
-          type="button"
-          onClick={handleExit}
-          className="mt-auto flex w-full items-center gap-3 rounded-xl border-t border-sidebar-border px-3 py-2.5 text-left text-[13.5px] text-sidebar-foreground hover:bg-sidebar-hover-bg hover:text-sidebar-active-foreground"
-        >
-          <Icon>
-            <path d="M15 17l5-5-5-5" />
-            <path d="M20 12H9" />
-            <path d="M12 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6" />
-          </Icon>
-          <span className="max-[900px]:sr-only">{t('nav.exit')}</span>
-        </button>
+            destinations by spacing plus a hairline rule -- whose account
+            is signed in, then the way out, grouped together since neither
+            is a working screen. */}
+        <div className="mt-auto flex flex-col gap-1 border-t border-sidebar-border pt-1">
+          {account && (
+            <div className="flex items-center gap-3 px-3 py-2" title={`${account.fullName} · ${account.email}`}>
+              <span
+                aria-hidden="true"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[image:var(--grad-brand)] text-[12px] font-bold text-white"
+              >
+                {initialsFor(account.fullName)}
+              </span>
+              <div className="min-w-0 flex-1 max-[900px]:sr-only">
+                <p className="truncate text-[13px] font-semibold text-sidebar-active-foreground">
+                  {account.fullName}
+                </p>
+                <p className="truncate text-[11.5px] text-sidebar-foreground">{account.email}</p>
+              </div>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={handleExit}
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[13.5px] text-sidebar-foreground hover:bg-sidebar-hover-bg hover:text-sidebar-active-foreground"
+          >
+            <Icon>
+              <path d="M15 17l5-5-5-5" />
+              <path d="M20 12H9" />
+              <path d="M12 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6" />
+            </Icon>
+            <span className="max-[900px]:sr-only">{t('nav.logout')}</span>
+          </button>
+        </div>
       </nav>
 
       <main className="min-w-0 flex-1 px-2 py-4 sm:px-6">

@@ -10,7 +10,7 @@ import StatusPill from '../StatusPill'
 // this panel's own list only (OD-5 -- never a library-wide search).
 // Selected ids live in ChatScopeContext, shared with ChatPage's submit
 // handler.
-export default function DocumentsScopePanel({ authFetch }) {
+export default function DocumentsScopePanel({ authFetch, onDocumentsLoaded }) {
   const { t } = useTranslation()
   const [documents, setDocuments] = useState([])
   const [error, setError] = useState(null)
@@ -27,6 +27,11 @@ export default function DocumentsScopePanel({ authFetch }) {
         // ChatScopeContext.jsx's retainOnly comment. A no-op on this
         // first load since the selection starts empty.
         retainOnly(data.filter((doc) => doc.status === 'Ready').map((doc) => doc.id))
+        // ChatPage's empty-thread welcome placeholder needs to know
+        // whether the account has any documents at all -- this panel
+        // already owns that fetch, so it just reports the count up rather
+        // than ChatPage duplicating the request.
+        onDocumentsLoaded?.(data.length)
       })
       .catch((err) => {
         if (!cancelled) setError(err.message)
@@ -34,7 +39,7 @@ export default function DocumentsScopePanel({ authFetch }) {
     return () => {
       cancelled = true
     }
-  }, [authFetch, retainOnly])
+  }, [authFetch, retainOnly, onDocumentsLoaded])
 
   const readyDocumentIds = useMemo(
     () => documents.filter((doc) => doc.status === 'Ready').map((doc) => doc.id),

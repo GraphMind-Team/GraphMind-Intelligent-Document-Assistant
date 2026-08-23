@@ -15,7 +15,7 @@
     "documents": "Dokumente",
     "chat": "Chat",
     "graph": "Graph-Vorschau",
-    "exit": "Abmelden"
+    "logout": "Abmelden"
   },
   "settings": {
     "title": "Benutzereinstellungen",
@@ -147,6 +147,11 @@
     "loading": "Dokumente werden geladen...",
     "emptyLibrary": "Noch keine Dokumente.",
     "emptyFiltered": "Keine Dokumente entsprechen diesem Filter.",
+    "emptyState": {
+      "title": "Lade dein erstes Dokument hoch",
+      "body": "Füge eine PDF-, Markdown- oder HTML-Datei hinzu. GraphMind liest sie, extrahiert das Wesentliche und beantwortet Fragen ausschließlich auf Basis ihres Inhalts.",
+      "cta": "Dokument hochladen"
+    },
     "deleteAria": "{{filename}} löschen",
     "deleteConfirmPrefix": "{{filename}} löschen?",
     "deleteBoundaryText": "Entfernt die zugehörigen Textabschnitte sowie alle Entitäten und Beziehungen, die in keinem anderen Dokument vorkommen.",
@@ -234,6 +239,17 @@
     "askLabel": "Stelle eine Frage zu deinen Dokumenten",
     "askPlaceholder": "Stelle eine Frage zu deinen Dokumenten…",
     "ask": "Fragen",
+    "welcome": {
+      "noDocumentsTitle": "Lade ein Dokument hoch, um zu starten",
+      "noDocumentsBody": "GraphMind antwortet nur auf Basis deiner hochgeladenen Dokumente. Füge eine PDF-, Markdown- oder HTML-Datei hinzu und komm dann zurück, um Fragen zu stellen.",
+      "noDocumentsCta": "Zu den Dokumenten",
+      "readyTitle": "Stelle deine erste Frage",
+      "readyBody": "Frag etwas zu deinen Dokumenten. Jede Antwort enthält einen Verweis auf die Fundstelle.",
+      "tryLabel": "Frag zum Beispiel:",
+      "sample1": "Worum geht es in diesem Dokument?",
+      "sample2": "Fasse die wichtigsten Punkte zusammen.",
+      "sample3": "Wer oder was wird am häufigsten erwähnt?"
+    },
     "jumpToLatest": "Zu den neuesten Nachrichten springen",
     "loadingEarlier": "Frühere Nachrichten werden geladen…",
     "conversation": "Unterhaltung",

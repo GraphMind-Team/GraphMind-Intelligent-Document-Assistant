@@ -108,14 +108,15 @@ describe('DocumentsPage', () => {
     expect(screen.queryByText(/unexpected EOF/)).not.toBeInTheDocument()
   })
 
-  it('shows "No documents yet." with an empty library, and keeps Upload actionable', async () => {
+  it('shows the empty-library state with an empty library, and keeps Upload actionable', async () => {
     useAuth.mockReturnValue({ authFetch: vi.fn() })
     vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([])
 
     renderPage()
 
-    expect(await screen.findByText('No documents yet.')).toBeInTheDocument()
+    expect(await screen.findByText('Upload your first document')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^upload$/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Upload a document' })).toBeEnabled()
   })
 
   it('reorders rows client-side on sort, without refetching', async () => {
@@ -163,7 +164,7 @@ describe('DocumentsPage', () => {
     await user.selectOptions(screen.getByLabelText('Filter documents by type'), 'html')
 
     expect(screen.getByText('No documents match this filter.')).toBeInTheDocument()
-    expect(screen.queryByText('No documents yet.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Upload your first document')).not.toBeInTheDocument()
   })
 
   it('opens Detail when the card is clicked outside the trash icon', async () => {

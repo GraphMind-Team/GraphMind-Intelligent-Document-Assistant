@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 import { ChatScopeProvider, useChatScope } from '../context/ChatScopeContext'
 import { askQuestion, getChatHistory } from '../api/chatClient'
 import ChatMessage from '../components/chat/ChatMessage'
-import RobotMascot from '../components/chat/RobotMascot'
+import RobotMascot, { RobotFigure } from '../components/chat/RobotMascot'
 import DocumentsScopePanel from '../components/chat/DocumentsScopePanel'
 import ChatSearchPanel from '../components/chat/ChatSearchPanel'
 
@@ -96,6 +97,13 @@ function ChatPageContent() {
   // list while a query is active.
   const [chatSearch, setChatSearch] = useState('')
   const [isAsking, setIsAsking] = useState(false)
+  // Reported up by DocumentsScopePanel once its own fetch resolves (it
+  // already owns the document list -- this just mirrors the count rather
+  // than duplicating the fetch). `null` means "not known yet", which the
+  // welcome placeholder below treats the same as "still loading": neither
+  // of its two variants (no documents / ready to ask) is correct to show
+  // before this settles.
+  const [documentCount, setDocumentCount] = useState(null)
   // { kind: 'service' | 'other', message } -- a 503 (or client-side
   // timeout/abort) renders as a banner here, structurally separate from
   // `messages`, so it can never render as an answer or a refusal (AC12).
@@ -138,6 +146,11 @@ function ChatPageContent() {
   const [historyCursor, setHistoryCursor] = useState(null)
   const [hasMoreHistory, setHasMoreHistory] = useState(false)
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  // Set once the mount-time history fetch below settles (success or
+  // failure) -- gates the empty-thread welcome placeholder so a returning
+  // user with real history never sees it flash before their messages
+  // arrive.
+  const [isInitialHistoryLoaded, setIsInitialHistoryLoaded] = useState(false)
   // Governs the message list's own `aria-live` value -- 'polite' by
   // default (so a screen reader hears a genuinely new answer land), but
   // switched to 'off' once history has just been revealed (initial load
@@ -233,6 +246,9 @@ function ChatPageContent() {
         // stronger structural fix above.
         if (cancelled || hasSubmittedLiveQuestionRef.current) return
         setError({ kind: err.isServiceError ? 'service' : 'other', message: err.message })
+      })
+      .finally(() => {
+        if (!cancelled) setIsInitialHistoryLoaded(true)
       })
     return () => {
       cancelled = true
@@ -526,6 +542,55 @@ function ChatPageContent() {
               onScroll={handleMessageListScroll}
               className="flex h-full flex-col gap-3 overflow-y-auto p-5"
             >
+              {/* Empty-thread welcome (in place of a blank scroller): gated
+                  on `isInitialHistoryLoaded` so a returning user with real
+                  history never sees this flash before their messages
+                  arrive, and on `documentCount !== null` so it doesn't
+                  guess which of its two variants applies before
+                  DocumentsScopePanel's own fetch (which owns that count)
+                  has resolved. `m-auto` centers it in the flex-column
+                  scroller since it's the only child whenever it renders. */}
+              {messages.length === 0 && isInitialHistoryLoaded && documentCount !== null && (
+                <div className="m-auto flex max-w-[380px] flex-col items-center gap-3 py-8 text-center">
+                  <RobotFigure state="idle" className="w-16" />
+                  {documentCount === 0 ? (
+                    <>
+                      <h2 className="font-display text-[16px] font-bold text-text">
+                        {t('chat.welcome.noDocumentsTitle')}
+                      </h2>
+                      <p className="text-[13.5px] leading-relaxed text-text2">
+                        {t('chat.welcome.noDocumentsBody')}
+                      </p>
+                      <Link to="/documents" className="btn-brand mt-1 rounded-full px-5 py-2.5 text-[13px] font-semibold">
+                        {t('chat.welcome.noDocumentsCta')}
+                      </Link>
+                    </>
+                  ) : (
+                    <>
+                      <h2 className="font-display text-[16px] font-bold text-text">{t('chat.welcome.readyTitle')}</h2>
+                      <p className="text-[13.5px] leading-relaxed text-text2">{t('chat.welcome.readyBody')}</p>
+                      <div className="mt-1 flex flex-col items-center gap-1.5">
+                        <p className="text-[11.5px] font-semibold text-text2">{t('chat.welcome.tryLabel')}</p>
+                        <div className="flex flex-wrap justify-center gap-2">
+                          {[t('chat.welcome.sample1'), t('chat.welcome.sample2'), t('chat.welcome.sample3')].map(
+                            (sample) => (
+                              <button
+                                key={sample}
+                                type="button"
+                                onClick={() => setQuestion(sample)}
+                                className="rounded-full border border-border bg-surface2 px-3.5 py-1.5 text-[12.5px] text-text hover:border-accent hover:text-accent"
+                              >
+                                {sample}
+                              </button>
+                            ),
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
               {messages.map((message, index) => (
                 <ChatMessage
                   key={index}
@@ -656,7 +721,7 @@ function ChatPageContent() {
             onPrevMatch={() => stepMatch(-1)}
             onNextMatch={() => stepMatch(1)}
           />
-          <DocumentsScopePanel authFetch={authFetch} />
+          <DocumentsScopePanel authFetch={authFetch} onDocumentsLoaded={setDocumentCount} />
         </div>
       </div>
     </>
