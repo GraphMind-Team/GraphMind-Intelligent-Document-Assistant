@@ -291,7 +291,22 @@
     "retry": "Erneut versuchen",
     "loading": "Graph wird geladen...",
     "emptyState": "Noch kein Graph. Sobald ein Dokument den Status Bereit erreicht, erscheinen hier seine Entitäten und Beziehungen.",
+    "emptyStateScoped": "Noch keine Entitäten in den ausgewählten Dokumenten.",
+    "noRelationshipsInScope": "Diese Dokumente erwähnen Entitäten, aber noch keine Beziehungen zwischen ihnen.",
     "cappedNote": "Die {{shown}} am stärksten vernetzten Entitäten von insgesamt {{total}} werden angezeigt. Verbindungen zu Entitäten außerhalb dieser Ansicht werden nicht gezeichnet.",
+    "scopePanel": {
+      "toggleButton": "Dokument wählen",
+      "title": "Dokument wählen",
+      "noDocuments": "Noch keine Dokumente.",
+      "showingAll_one": "Der Graph zeigt alle {{count}} Dokument.",
+      "showingAll_other": "Der Graph zeigt alle {{count}} Dokumente.",
+      "selected": "{{selected}} von {{total}} ausgewählt.",
+      "selectAll": "Alle auswählen",
+      "clearAll": "Alle abwählen",
+      "selectFolder": "Ordner auswählen",
+      "clearFolder": "Ordner abwählen",
+      "ungrouped": "Ohne Ordner"
+    },
     "stats": {
       "entities": "Entitäten",
       "relationships": "Beziehungen",
