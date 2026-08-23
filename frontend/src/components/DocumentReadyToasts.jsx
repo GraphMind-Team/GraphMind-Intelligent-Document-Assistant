@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 import { listDocuments } from '../api/documentsClient'
+import { getGraph } from '../api/graphClient'
 import Icon from './Icon'
 
 const POLLABLE_STATUSES = ['Uploaded', 'Extracting', 'Graphing']
@@ -58,10 +59,32 @@ export default function DocumentReadyToasts() {
       })
       previousStatusesRef.current = new Map(data.map((doc) => [doc.id, doc.status]))
       if (newlyReady.length > 0) {
-        setReadyToasts((prev) => [
-          ...prev,
-          ...newlyReady.map((doc) => ({ toastId: `${doc.id}-${Date.now()}`, documentId: doc.id, filename: doc.filename })),
-        ])
+        // One `/kg/graph` call per newly-ready document, scoped to just
+        // that document's id, so the toast can say how much its own
+        // extraction produced -- not the account's running total, which
+        // would misreport a document that turned up nothing new. Failure
+        // is swallowed the same way the outer `checkDocuments` catch does:
+        // the entity count is a bonus on the toast, not something worth
+        // blocking or erroring the "it's ready" news over.
+        const newToasts = await Promise.all(
+          newlyReady.map(async (doc) => {
+            let entityCount = null
+            try {
+              const graph = await getGraph(authFetch, [doc.id])
+              entityCount = graph.total_node_count
+            } catch {
+              // Count stays null -- the toast still renders, just without
+              // the "N entities found" line.
+            }
+            return {
+              toastId: `${doc.id}-${Date.now()}`,
+              documentId: doc.id,
+              filename: doc.filename,
+              entityCount,
+            }
+          }),
+        )
+        setReadyToasts((prev) => [...prev, ...newToasts])
       }
     } catch {
       // A background watcher, not a page with its own error banner -- a
@@ -86,6 +109,15 @@ export default function DocumentReadyToasts() {
   function openChatForToast(toast) {
     dismissReadyToast(toast.toastId)
     navigate('/chat', { state: { presetDocumentId: toast.documentId } })
+  }
+
+  // Mirrors openChatForToast above -- same preset-and-dismiss shape, just
+  // pointed at Graph instead of Chat. GraphPage reads this the same way
+  // ChatPage reads its own `presetDocumentId`: scope to just this one
+  // document, no scope panel had to be opened by hand first.
+  function openGraphForToast(toast) {
+    dismissReadyToast(toast.toastId)
+    navigate('/graph', { state: { presetDocumentId: toast.documentId } })
   }
 
   if (readyToasts.length === 0) return null
@@ -123,17 +155,41 @@ export default function DocumentReadyToasts() {
             <p className="line-clamp-2 break-words text-[14.5px] font-semibold leading-snug text-text" title={toast.filename}>
               {t('documents.readyToast.title', { filename: toast.filename })}
             </p>
-            <button
-              type="button"
-              onClick={() => openChatForToast(toast)}
-              className="mt-1.5 flex items-center gap-1.5 text-[13px] font-semibold text-accent hover:underline"
-            >
-              <Icon className="h-[15px] w-[15px]">
-                <path d="M20 14a3 3 0 0 1-3 3H8l-4 3V7a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3Z" />
-                <path d="M8.5 10.5h.01M12 10.5h.01M15.5 10.5h.01" />
-              </Icon>
-              {t('documents.readyToast.cta')}
-            </button>
+            {/* `entityCount` is null when its own `/kg/graph` call failed
+                (see checkDocuments) -- omit the line entirely rather than
+                claiming "0 entities", which would read as a real result
+                instead of a fetch that just didn't happen. */}
+            {typeof toast.entityCount === 'number' && (
+              <p className="mt-0.5 text-[13px] text-text2">
+                {t('documents.readyToast.entitiesFound', { count: toast.entityCount })}
+              </p>
+            )}
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1">
+              <button
+                type="button"
+                onClick={() => openChatForToast(toast)}
+                className="flex items-center gap-1.5 text-[13px] font-semibold text-accent hover:underline"
+              >
+                <Icon className="h-[15px] w-[15px]">
+                  <path d="M20 14a3 3 0 0 1-3 3H8l-4 3V7a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3Z" />
+                  <path d="M8.5 10.5h.01M12 10.5h.01M15.5 10.5h.01" />
+                </Icon>
+                {t('documents.readyToast.cta')}
+              </button>
+              <button
+                type="button"
+                onClick={() => openGraphForToast(toast)}
+                className="flex items-center gap-1.5 text-[13px] font-semibold text-accent hover:underline"
+              >
+                <Icon className="h-[15px] w-[15px]">
+                  <circle cx="6" cy="7" r="2.4" />
+                  <circle cx="18" cy="9" r="2.4" />
+                  <circle cx="11" cy="18" r="2.4" />
+                  <path d="M8.2 8.2 15.7 9M7.2 9.2 10 15.7M16.6 11.1 12.6 16.4" />
+                </Icon>
+                {t('documents.readyToast.viewGraphCta')}
+              </button>
+            </div>
           </div>
           <button
             type="button"
