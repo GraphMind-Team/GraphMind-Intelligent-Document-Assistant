@@ -175,14 +175,22 @@ export default function GraphPage() {
           // Only for the true first load -- a scope-triggered refetch
           // dims the existing content below instead (see `isRefetching`).
           <div
-            className="animate-pulse rounded-2xl"
+            className="flex items-center justify-center rounded-2xl"
             style={{
               height: 520,
               backgroundColor: 'var(--graph-card-bg)',
               border: '1px solid var(--graph-card-border)',
             }}
           >
-            <p className="p-5 text-sm" style={{ color: 'var(--graph-ink2)' }}>
+            <p
+              role="status"
+              className="flex items-center gap-3 text-sm font-semibold"
+              style={{ color: 'var(--graph-accent-text)' }}
+            >
+              <span
+                aria-hidden="true"
+                className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent"
+              />
               {t('graph.loading')}
             </p>
           </div>
