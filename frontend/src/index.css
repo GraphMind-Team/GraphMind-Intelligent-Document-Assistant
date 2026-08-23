@@ -131,9 +131,16 @@ select option {
 
   /* Refusal bubble -- deliberately its own pair, not a reuse of the
      upload pill's (v1's single-purpose-token rule), so re-tinting one
-     can never silently re-tint the other. */
-  --refusal-bg: #FCEFD9;
-  --refusal-text: #8A5200;
+     can never silently re-tint the other. A cool lavender (same numbers
+     as --folder-color-lilac-*, kept as its own independent pair rather
+     than a var() reference to it) rather than the warm amber this used
+     to be -- amber was the one warm hue anywhere in an otherwise
+     entirely blue/cool palette, which read as visually off rather than
+     as "a third distinct state" the way AD-6/UX-DR15 intend. A refusal
+     is correct behavior, not a warning, so a calm, cool tint fits the
+     tone better than an amber one ever did anyway. */
+  --refusal-bg: #EBE1FB;
+  --refusal-text: #5B2FA8;
 
   /* Folder swatches (folder-grouping feature) -- the enforced pastel
      color vocabulary (`FOLDER_COLORS` in `backend/app/folders/service.py`).
@@ -281,8 +288,8 @@ select option {
   --status-failed-bg: rgba(248, 113, 113, .12);
   --status-failed-text: #F87171;
 
-  --refusal-bg: rgba(251, 191, 36, .14);
-  --refusal-text: #FBBF24;
+  --refusal-bg: rgba(196, 166, 245, .16);
+  --refusal-text: #C4A6F5;
 
   /* Folder swatches -- dark: translucent rgba bg over the dark surface,
      saturated text, same formula --status-* already uses for its own dark

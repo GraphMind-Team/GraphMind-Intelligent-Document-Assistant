@@ -5,7 +5,8 @@
     "saving": "Saving...",
     "delete": "Delete",
     "loading": "Loading…",
-    "slowServerHint": "The server was idle and is waking up — this can take up to a minute."
+    "slowServerHint": "The server was idle and is waking up — this can take up to a minute.",
+    "retry": "Retry"
   },
   "notFound": {
     "message": "Page not found.",
@@ -175,6 +176,10 @@
       "markdown": "Markdown",
       "html": "HTML"
     },
+    "search": {
+      "label": "Search documents by name",
+      "placeholder": "Search…"
+    },
     "status": {
       "Uploaded": "Uploaded",
       "Extracting": "Reading document",
@@ -284,7 +289,7 @@
       "nextMatch": "Next match"
     },
     "scopePanel": {
-      "title": "Documents in scope",
+      "title": "Which documents to search",
       "noDocuments": "No documents yet.",
       "askingAcrossAll_one": "Asking across all {{count}} document.",
       "askingAcrossAll_other": "Asking across all {{count}} documents.",
@@ -293,6 +298,11 @@
       "filterPlaceholder": "Search…",
       "selectAll": "Select all",
       "notAvailableYet": "{{filename}} — not available yet ({{status}})"
+    },
+    "scopeChip": {
+      "label_one": "Asking in {{count}} document",
+      "label_other": "Asking in {{count}} documents",
+      "clearAria": "Ask across all documents instead"
     }
   },
   "graph": {

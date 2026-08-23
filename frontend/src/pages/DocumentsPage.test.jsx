@@ -167,6 +167,36 @@ describe('DocumentsPage', () => {
     expect(listSpy).toHaveBeenCalledTimes(1)
   })
 
+  it('narrows rows client-side by name as the search field is typed, without refetching', async () => {
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    const listSpy = vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([PDF_DOC, MD_DOC])
+    const user = userEvent.setup()
+
+    renderPage()
+    await screen.findByRole('link', { name: 'beta-report.pdf' })
+
+    // Case-insensitive, substring match -- not the full filename.
+    await user.type(screen.getByLabelText('Search documents by name'), 'ALPHA')
+
+    expect(screen.getByText('alpha-notes.md')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'beta-report.pdf' })).not.toBeInTheDocument()
+    expect(listSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the filtered-empty state (not the empty-library one) when the search matches nothing', async () => {
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([PDF_DOC, MD_DOC])
+    const user = userEvent.setup()
+
+    renderPage()
+    await screen.findByRole('link', { name: 'beta-report.pdf' })
+
+    await user.type(screen.getByLabelText('Search documents by name'), 'nothing-matches-this')
+
+    expect(screen.getByText('No documents match this filter.')).toBeInTheDocument()
+    expect(screen.queryByText('Upload your first document')).not.toBeInTheDocument()
+  })
+
   it('distinguishes "no match for this filter" from a genuinely empty library', async () => {
     useAuth.mockReturnValue({ authFetch: vi.fn() })
     vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([PDF_DOC, MD_DOC])
@@ -294,6 +324,24 @@ describe('DocumentsPage', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Not authenticated.')
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  })
+
+  it('Retry on the error banner refetches, and a successful retry replaces the error with the grid', async () => {
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    const listSpy = vi
+      .spyOn(documentsClient, 'listDocuments')
+      .mockRejectedValueOnce(new Error('Not authenticated.'))
+      .mockResolvedValue([PDF_DOC])
+    const user = userEvent.setup()
+
+    renderPage()
+    await screen.findByRole('alert')
+
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+
+    expect(await screen.findByRole('link', { name: 'beta-report.pdf' })).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(listSpy).toHaveBeenCalledTimes(2)
   })
 
   describe('ingestion status polling (Story 2.3, extended in 2.4)', () => {

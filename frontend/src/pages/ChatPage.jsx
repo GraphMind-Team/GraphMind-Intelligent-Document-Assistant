@@ -681,6 +681,34 @@ function ChatPageContent() {
 
           <form onSubmit={handleSubmit} className="border-t border-border bg-surface2/60 p-4">
             <div className="relative mt-9 w-full">
+              {/* Otherwise a narrowed scope is only visible in the
+                  right-hand panel -- easy to select 3 of 12 documents,
+                  scroll down to ask, and have no reminder anywhere near
+                  the question that the answer will only ever be grounded
+                  in those 3. Shares the mascot's own reserved band above
+                  the input (`bottom-full`) rather than adding a new row
+                  of its own, so a narrowed scope doesn't make the
+                  composer any taller than it already is. Only appears
+                  once something's actually selected (UX-DR9's own
+                  "all-unchecked reads as ask-everything" default needs no
+                  chip -- there's nothing narrowed to call out). The ×
+                  clears back to that default via the same `selectAll`
+                  the scope panel's own "Select all" uses, just empty. */}
+              {selectedDocumentIds.length > 0 && (
+                <span className="absolute bottom-full right-0 mb-2.5 inline-flex items-center gap-1.5 rounded-full bg-accent/10 py-1 pl-3 pr-1.5 text-[12.5px] font-semibold text-accent">
+                  {t('chat.scopeChip.label', { count: selectedDocumentIds.length })}
+                  <button
+                    type="button"
+                    onClick={() => selectAll([])}
+                    aria-label={t('chat.scopeChip.clearAria')}
+                    className="flex h-4 w-4 items-center justify-center rounded-full hover:bg-accent/20"
+                  >
+                    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" className="h-3 w-3">
+                      <path d="M6 6l12 12M18 6L6 18" />
+                    </svg>
+                  </button>
+                </span>
+              )}
               {/* The mascot mirrors the request state -- decorative
                   reinforcement of the "Thinking…" bubble, never the only
                   signal that something is in flight. */}

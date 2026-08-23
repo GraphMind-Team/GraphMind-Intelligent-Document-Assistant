@@ -9,6 +9,7 @@ import FolderGrid, { ALL_DOCUMENTS_FILTER, UNGROUPED_FILTER } from '../component
 import { DOCUMENT_STATUSES } from '../components/StatusPill'
 import UploadModal from '../components/UploadModal'
 import { RobotFigure } from '../components/chat/RobotMascot'
+import Icon from '../components/Icon'
 import { useSlowRequestHint } from '../hooks/useSlowRequestHint'
 
 // Documents library (Story 2.2): a card grid (file-type tile, title,
@@ -87,6 +88,12 @@ export default function DocumentsPage() {
   const isSlow = useSlowRequestHint(isLoading)
   const [sortBy, setSortBy] = useState('recent')
   const [typeFilter, setTypeFilter] = useState('all')
+  // Client-side, same as sortBy/typeFilter -- there's no server-side
+  // search param to reach for here any more than there is a sort one
+  // (this file's own top-of-file note on that still applies). Matters
+  // once a library grows past a screenful: sort and type-filter alone
+  // don't help find one specific file by name.
+  const [searchText, setSearchText] = useState('')
   const uploadButtonRef = useRef(null)
 
   // Folder-grouping feature: `folders` is fetched once (no polling -- only
@@ -248,6 +255,11 @@ export default function DocumentsPage() {
       filtered = filtered.filter((doc) => doc.folder_id === folderFilter)
     }
 
+    const needle = searchText.trim().toLowerCase()
+    if (needle) {
+      filtered = filtered.filter((doc) => doc.filename.toLowerCase().includes(needle))
+    }
+
     // Copy before sorting -- `documents` is state, and Array#sort mutates.
     const sorted = [...filtered]
     if (sortBy === 'title') {
@@ -258,7 +270,7 @@ export default function DocumentsPage() {
       sorted.sort(byMostRecent)
     }
     return sorted
-  }, [documents, sortBy, typeFilter, folderFilter])
+  }, [documents, sortBy, typeFilter, folderFilter, searchText])
 
   // Single boolean gate, one <UploadModal/> ever rendered -- structurally
   // no second modal can open on top of it (Story 2.1 AC1).
@@ -432,6 +444,30 @@ export default function DocumentsPage() {
             </option>
           ))}
         </select>
+
+        {/* Sort and type-filter only get you so far once a library grows
+            past a screenful -- neither helps find one specific file by
+            name. `ml-auto` on desktop pushes it to the row's own right
+            edge, separate from the Folders/Sort/Filter cluster; it just
+            wraps to its own line on narrow viewports like every other
+            control here already does. */}
+        <div className="relative ml-auto">
+          <label className="sr-only" htmlFor="documents-search">
+            {t('documents.search.label')}
+          </label>
+          <Icon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text2">
+            <circle cx="11" cy="11" r="7" />
+            <path d="M21 21l-4.3-4.3" />
+          </Icon>
+          <input
+            id="documents-search"
+            type="text"
+            value={searchText}
+            onChange={(event) => setSearchText(event.target.value)}
+            placeholder={t('documents.search.placeholder')}
+            className="w-44 rounded-full border border-border bg-input-bg py-2 pl-9 pr-3.5 text-[13px] text-text"
+          />
+        </div>
       </div>
 
       {/* The folders panel (when open) sits to the right of the document
@@ -442,10 +478,24 @@ export default function DocumentsPage() {
           silently dropping a column to the panel. */}
       <div className="flex items-start gap-4">
         <div className="min-w-0 flex-1">
+          {/* Mirrors GraphPage.jsx's own error-banner shape (card, not a
+              bare paragraph) plus the one thing it had that this didn't:
+              a Retry button, so a failed load isn't a dead end that only
+              a full page refresh can get past. */}
           {error && (
-            <p role="alert" className="mb-4 text-sm text-danger">
-              {error}
-            </p>
+            <div
+              role="alert"
+              className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-danger/30 bg-danger/5 px-5 py-4"
+            >
+              <p className="text-sm text-danger">{error}</p>
+              <button
+                type="button"
+                onClick={() => fetchDocuments()}
+                className="btn-ghost shrink-0 rounded-full px-4 py-1.5 text-xs font-semibold"
+              >
+                {t('common.retry')}
+              </button>
+            </div>
           )}
 
           {!error && isLoading && (

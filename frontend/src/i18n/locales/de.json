@@ -5,7 +5,8 @@
     "saving": "Speichert...",
     "delete": "Löschen",
     "loading": "Lädt…",
-    "slowServerHint": "Der Server war inaktiv und wacht gerade auf — das kann bis zu einer Minute dauern."
+    "slowServerHint": "Der Server war inaktiv und wacht gerade auf — das kann bis zu einer Minute dauern.",
+    "retry": "Erneut versuchen"
   },
   "notFound": {
     "message": "Seite nicht gefunden.",
@@ -175,6 +176,10 @@
       "markdown": "Markdown",
       "html": "HTML"
     },
+    "search": {
+      "label": "Dokumente nach Namen suchen",
+      "placeholder": "Suchen…"
+    },
     "status": {
       "Uploaded": "Hochgeladen",
       "Extracting": "Dokument wird gelesen",
@@ -284,7 +289,7 @@
       "nextMatch": "Nächster Treffer"
     },
     "scopePanel": {
-      "title": "Dokumente im Umfang",
+      "title": "In welchen Dokumenten gesucht wird",
       "noDocuments": "Noch keine Dokumente.",
       "askingAcrossAll_one": "Frage über alle {{count}} Dokument.",
       "askingAcrossAll_other": "Frage über alle {{count}} Dokumente.",
@@ -293,6 +298,11 @@
       "filterPlaceholder": "Suchen…",
       "selectAll": "Alle auswählen",
       "notAvailableYet": "{{filename}} — noch nicht verfügbar ({{status}})"
+    },
+    "scopeChip": {
+      "label_one": "Du fragst in {{count}} Dokument",
+      "label_other": "Du fragst in {{count}} Dokumenten",
+      "clearAria": "Stattdessen in allen Dokumenten fragen"
     }
   },
   "graph": {

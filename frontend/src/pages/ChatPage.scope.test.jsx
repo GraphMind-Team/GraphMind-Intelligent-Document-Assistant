@@ -98,3 +98,26 @@ describe('ChatPage document scope', () => {
     expect(JSON.parse(options.body).document_ids).toEqual(['doc-9'])
   })
 })
+
+describe('ChatPage scope chip', () => {
+  it('shows no chip when the scope is empty (asking everything)', async () => {
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    render(<ChatPage />, { wrapper: MemoryRouter })
+
+    expect(screen.queryByText(/Asking in/)).not.toBeInTheDocument()
+  })
+
+  it('shows a chip once a document is toggled, and clears the scope when its × is clicked', async () => {
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    const user = userEvent.setup()
+    render(<ChatPage />, { wrapper: MemoryRouter })
+
+    await user.click(screen.getByRole('button', { name: 'toggle doc-1' }))
+
+    expect(screen.getByText('Asking in 1 document')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Ask across all documents instead' }))
+
+    expect(screen.queryByText(/Asking in/)).not.toBeInTheDocument()
+  })
+})

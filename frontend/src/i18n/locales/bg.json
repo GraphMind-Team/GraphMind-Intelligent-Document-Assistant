@@ -5,7 +5,8 @@
     "saving": "Запазване...",
     "delete": "Изтрий",
     "loading": "Зареждане…",
-    "slowServerHint": "Сървърът е бил неактивен и в момента се събужда — това може да отнеме до минута."
+    "slowServerHint": "Сървърът е бил неактивен и в момента се събужда — това може да отнеме до минута.",
+    "retry": "Опитай отново"
   },
   "notFound": {
     "message": "Страницата не е намерена.",
@@ -175,6 +176,10 @@
       "markdown": "Markdown",
       "html": "HTML"
     },
+    "search": {
+      "label": "Търсене на документи по име",
+      "placeholder": "Търсене…"
+    },
     "status": {
       "Uploaded": "Качен",
       "Extracting": "Четене на документа",
@@ -284,7 +289,7 @@
       "nextMatch": "Следващо съвпадение"
     },
     "scopePanel": {
-      "title": "Документи в обхвата",
+      "title": "В кои документи да търся",
       "noDocuments": "Все още няма документи.",
       "askingAcrossAll_one": "Питане във всичките {{count}} документ.",
       "askingAcrossAll_other": "Питане във всичките {{count}} документа.",
@@ -293,6 +298,11 @@
       "filterPlaceholder": "Търсене…",
       "selectAll": "Избери всички",
       "notAvailableYet": "{{filename}} — все още не е наличен ({{status}})"
+    },
+    "scopeChip": {
+      "label_one": "Питаш в {{count}} документ",
+      "label_other": "Питаш в {{count}} документа",
+      "clearAria": "Питай във всички документи"
     }
   },
   "graph": {
