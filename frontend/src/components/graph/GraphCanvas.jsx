@@ -42,6 +42,21 @@ const ForceGraph2D = fromKapsule(ForceGraphKapsule, {
 
 // UX-DR11's literal spec.
 const CANVAS_HEIGHT = 520
+// The large-view canvas height, toggled via the toolbar's expand button.
+// Deliberately not a true fullscreen (no Fullscreen API, no edge-to-edge
+// overlay) -- just a bigger box inside a centered dialog, per the design
+// call to make the graph "big again" without covering the whole viewport.
+const EXPANDED_CANVAS_HEIGHT = 720
+
+// Same diagonal-hatched dimmed backdrop as FolderModal.jsx/UploadModal.jsx
+// (DESIGN.md's Modal spec) -- duplicated rather than imported, mirroring
+// how those two already keep this as their own unexported constant rather
+// than sharing one.
+const BACKDROP_STYLE = {
+  backgroundColor: 'rgba(10, 20, 40, 0.5)',
+  backgroundImage:
+    'repeating-linear-gradient(45deg, rgba(255,255,255,0.06) 0px, rgba(255,255,255,0.06) 1px, transparent 1px, transparent 10px)',
+}
 // Edge stroke width, in world units like everything else drawn here. v2
 // thins the line so the (also-scaled) label pills and the nodes stay the
 // loudest things on the canvas.
@@ -269,10 +284,14 @@ function truncateToWidth(ctx, text, maxWidth) {
 // No ResizeObserver here (unavailable in this project's jsdom test
 // environment, and this component's own test mocks `force-graph`/
 // `react-kapsule` themselves, not the surrounding measurement logic) -- a plain `resize`
-// listener plus an initial measurement covers window/layout resizes,
-// which is the only way this container's width actually changes today
-// (no split-pane or collapsible sidebar resizes it independently).
-function useContainerWidth(ref) {
+// listener plus an initial measurement covers window/layout resizes.
+// `remeasureKey` covers the one other way this container's width changes:
+// toggling the large-view overlay below swaps `containerRef` onto a
+// differently-sized DOM node (the overlay's own wrapper vs. the normal
+// card), and since `ref` itself never changes identity that swap alone
+// would never re-run this effect -- passing `isExpanded` back in here
+// forces a fresh measurement exactly when that happens.
+function useContainerWidth(ref, remeasureKey) {
   const [width, setWidth] = useState(0)
   useEffect(() => {
     const el = ref.current
@@ -281,7 +300,7 @@ function useContainerWidth(ref) {
     measure()
     window.addEventListener('resize', measure)
     return () => window.removeEventListener('resize', measure)
-  }, [ref])
+  }, [ref, remeasureKey])
   return width
 }
 
@@ -304,7 +323,20 @@ export default function GraphCanvas({ graph }) {
   const { theme } = useTheme()
   const containerRef = useRef(null)
   const graphRef = useRef(null)
-  const width = useContainerWidth(containerRef)
+  const [isExpanded, setIsExpanded] = useState(false)
+  const width = useContainerWidth(containerRef, isExpanded)
+  const canvasHeight = isExpanded ? EXPANDED_CANVAS_HEIGHT : CANVAS_HEIGHT
+
+  // Escape closes the large view, same as every other dismissible overlay
+  // in this app (FolderModal, UploadModal). Only attached while expanded.
+  useEffect(() => {
+    if (!isExpanded) return undefined
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') setIsExpanded(false)
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [isExpanded])
 
   const palette = paletteFor(theme)
   const { nodes, edges } = graph
@@ -698,134 +730,185 @@ export default function GraphCanvas({ graph }) {
     )
   }
 
-  return (
-    <div>
-      <div className="relative">
-        <div
-          ref={containerRef}
-          role="img"
-          // The canvas is one image to assistive tech: its own contents
-          // are unreachable, and GraphSummary below is the equivalent
-          // (AC7/UX-DR28). The label stays generic on purpose -- the
-          // counts live in GraphSummary's own text, where they can be
-          // read rather than crammed into one announcement.
-          aria-label={t('graph.canvas.ariaLabel')}
-          // `graph-motif` (index.css) paints the dot-grid + vignette
-          // behind the graph; `ForceGraph2D`'s own `backgroundColor`
-          // below is transparent specifically so it shows through.
-          className="graph-motif overflow-hidden rounded-2xl"
-          style={{
-            height: CANVAS_HEIGHT,
-            border: `1px solid ${palette.cardBorder}`,
-            boxShadow:
-              theme === 'dark'
-                ? 'inset 0 1px 0 rgba(255,255,255,.04), 0 18px 44px -22px rgba(0, 0, 0, 0.8)'
-                : 'inset 0 1px 0 rgba(255,255,255,.6), 0 18px 44px -22px rgba(8, 40, 74, 0.35)',
-          }}
-          onWheel={markUserViewChange}
-          onPointerMove={handlePointerMove}
-        >
-          {width > 0 && (
-            <ForceGraph2D
-              ref={graphRef}
-              graphData={graphData}
-              width={width}
-              height={CANVAS_HEIGHT}
-              backgroundColor="transparent"
-              nodeCanvasObject={drawNode}
-              nodeVal={nodeVal}
-              nodeRelSize={1}
-              nodeLabel={null}
-              linkColor={linkColor}
-              linkWidth={LINK_WIDTH}
-              // Relationships are directed (a Person WORKS_AT an
-              // Organization, not the reverse); an undecorated line loses
-              // that. Placed at the target end, which lands just outside
-              // the target circle now that `nodeVal` tells the engine how
-              // big these nodes really are.
-              linkDirectionalArrowLength={8}
-              linkDirectionalArrowRelPos={1}
-              linkCurvature={linkCurvature}
-              linkCanvasObjectMode={linkCanvasObjectMode}
-              linkCanvasObject={drawLinkLabel}
-              onEngineTick={handleEngineTick}
-              onEngineStop={handleEngineStop}
-              minZoom={MIN_ZOOM}
-              maxZoom={MAX_ZOOM}
-              // AC5's read-only rule is about the *graph*: no
-              // click-to-query, no drag-to-rearrange, no editing. Moving
-              // the viewport is none of those, and at 150 capped entities
-              // in one box a fitted view alone is not readable -- so
-              // wheel zoom and pan are on, while node drag and all
-              // pointer hit-testing stay off.
-              enableNodeDrag={false}
-              enablePointerInteraction={false}
-              enableZoomInteraction={true}
-              enablePanInteraction={true}
-            />
-          )}
-        </div>
-
-        <div
-          className="absolute right-3 top-3 flex items-center rounded-full px-0.5 py-0.5 backdrop-blur-md"
-          style={{
-            backgroundColor: palette.chipBg,
-            border: `1px solid ${palette.chipBorder}`,
-            boxShadow: '0 6px 18px -10px rgba(8, 40, 74, .5)',
-          }}
-        >
-          <ToolbarButton onClick={() => stepZoom(1 / ZOOM_STEP)}>
-            <span aria-hidden="true">−</span>
-            <span className="sr-only">{t('graph.canvas.zoomOut')}</span>
-          </ToolbarButton>
-          <ToolbarDivider />
-          <ToolbarButton onClick={() => stepZoom(ZOOM_STEP)}>
-            <span aria-hidden="true">+</span>
-            <span className="sr-only">{t('graph.canvas.zoomIn')}</span>
-          </ToolbarButton>
-          <ToolbarDivider />
-          <ToolbarButton onClick={resetView} color={palette.accentText}>
-            {t('graph.canvas.fit')}
-          </ToolbarButton>
-        </div>
+  // The canvas + its floating zoom/fit/expand toolbar -- built once and
+  // rendered in exactly one of two places below (never both at once),
+  // since it holds the one `ForceGraph2D` instance this component ever
+  // mounts.
+  const canvasBlock = (
+    <div className="relative">
+      <div
+        ref={containerRef}
+        role="img"
+        // The canvas is one image to assistive tech: its own contents
+        // are unreachable, and GraphSummary below is the equivalent
+        // (AC7/UX-DR28). The label stays generic on purpose -- the
+        // counts live in GraphSummary's own text, where they can be
+        // read rather than crammed into one announcement.
+        aria-label={t('graph.canvas.ariaLabel')}
+        // `graph-motif` (index.css) paints the dot-grid + vignette
+        // behind the graph; `ForceGraph2D`'s own `backgroundColor`
+        // below is transparent specifically so it shows through.
+        className="graph-motif overflow-hidden rounded-2xl"
+        style={{
+          height: canvasHeight,
+          border: `1px solid ${palette.cardBorder}`,
+          boxShadow:
+            theme === 'dark'
+              ? 'inset 0 1px 0 rgba(255,255,255,.04), 0 18px 44px -22px rgba(0, 0, 0, 0.8)'
+              : 'inset 0 1px 0 rgba(255,255,255,.6), 0 18px 44px -22px rgba(8, 40, 74, 0.35)',
+        }}
+        onWheel={markUserViewChange}
+        onPointerMove={handlePointerMove}
+      >
+        {width > 0 && (
+          <ForceGraph2D
+            ref={graphRef}
+            graphData={graphData}
+            width={width}
+            height={canvasHeight}
+            backgroundColor="transparent"
+            nodeCanvasObject={drawNode}
+            nodeVal={nodeVal}
+            nodeRelSize={1}
+            nodeLabel={null}
+            linkColor={linkColor}
+            linkWidth={LINK_WIDTH}
+            // Relationships are directed (a Person WORKS_AT an
+            // Organization, not the reverse); an undecorated line loses
+            // that. Placed at the target end, which lands just outside
+            // the target circle now that `nodeVal` tells the engine how
+            // big these nodes really are.
+            linkDirectionalArrowLength={8}
+            linkDirectionalArrowRelPos={1}
+            linkCurvature={linkCurvature}
+            linkCanvasObjectMode={linkCanvasObjectMode}
+            linkCanvasObject={drawLinkLabel}
+            onEngineTick={handleEngineTick}
+            onEngineStop={handleEngineStop}
+            minZoom={MIN_ZOOM}
+            maxZoom={MAX_ZOOM}
+            // AC5's read-only rule is about the *graph*: no
+            // click-to-query, no drag-to-rearrange, no editing. Moving
+            // the viewport is none of those, and at 150 capped entities
+            // in one box a fitted view alone is not readable -- so
+            // wheel zoom and pan are on, while node drag and all
+            // pointer hit-testing stay off.
+            enableNodeDrag={false}
+            enablePointerInteraction={false}
+            enableZoomInteraction={true}
+            enablePanInteraction={true}
+          />
+        )}
       </div>
 
-      {/* The badge drawn inside each circle is two letters -- unreadable
-          as a type name on its own. This spells out only the types
-          actually on the canvas, so it stays short. v2 makes each entry
-          its own pill (rather than one long tinted bar) so the key reads
-          as a row of the same chips used everywhere else in this
-          feature. */}
-      <ul
-        aria-label={t('graph.canvas.entityTypeKey')}
-        className="mt-3 flex list-none flex-wrap items-center gap-2 text-sm"
-        style={{ color: palette.ink }}
+      <div
+        className="absolute right-3 top-3 flex items-center rounded-full px-0.5 py-0.5 backdrop-blur-md"
+        style={{
+          backgroundColor: palette.chipBg,
+          border: `1px solid ${palette.chipBorder}`,
+          boxShadow: '0 6px 18px -10px rgba(8, 40, 74, .5)',
+        }}
       >
-        {presentTypes.map((type) => {
-          const typeColor = typeColorFor(theme, type)
-          return (
-            <li
-              key={type}
-              className="flex items-center gap-1.5 rounded-full py-1 pl-1 pr-3"
-              style={{ backgroundColor: palette.chipBg, border: `1px solid ${palette.chipBorder}` }}
+        <ToolbarButton onClick={() => stepZoom(1 / ZOOM_STEP)}>
+          <span aria-hidden="true">−</span>
+          <span className="sr-only">{t('graph.canvas.zoomOut')}</span>
+        </ToolbarButton>
+        <ToolbarDivider />
+        <ToolbarButton onClick={() => stepZoom(ZOOM_STEP)}>
+          <span aria-hidden="true">+</span>
+          <span className="sr-only">{t('graph.canvas.zoomIn')}</span>
+        </ToolbarButton>
+        <ToolbarDivider />
+        <ToolbarButton onClick={resetView} color={palette.accentText}>
+          {t('graph.canvas.fit')}
+        </ToolbarButton>
+        <ToolbarDivider />
+        {/* Not a true Fullscreen-API toggle -- a bigger canvas inside a
+            centered dialog, per the explicit "big again, not the whole
+            screen" call. Toggling this swaps which of the two spots below
+            renders `canvasBlock`/`legendBlock`, which remounts
+            `ForceGraph2D` at the new size and re-fits automatically. */}
+        <ToolbarButton onClick={() => setIsExpanded((expanded) => !expanded)}>
+          {isExpanded ? (
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+              <path d="M9 3v3a2 2 0 0 1-2 2H4M20 9h-3a2 2 0 0 1-2-2V4M4 15h3a2 2 0 0 1 2 2v3M15 20v-3a2 2 0 0 1 2-2h3" />
+            </svg>
+          ) : (
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+              <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M3 16v3a2 2 0 0 0 2 2h3" />
+            </svg>
+          )}
+          <span className="sr-only">{isExpanded ? t('graph.canvas.collapse') : t('graph.canvas.expand')}</span>
+        </ToolbarButton>
+      </div>
+    </div>
+  )
+
+  // The badge drawn inside each circle is two letters -- unreadable
+  // as a type name on its own. This spells out only the types
+  // actually on the canvas, so it stays short. v2 makes each entry
+  // its own pill (rather than one long tinted bar) so the key reads
+  // as a row of the same chips used everywhere else in this
+  // feature.
+  const legendBlock = (
+    <ul
+      aria-label={t('graph.canvas.entityTypeKey')}
+      className="mt-3 flex list-none flex-wrap items-center gap-2 text-sm"
+      style={{ color: palette.ink }}
+    >
+      {presentTypes.map((type) => {
+        const typeColor = typeColorFor(theme, type)
+        return (
+          <li
+            key={type}
+            className="flex items-center gap-1.5 rounded-full py-1 pl-1 pr-3"
+            style={{ backgroundColor: palette.chipBg, border: `1px solid ${palette.chipBorder}` }}
+          >
+            {/* The badge sits on its own colour, so the key shows the
+                same pairing the canvas does. aria-hidden because the
+                sr-only badge text and the type name next to it already
+                say everything this conveys. */}
+            <span
+              aria-hidden="true"
+              className="inline-flex h-5 w-7 items-center justify-center rounded-full text-[11px] font-bold"
+              style={{ backgroundColor: typeColor.fill, color: typeColor.text }}
             >
-              {/* The badge sits on its own colour, so the key shows the
-                  same pairing the canvas does. aria-hidden because the
-                  sr-only badge text and the type name next to it already
-                  say everything this conveys. */}
-              <span
-                aria-hidden="true"
-                className="inline-flex h-5 w-7 items-center justify-center rounded-full text-[11px] font-bold"
-                style={{ backgroundColor: typeColor.fill, color: typeColor.text }}
-              >
-                {badgeFor(type)}
-              </span>
-              <span className="sr-only">{badgeFor(type)}</span>{' '}
-              <span className="text-[13px] font-semibold">{entityTypeLabelFor(t, type)}</span>
-            </li>
-          )
-        })}
-      </ul>
+              {badgeFor(type)}
+            </span>
+            <span className="sr-only">{badgeFor(type)}</span>{' '}
+            <span className="text-[13px] font-semibold">{entityTypeLabelFor(t, type)}</span>
+          </li>
+        )
+      })}
+    </ul>
+  )
+
+  return (
+    <div>
+      {isExpanded ? (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center p-4 sm:p-8"
+          style={BACKDROP_STYLE}
+          onClick={() => setIsExpanded(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('graph.canvas.expand')}
+            className="anim-rise max-h-[90vh] w-full max-w-[1100px] overflow-y-auto rounded-2xl p-4 md:p-6"
+            style={{ backgroundColor: palette.cardBg, border: `1px solid ${palette.cardBorder}` }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            {canvasBlock}
+            {legendBlock}
+          </div>
+        </div>
+      ) : (
+        <>
+          {canvasBlock}
+          {legendBlock}
+        </>
+      )}
 
       <GraphSummary nodes={nodes} edges={edges} theme={theme} />
     </div>

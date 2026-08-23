@@ -18,7 +18,13 @@ import { listFolders } from '../../api/foldersClient'
 // consumer, unlike chat scope's two (`DocumentsScopePanel` and
 // `ChatPage`'s submit handler), so a dedicated Context would be pure
 // ceremony.
-export default function GraphScopePanel({ authFetch, selectedDocumentIds, onToggleDocument, onSelectAll, onToggleFolder }) {
+//
+// A column beside the canvas, not a floating overlay -- GraphPage.jsx
+// renders this open by default so choosing documents doesn't require
+// opening anything first, and collapses it to a small rail button (its own
+// component, GraphPage-owned) on request via `onCollapse`. Sticky on wide
+// viewports so it stays in view while the canvas/explorer scroll past it.
+export default function GraphScopePanel({ authFetch, selectedDocumentIds, onToggleDocument, onSelectAll, onToggleFolder, onCollapse }) {
   const { t } = useTranslation()
   const [documents, setDocuments] = useState([])
   const [folders, setFolders] = useState([])
@@ -68,8 +74,20 @@ export default function GraphScopePanel({ authFetch, selectedDocumentIds, onTogg
     allDocumentIds.length > 0 && allDocumentIds.every((id) => selectedDocumentIds.includes(id))
 
   return (
-    <aside className="w-full shrink-0 self-start rounded-2xl border border-border bg-card-bg p-5 shadow-card min-[901px]:w-[280px]">
-      <h2 className="mb-2.5 text-[14.5px] font-bold text-primary">{t('graph.scopePanel.title')}</h2>
+    <aside className="w-full shrink-0 rounded-2xl border border-border bg-card-bg p-5 shadow-card min-[901px]:sticky min-[901px]:top-20 min-[901px]:w-[280px] min-[901px]:self-start">
+      <div className="mb-2.5 flex items-center justify-between gap-2">
+        <h2 className="text-[14.5px] font-bold text-primary">{t('graph.scopePanel.title')}</h2>
+        <button
+          type="button"
+          onClick={onCollapse}
+          aria-label={t('graph.scopePanel.collapseAria')}
+          className="-m-1 shrink-0 rounded-md p-1 text-text2 hover:bg-surface2 hover:text-text"
+        >
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+            <path d="M6 17l5-5-5-5M13 17l5-5-5-5" />
+          </svg>
+        </button>
+      </div>
       {error && (
         <p role="alert" className="text-[13px] text-danger">
           {error}

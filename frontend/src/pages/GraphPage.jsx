@@ -61,7 +61,7 @@ export default function GraphPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(null)
   const [selectedDocumentIds, setSelectedDocumentIds] = useState([])
-  const [isScopePanelOpen, setIsScopePanelOpen] = useState(false)
+  const [isScopePanelOpen, setIsScopePanelOpen] = useState(true)
 
   const fetchGraph = useCallback(
     async (ignoreRef) => {
@@ -138,9 +138,9 @@ export default function GraphPage() {
   const hasIsolatedEntities = Boolean(hasActiveScope && hasEntities && graph.edges.length === 0)
 
   return (
-    <>
-      <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <div>
+    <div className="flex flex-col gap-6 min-[901px]:flex-row min-[901px]:items-start">
+      <div className="min-w-0 flex-1">
+        <header className="mb-6">
           <p className="text-eyebrow uppercase" style={{ color: 'var(--graph-accent-text)' }}>
             {t('graph.eyebrow')}
           </p>
@@ -148,153 +148,152 @@ export default function GraphPage() {
           <p className="mt-1 max-w-[62ch] text-sm text-text2">
             {t('graph.subtitle')}
           </p>
-        </div>
-        <button
-          type="button"
-          aria-pressed={isScopePanelOpen}
-          onClick={() => setIsScopePanelOpen((open) => !open)}
-          className={[
-            'shrink-0 rounded-full border px-3.5 py-2 text-[13px] font-medium',
-            isScopePanelOpen || hasActiveScope
-              ? 'border-accent text-accent'
-              : 'border-border bg-input-bg text-text',
-          ].join(' ')}
-        >
-          {t('graph.scopePanel.toggleButton')}
-        </button>
-      </header>
+        </header>
 
-      <div className="flex items-start gap-4">
-        <div className="min-w-0 flex-1">
-          {error && (
-            <div
-              role="alert"
-              className="mb-5 flex flex-wrap items-center gap-3 rounded-2xl border border-danger/30 bg-danger/5 px-5 py-4"
+        {error && (
+          <div
+            role="alert"
+            className="mb-5 flex flex-wrap items-center gap-3 rounded-2xl border border-danger/30 bg-danger/5 px-5 py-4"
+          >
+            <p className="text-sm text-danger">{error}</p>
+            <button
+              type="button"
+              onClick={() => fetchGraph({ current: false })}
+              className="btn-ghost shrink-0 rounded-full px-4 py-1.5 text-xs font-semibold"
             >
-              <p className="text-sm text-danger">{error}</p>
-              <button
-                type="button"
-                onClick={() => fetchGraph({ current: false })}
-                className="btn-ghost shrink-0 rounded-full px-4 py-1.5 text-xs font-semibold"
-              >
-                {t('graph.retry')}
-              </button>
-            </div>
-          )}
+              {t('graph.retry')}
+            </button>
+          </div>
+        )}
 
-          {!error && isInitialLoad && (
-            // Skeleton rather than a bare "Loading graph..." line: the
-            // canvas is a 520px block, and collapsing the page to one
-            // sentence and back is a bigger visual jolt than holding its
-            // shape. The text stays in the DOM for assistive tech (and for
-            // the page's tests), it just sits inside the placeholder now.
-            // Only for the true first load -- a scope-triggered refetch
-            // dims the existing content below instead (see `isRefetching`).
+        {!error && isInitialLoad && (
+          // Skeleton rather than a bare "Loading graph..." line: the
+          // canvas is a 520px block, and collapsing the page to one
+          // sentence and back is a bigger visual jolt than holding its
+          // shape. The text stays in the DOM for assistive tech (and for
+          // the page's tests), it just sits inside the placeholder now.
+          // Only for the true first load -- a scope-triggered refetch
+          // dims the existing content below instead (see `isRefetching`).
+          <div
+            className="animate-pulse rounded-2xl"
+            style={{
+              height: 520,
+              backgroundColor: 'var(--graph-card-bg)',
+              border: '1px solid var(--graph-card-border)',
+            }}
+          >
+            <p className="p-5 text-sm" style={{ color: 'var(--graph-ink2)' }}>
+              {t('graph.loading')}
+            </p>
+          </div>
+        )}
+
+        {/* AC8: a plain-language message, not a blank canvas, for an
+            account with no documents yet or none that produced entities
+            -- the backend can't distinguish those two cases from an
+            empty result alone, and there's no reason for this copy to
+            either. When a document selection is active, use scope-aware
+            copy instead -- "no entities in the selected documents yet"
+            reads very differently from "you have no documents at all,"
+            and the account-wide copy would misreport the second as the
+            first. Not gated on `!isLoading` -- a refetch dims this
+            instead of replacing it with the skeleton (see
+            `isRefetching`), so a checkbox toggle doesn't flicker the
+            canvas away and back. */}
+        {!error && graph && !hasEntities && (
+          <div
+            aria-busy={isRefetching}
+            className={['rounded-2xl px-6 py-12 text-center transition-opacity', isRefetching ? 'opacity-50' : ''].join(' ')}
+            style={{ backgroundColor: 'var(--graph-card-bg)', border: '1px solid var(--graph-card-border)' }}
+          >
+            {/* Three unconnected dots -- the graph's own shape, before
+                anything has been connected. */}
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="var(--graph-accent)"
+              strokeWidth="1.4"
+              className="mx-auto mb-4 h-10 w-10 opacity-70"
+            >
+              <circle cx="6" cy="7" r="2.4" />
+              <circle cx="18" cy="9" r="2.4" />
+              <circle cx="11" cy="18" r="2.4" />
+            </svg>
+            <p className="mx-auto max-w-[46ch] text-sm" style={{ color: 'var(--graph-ink2)' }}>
+              {hasActiveScope ? t('graph.emptyStateScoped') : t('graph.emptyState')}
+            </p>
+          </div>
+        )}
+
+        {!error && graph && hasEntities && (
+          <div aria-busy={isRefetching} className={['transition-opacity', isRefetching ? 'opacity-50' : ''].join(' ')}>
+            <div className="mb-5 grid gap-4 sm:grid-cols-3">
+              <StatTile
+                label={t('graph.stats.entities')}
+                value={graph.nodes.length}
+                hint={isCapped ? t('graph.stats.ofTotal', { total: graph.total_node_count }) : undefined}
+              />
+              <StatTile label={t('graph.stats.relationships')} value={graph.edges.length} />
+              <StatTile label={t('graph.stats.entityTypes')} value={typeCount} />
+            </div>
+
+            {isCapped && (
+              <p className="mb-4 text-sm" style={{ color: 'var(--graph-ink2)' }}>
+                {t('graph.cappedNote', { shown: graph.nodes.length, total: graph.total_node_count })}
+              </p>
+            )}
+
+            {/* Entities with no surviving edges is a distinct, expected
+                state under an active selection (the stricter
+                relationship filter: an entity can appear in the
+                selected documents while none of its relationships were
+                asserted by them) -- not an error, so this stays a calm
+                note rather than the empty-state treatment above. */}
+            {hasIsolatedEntities && (
+              <p className="mb-4 text-sm" style={{ color: 'var(--graph-ink2)' }}>
+                {t('graph.noRelationshipsInScope')}
+              </p>
+            )}
+
             <div
-              className="animate-pulse rounded-2xl"
+              className="rounded-2xl p-4 md:p-5"
               style={{
-                height: 520,
                 backgroundColor: 'var(--graph-card-bg)',
                 border: '1px solid var(--graph-card-border)',
               }}
             >
-              <p className="p-5 text-sm" style={{ color: 'var(--graph-ink2)' }}>
-                {t('graph.loading')}
-              </p>
+              <GraphCanvas graph={graph} />
             </div>
-          )}
-
-          {/* AC8: a plain-language message, not a blank canvas, for an
-              account with no documents yet or none that produced entities
-              -- the backend can't distinguish those two cases from an
-              empty result alone, and there's no reason for this copy to
-              either. When a document selection is active, use scope-aware
-              copy instead -- "no entities in the selected documents yet"
-              reads very differently from "you have no documents at all,"
-              and the account-wide copy would misreport the second as the
-              first. Not gated on `!isLoading` -- a refetch dims this
-              instead of replacing it with the skeleton (see
-              `isRefetching`), so a checkbox toggle doesn't flicker the
-              canvas away and back. */}
-          {!error && graph && !hasEntities && (
-            <div
-              aria-busy={isRefetching}
-              className={['rounded-2xl px-6 py-12 text-center transition-opacity', isRefetching ? 'opacity-50' : ''].join(' ')}
-              style={{ backgroundColor: 'var(--graph-card-bg)', border: '1px solid var(--graph-card-border)' }}
-            >
-              {/* Three unconnected dots -- the graph's own shape, before
-                  anything has been connected. */}
-              <svg
-                aria-hidden="true"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="var(--graph-accent)"
-                strokeWidth="1.4"
-                className="mx-auto mb-4 h-10 w-10 opacity-70"
-              >
-                <circle cx="6" cy="7" r="2.4" />
-                <circle cx="18" cy="9" r="2.4" />
-                <circle cx="11" cy="18" r="2.4" />
-              </svg>
-              <p className="mx-auto max-w-[46ch] text-sm" style={{ color: 'var(--graph-ink2)' }}>
-                {hasActiveScope ? t('graph.emptyStateScoped') : t('graph.emptyState')}
-              </p>
-            </div>
-          )}
-
-          {!error && graph && hasEntities && (
-            <div aria-busy={isRefetching} className={['transition-opacity', isRefetching ? 'opacity-50' : ''].join(' ')}>
-              <div className="mb-5 grid gap-4 sm:grid-cols-3">
-                <StatTile
-                  label={t('graph.stats.entities')}
-                  value={graph.nodes.length}
-                  hint={isCapped ? t('graph.stats.ofTotal', { total: graph.total_node_count }) : undefined}
-                />
-                <StatTile label={t('graph.stats.relationships')} value={graph.edges.length} />
-                <StatTile label={t('graph.stats.entityTypes')} value={typeCount} />
-              </div>
-
-              {isCapped && (
-                <p className="mb-4 text-sm" style={{ color: 'var(--graph-ink2)' }}>
-                  {t('graph.cappedNote', { shown: graph.nodes.length, total: graph.total_node_count })}
-                </p>
-              )}
-
-              {/* Entities with no surviving edges is a distinct, expected
-                  state under an active selection (the stricter
-                  relationship filter: an entity can appear in the
-                  selected documents while none of its relationships were
-                  asserted by them) -- not an error, so this stays a calm
-                  note rather than the empty-state treatment above. */}
-              {hasIsolatedEntities && (
-                <p className="mb-4 text-sm" style={{ color: 'var(--graph-ink2)' }}>
-                  {t('graph.noRelationshipsInScope')}
-                </p>
-              )}
-
-              <div
-                className="rounded-2xl p-4 md:p-5"
-                style={{
-                  backgroundColor: 'var(--graph-card-bg)',
-                  border: '1px solid var(--graph-card-border)',
-                }}
-              >
-                <GraphCanvas graph={graph} />
-              </div>
-            </div>
-          )}
-        </div>
-
-        {isScopePanelOpen && (
-          <GraphScopePanel
-            authFetch={authFetch}
-            selectedDocumentIds={selectedDocumentIds}
-            onToggleDocument={handleToggleDocument}
-            onSelectAll={handleSelectAll}
-            onToggleFolder={handleToggleFolder}
-          />
+          </div>
         )}
       </div>
-    </>
+
+      {isScopePanelOpen ? (
+        <GraphScopePanel
+          authFetch={authFetch}
+          selectedDocumentIds={selectedDocumentIds}
+          onToggleDocument={handleToggleDocument}
+          onSelectAll={handleSelectAll}
+          onToggleFolder={handleToggleFolder}
+          onCollapse={() => setIsScopePanelOpen(false)}
+        />
+      ) : (
+        // The collapsed rail: same visual language as the panel's own
+        // collapse control (a chevron), just pointing the other way and
+        // paired with the panel's own title so reopening it doesn't
+        // require remembering what the icon meant.
+        <button
+          type="button"
+          onClick={() => setIsScopePanelOpen(true)}
+          className="flex shrink-0 items-center gap-1.5 self-start rounded-full border border-border bg-input-bg px-3.5 py-2 text-[13px] font-medium text-text min-[901px]:sticky min-[901px]:top-20"
+        >
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+            <path d="M11 17l-5-5 5-5M18 17l-5-5 5-5" />
+          </svg>
+          {t('graph.scopePanel.title')}
+        </button>
+      )}
+    </div>
   )
 }
