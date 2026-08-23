@@ -20,9 +20,12 @@
     "logout": "Abmelden"
   },
   "settings": {
+    "eyebrow": "Dein Konto",
     "title": "Benutzereinstellungen",
+    "subtitle": "Verwalte dein Profil, deine Sicherheit und deine Einstellungen.",
     "profile": {
       "title": "Profil",
+      "description": "Dein Name, wie er überall in GraphMind erscheint.",
       "fullName": "Vollständiger Name",
       "email": "E-Mail",
       "save": "Speichern",
@@ -34,6 +37,7 @@
     },
     "changePassword": {
       "title": "Passwort ändern",
+      "description": "Wähle ein neues Passwort für die Anmeldung.",
       "currentPassword": "Aktuelles Passwort",
       "newPassword": "Neues Passwort",
       "submit": "Passwort ändern",
@@ -44,6 +48,7 @@
     },
     "appearance": {
       "title": "Erscheinungsbild",
+      "description": "Wechsle zwischen hellem und dunklem Design.",
       "darkMode": "Dunkelmodus",
       "savingStatus": "Erscheinungsbild wird gespeichert...",
       "savedStatus": "Erscheinungsbild gespeichert.",
@@ -51,6 +56,7 @@
     },
     "language": {
       "title": "Sprache",
+      "description": "Wähle die Sprache, in der GraphMind angezeigt wird.",
       "savingStatus": "Sprache wird gespeichert...",
       "savedStatus": "Sprache gespeichert.",
       "saveError": "Die Änderung wurde nicht in deinem Konto gespeichert: {{message}}"

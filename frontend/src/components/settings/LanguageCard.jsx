@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useAuth } from '../../context/AuthContext'
 import { updateLanguage } from '../../api/settingsClient'
 import { SUPPORTED_LANGUAGES } from '../../i18n'
+import SettingsSectionCard from './SettingsSectionCard'
 
 // Language names are deliberately hardcoded, not translated -- every
 // app's language picker shows each language's own name in its own
@@ -42,10 +43,19 @@ export default function LanguageCard() {
   }
 
   return (
-    <div className="rounded-lg border border-border bg-card-bg p-[22px]">
-      <h2 className="text-base font-bold text-text">{t('settings.language.title')}</h2>
-      <div className="mt-4 flex items-center justify-between">
-        <span id={LABEL_ID} className="text-sm text-text">
+    <SettingsSectionCard
+      title={t('settings.language.title')}
+      description={t('settings.language.description')}
+      icon={
+        <>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M3 12h18" />
+          <path d="M12 3c2.5 2.7 4 6.2 4 9s-1.5 6.3-4 9c-2.5-2.7-4-6.2-4-9s1.5-6.3 4-9Z" />
+        </>
+      }
+    >
+      <div className="flex items-center justify-between">
+        <span id={LABEL_ID} className="text-sm font-medium text-text">
           {t('settings.language.title')}
         </span>
         <select
@@ -53,7 +63,7 @@ export default function LanguageCard() {
           value={i18n.resolvedLanguage}
           disabled={saving}
           onChange={(event) => handleChange(event.target.value)}
-          className="cursor-pointer rounded-md border border-border bg-card-bg px-3 py-1.5 text-sm text-text"
+          className="cursor-pointer rounded-full border border-border bg-input-bg px-4 py-2 text-sm text-text disabled:opacity-60"
         >
           {SUPPORTED_LANGUAGES.map((code) => (
             <option key={code} value={code}>
@@ -70,6 +80,6 @@ export default function LanguageCard() {
           {error}
         </p>
       )}
-    </div>
+    </SettingsSectionCard>
   )
 }

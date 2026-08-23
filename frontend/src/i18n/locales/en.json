@@ -20,9 +20,12 @@
     "logout": "Log out"
   },
   "settings": {
+    "eyebrow": "Your account",
     "title": "User Settings",
+    "subtitle": "Manage your profile, security, and preferences.",
     "profile": {
       "title": "Profile",
+      "description": "Your name as it appears across GraphMind.",
       "fullName": "Full name",
       "email": "Email",
       "save": "Save",
@@ -34,6 +37,7 @@
     },
     "changePassword": {
       "title": "Change Password",
+      "description": "Choose a new password for signing in.",
       "currentPassword": "Current password",
       "newPassword": "New password",
       "submit": "Change Password",
@@ -44,6 +48,7 @@
     },
     "appearance": {
       "title": "Appearance",
+      "description": "Switch between a light and dark interface.",
       "darkMode": "Dark mode",
       "savingStatus": "Saving appearance...",
       "savedStatus": "Appearance saved.",
@@ -51,6 +56,7 @@
     },
     "language": {
       "title": "Language",
+      "description": "Choose the language GraphMind uses across the app.",
       "savingStatus": "Saving language...",
       "savedStatus": "Language saved.",
       "saveError": "This didn't save to your account: {{message}}"
