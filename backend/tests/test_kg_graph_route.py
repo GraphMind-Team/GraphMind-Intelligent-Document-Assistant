@@ -102,7 +102,9 @@ def test_get_graph_is_scoped_to_the_calling_account(client, monkeypatch):
     response = client.get("/kg/graph", headers=_auth_headers(token_b))
 
     assert response.status_code == 200
-    fake_get_graph_for_user.assert_called_once_with(account_b_id)
+    # No `document_ids` query param sent -- `kg/service.py` forwards an
+    # empty list, `get_graph_for_user`'s own unfiltered default.
+    fake_get_graph_for_user.assert_called_once_with(account_b_id, [])
 
     # Same guarantee from account A's side, so this isn't just "whichever
     # account happens to be called last wins."
@@ -112,5 +114,41 @@ def test_get_graph_is_scoped_to_the_calling_account(client, monkeypatch):
 
     client.get("/kg/graph", headers=_auth_headers(token_a))
 
-    fake_get_graph_for_user.assert_called_once_with(account_a_id)
+    fake_get_graph_for_user.assert_called_once_with(account_a_id, [])
     assert account_a_id != account_b_id
+
+
+def test_get_graph_forwards_document_ids_query_params_to_the_data_access_call(client, monkeypatch):
+    """Repeated `?document_ids=<uuid>&document_ids=<uuid>` query params must
+    reach `get_graph_for_user` as a plain list of strings -- the Cypher
+    layer's own scoping (`_MATCHES_DOCUMENT_SCOPE`), not this route, is what
+    actually filters; this just confirms the client's selection reaches it
+    intact."""
+    token = _register_and_login(
+        client, full_name="Scoped Account", email="scoped-graph@example.com", password="password12345"
+    )
+    fake_get_graph_for_user = MagicMock(return_value=([], [], 0))
+    monkeypatch.setattr(kg_service_module, "get_graph_for_user", fake_get_graph_for_user)
+
+    doc_id_a = "11111111-1111-1111-1111-111111111111"
+    doc_id_b = "22222222-2222-2222-2222-222222222222"
+
+    response = client.get(
+        f"/kg/graph?document_ids={doc_id_a}&document_ids={doc_id_b}",
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 200
+    (call_args, _) = fake_get_graph_for_user.call_args
+    assert call_args[1] == [doc_id_a, doc_id_b]
+
+
+def test_get_graph_rejects_more_than_200_document_ids(client):
+    token = _register_and_login(
+        client, full_name="Oversized Selection", email="oversized-graph@example.com", password="password12345"
+    )
+    doc_ids = "&".join(f"document_ids={i:08x}-0000-0000-0000-000000000000" for i in range(201))
+
+    response = client.get(f"/kg/graph?{doc_ids}", headers=_auth_headers(token))
+
+    assert response.status_code == 422

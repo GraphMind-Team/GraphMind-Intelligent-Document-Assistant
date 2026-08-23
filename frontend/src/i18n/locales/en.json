@@ -291,7 +291,21 @@
     "retry": "Retry",
     "loading": "Loading graph...",
     "emptyState": "No graph yet. Once a document reaches Ready, its entities and relationships will appear here.",
+    "emptyStateScoped": "No entities in the selected documents yet.",
+    "noRelationshipsInScope": "These documents mention entities, but no relationships between them yet.",
     "cappedNote": "Showing the {{shown}} most-connected entities of {{total}} total. Connections to entities outside this view aren't drawn.",
+    "scopePanel": {
+      "toggleButton": "Choose document",
+      "title": "Choose document",
+      "noDocuments": "No documents yet.",
+      "showingAll_one": "Showing the graph across all {{count}} document.",
+      "showingAll_other": "Showing the graph across all {{count}} documents.",
+      "selected": "{{selected}} of {{total}} selected.",
+      "selectAll": "Select all",
+      "selectFolder": "Select folder",
+      "clearFolder": "Clear folder",
+      "ungrouped": "Ungrouped"
+    },
     "stats": {
       "entities": "Entities",
       "relationships": "Relationships",

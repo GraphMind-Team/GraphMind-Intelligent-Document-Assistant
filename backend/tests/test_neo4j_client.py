@@ -641,6 +641,146 @@ def test_get_graph_for_user_total_reflects_the_true_uncapped_count(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Graph Preview document/folder filter: `document_ids` scoping.
+#
+# `_FakeReadTx` scripts fixed responses and doesn't interpret Cypher, so
+# these tests (like the tenancy/ordering tests above) verify the query text
+# and params `get_graph_for_user` actually sends, plus how it threads
+# scripted rows through to its return value -- not live Neo4j filtering
+# semantics, which this suite has no way to exercise without a real
+# database. Manual verification against the running dev backend covers the
+# actual filtering behavior end to end.
+# ---------------------------------------------------------------------------
+
+
+def test_get_graph_for_user_none_and_empty_document_ids_are_equivalent(monkeypatch):
+    """`None` (the default) and `[]` must produce the identical unfiltered
+    request -- `get_graph_for_user` normalizes `None` to `[]` once, up
+    front, so the Cypher predicate itself never has to branch on `None`."""
+    fake_tx_a = _FakeReadTx([[{"total": 0}], []])
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: _FakeReadDriver(fake_tx_a))
+    get_graph_for_user("user-1")
+
+    fake_tx_b = _FakeReadTx([[{"total": 0}], []])
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: _FakeReadDriver(fake_tx_b))
+    get_graph_for_user("user-1", document_ids=[])
+
+    for fake_tx in (fake_tx_a, fake_tx_b):
+        count_params = fake_tx.calls[0][1]
+        entities_params = fake_tx.calls[1][1]
+        assert count_params["document_ids"] == []
+        assert entities_params["document_ids"] == []
+
+
+def test_get_graph_for_user_forwards_document_ids_to_count_and_entities_queries(monkeypatch):
+    fake_tx = _FakeReadTx(
+        [
+            [{"total": 1}],
+            [{"name": "Solo Corp", "type": "Organization", "degree": 0}],
+            [],
+        ]
+    )
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: _FakeReadDriver(fake_tx))
+
+    get_graph_for_user("user-1", document_ids=["doc-1", "doc-2"])
+
+    count_query, count_params = fake_tx.calls[0]
+    entities_query, entities_params = fake_tx.calls[1]
+    assert count_params["document_ids"] == ["doc-1", "doc-2"]
+    assert entities_params["document_ids"] == ["doc-1", "doc-2"]
+    # Both queries scope entities by the exact same predicate shape (not
+    # two independently-drifted copies) -- this is what keeps a scoped
+    # `total_node_count` consistent with the scoped `entity_rows` it's
+    # meant to describe ("showing top N of M" must count the same M).
+    entity_scope_clause = "any(id IN coalesce(e.source_document_ids, []) WHERE id IN $document_ids)"
+    assert entity_scope_clause in count_query
+    assert entity_scope_clause in entities_query
+
+
+def test_get_graph_for_user_entities_query_scopes_the_degree_relationship_too(monkeypatch):
+    """Degree must be computed over only in-scope relationships -- not just
+    in-scope entities -- or a hub entity keeps its full-graph degree after
+    filtering down to a document that never asserted most of its edges."""
+    fake_tx = _FakeReadTx([[{"total": 0}], []])
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: _FakeReadDriver(fake_tx))
+
+    get_graph_for_user("user-1", document_ids=["doc-1"])
+
+    entities_query, _ = fake_tx.calls[1]
+    assert "OPTIONAL MATCH (e)-[r]-(:Entity {user_id: $user_id})" in entities_query
+    # The `r`-scope check is ORed with `r IS NULL` -- a genuinely isolated
+    # entity (no relationship at all) must not be excluded by this WHERE,
+    # only an out-of-scope relationship should be nulled out of the count.
+    assert "WHERE r IS NULL OR" in entities_query
+    assert "any(id IN coalesce(r.source_document_ids, []) WHERE id IN $document_ids)" in entities_query
+
+
+def test_get_graph_for_user_relationships_query_requires_the_relationships_own_scope(monkeypatch):
+    """The stricter, user-confirmed rule: both endpoints being in-scope is
+    not enough -- the relationship itself must have been asserted by a
+    selected document, or a relationship asserted only by an excluded
+    document could still render just because its two endpoints happen to
+    also appear in the current selection via unrelated documents."""
+    fake_tx = _FakeReadTx(
+        [
+            [{"total": 1}],
+            [{"name": "A", "type": "Person", "degree": 0}],
+            [],
+        ]
+    )
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: _FakeReadDriver(fake_tx))
+
+    get_graph_for_user("user-1", document_ids=["doc-1"])
+
+    relationship_query, relationship_params = fake_tx.calls[-1]
+    assert "(a.type + ':' + a.name) IN $keep_ids AND (b.type + ':' + b.name) IN $keep_ids" in relationship_query
+    assert "AND (size($document_ids) = 0 OR any(id IN coalesce(r.source_document_ids, []) WHERE id IN $document_ids))" in relationship_query
+    assert relationship_params["document_ids"] == ["doc-1"]
+
+
+def test_get_graph_for_user_returns_an_isolated_entity_under_a_filter(monkeypatch):
+    """An entity can pass the (scoped) entity filter while none of its
+    relationships pass the stricter relationship filter -- it must still
+    come back as a node, just with no edges, not be dropped entirely."""
+    fake_tx = _FakeReadTx(
+        [
+            [{"total": 1}],
+            [{"name": "Solo Corp", "type": "Organization", "degree": 0}],
+            [],
+        ]
+    )
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: _FakeReadDriver(fake_tx))
+
+    entities, relationships, total = get_graph_for_user("user-1", document_ids=["doc-1"])
+
+    assert entities == [{"name": "Solo Corp", "type": "Organization", "degree": 0}]
+    assert relationships == []
+    assert total == 1
+
+
+def test_get_graph_for_user_total_node_count_comes_from_the_scoped_count_query(monkeypatch):
+    """`total_node_count` must reflect the *scoped* count, independent of
+    how many entities the (separately capped) entities query returns --
+    otherwise a single-document selection could report the whole account's
+    total and the "showing top N of M" UI would misleadingly suggest more
+    is being hidden than actually exists in scope."""
+    fake_tx = _FakeReadTx(
+        [
+            [{"total": 3}],
+            [{"name": "A", "type": "Person", "degree": 0}, {"name": "B", "type": "Person", "degree": 0}],
+            [],
+        ]
+    )
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: _FakeReadDriver(fake_tx))
+
+    entities, _, total = get_graph_for_user("user-1", document_ids=["doc-1"], limit=2)
+
+    assert len(entities) == 2
+    assert total == 3
+    assert fake_tx.calls[0][1]["document_ids"] == ["doc-1"]
+
+
+# ---------------------------------------------------------------------------
 # Story 2.8: `source_document_ids` provenance + `prune_document_from_graph`.
 #
 # `_FakeTx` above only records calls for query-shape assertions -- it has

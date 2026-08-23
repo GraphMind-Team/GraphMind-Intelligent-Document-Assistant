@@ -428,12 +428,46 @@ def wipe_all_entities_and_relationships() -> None:
         session.execute_write(lambda tx: tx.run("MATCH (n:Entity) DETACH DELETE n").consume())
 
 
+# Shared by every function in the read path below (Story: Graph Preview
+# document filter). `{var}` is filled in with the Cypher variable the check
+# applies to (`e` for an entity, `r` for a relationship) -- always format
+# this constant on its own, before it's dropped into the surrounding query
+# string, the same discipline `_APPEND_SOURCE_DOCUMENT_ID` above already
+# follows. The surrounding queries contain literal `{user_id: $user_id}`
+# braces, so calling `.format()` on the already-joined string would try to
+# fill those in too and raise `KeyError: 'user_id'`.
+#
+# `size($document_ids) = 0` is the "no filter" escape hatch -- the Python
+# side always passes a list (`get_graph_for_user` normalizes `None` to
+# `[]`), so this only ever needs to check for empty, not `None`. A node or
+# relationship with no `source_document_ids` at all (written before this
+# property existed -- see `prune_document_from_graph`'s docstring) reads as
+# `coalesce(..., [])`, which can never overlap a non-empty `$document_ids`,
+# so it's excluded from any filtered selection and only ever visible in the
+# unfiltered ("showing everything") default -- there's no document to
+# attribute it to, so there's no other sound choice.
+_MATCHES_DOCUMENT_SCOPE = (
+    "(size($document_ids) = 0 OR any(id IN coalesce({var}.source_document_ids, []) WHERE id IN $document_ids))"
+)
+
+
 def get_graph_for_user(
-    user_id: str, limit: int = GRAPH_NODE_LIMIT
+    user_id: str, document_ids: list[str] | None = None, limit: int = GRAPH_NODE_LIMIT
 ) -> tuple[list[dict], list[dict], int]:
     """The read side of Story 4.1's Graph Preview, and the first Neo4j read
     path this codebase has -- `kg/service.py` is the only caller (AD-2: no
     module hand-writes Cypher of its own).
+
+    `document_ids`, when non-empty, scopes every part of this read (entity
+    count, entity list, each entity's `degree`, and relationships) to only
+    what the given documents contributed -- an empty list or `None` (the
+    default) preserves the original unfiltered "everything this user owns"
+    behavior. Scoping is a *view* concern layered on top of AD-4's
+    exact-match entity merge, not a change to it: an entity two selected
+    documents both mention still renders as one shared node with edges from
+    both, since merging still happens at write time. This does not validate
+    that the given ids belong to `user_id` -- see `kg/routes.py`'s docstring
+    for why that's unnecessary here.
 
     Returns `(entity_rows, relationship_rows, total_entity_count)`:
 
@@ -441,19 +475,28 @@ def get_graph_for_user(
       user's highest-degree entities first (ties broken by name, so the
       same `limit` entities come back on every call rather than an
       arbitrary subset among degree ties -- ties are common near the cut
-      point of a large graph).
+      point of a large graph). An entity that's in scope but has zero
+      in-scope relationships still appears here with `degree = 0` -- see
+      `_get_entities_tx` for what that implies once the node cap is in
+      play.
     - `relationship_rows`: dicts (`source_name`, `source_type`,
       `target_name`, `target_type`, `relationship_type`) for relationships
-      whose *both* endpoints are among `entity_rows` -- an entity that
-      didn't survive the cap can't contribute a dangling edge. `degree` is
-      still each entity's true whole-graph connectivity (computed before
-      the cap is applied), so a capped view can show a large node with
-      fewer drawn lines than its size implies -- `kg/service.py`'s caller
-      is expected to surface that as a stated UI limitation, not hide it.
+      whose *both* endpoints are among `entity_rows` **and** whose own
+      `source_document_ids` overlaps `document_ids` when a filter is
+      active -- both-endpoints-in-scope alone isn't enough, since two
+      entities can each individually appear in the selected documents
+      without any selected document having asserted a relationship between
+      them specifically (it could've been asserted only by a document
+      outside the selection). This is what keeps a filtered view from
+      still showing connections the user didn't ask for. An entity that
+      didn't survive the cap can't contribute a dangling edge either way.
       Also capped independently, at `GRAPH_EDGE_LIMIT` -- see that
       constant's comment for why edges need their own bound.
-    - `total_entity_count`: the true count before capping, so the caller
-      can render "showing top N of M."
+    - `total_entity_count`: the true count of entities *matching the
+      current scope* (filtered or not) before capping, so the caller can
+      render "showing top N of M" -- always scoped the same way
+      `entity_rows` is, so a single-document selection reports that
+      document's own total, never the whole account's.
 
     Returns dicts, not `Neo4jEntity`/`Neo4jRelationship` (see `shapes.py`)
     -- those are the write-side contract and don't carry the endpoint
@@ -467,45 +510,72 @@ def get_graph_for_user(
     value (`kg/service.py` reads it off `get_current_user`), never
     accepted from this function's own caller as client input.
     """
+    document_ids = document_ids or []
     driver = get_neo4j_driver()
     with driver.session() as session:
-        total_entity_count = session.execute_read(_get_entity_count_tx, user_id)
-        entity_rows = session.execute_read(_get_entities_tx, user_id, limit)
+        total_entity_count = session.execute_read(_get_entity_count_tx, user_id, document_ids)
+        entity_rows = session.execute_read(_get_entities_tx, user_id, document_ids, limit)
         keep_ids = [f"{row['type']}:{row['name']}" for row in entity_rows]
-        relationship_rows = session.execute_read(_get_relationships_tx, user_id, keep_ids)
+        relationship_rows = session.execute_read(
+            _get_relationships_tx, user_id, keep_ids, document_ids
+        )
     return entity_rows, relationship_rows, total_entity_count
 
 
-def _get_entity_count_tx(tx, user_id) -> int:
+def _get_entity_count_tx(tx, user_id, document_ids: list[str]) -> int:
     result = tx.run(
-        "MATCH (e:Entity {user_id: $user_id}) RETURN count(e) AS total",
+        "MATCH (e:Entity {user_id: $user_id}) "
+        f"WHERE {_MATCHES_DOCUMENT_SCOPE.format(var='e')} "
+        "RETURN count(e) AS total",
         user_id=user_id,
+        document_ids=document_ids,
     )
     return result.single()["total"]
 
 
-def _get_entities_tx(tx, user_id, limit) -> list[dict]:
-    """Ranks by degree computed across the *whole* graph (not just the
-    entities that end up surviving the cap), so "prominence" reflects true
-    connectivity rather than an artifact of the cap itself."""
+def _get_entities_tx(tx, user_id, document_ids: list[str], limit) -> list[dict]:
+    """Ranks by degree computed across the *whole matching scope* (not just
+    the entities that end up surviving the cap), so "prominence" reflects
+    true connectivity within that scope rather than an artifact of the cap
+    itself. When `document_ids` is non-empty, both the entity (`e`) and the
+    neighbor relationship (`r`) in the `OPTIONAL MATCH` are scoped -- degree
+    must count only relationships the selected documents actually asserted,
+    or a hub entity would keep rendering as a hub after filtering down to a
+    document that never asserted most of its edges (the same "invented
+    connection" problem, just expressed as node size instead of a drawn
+    line).
+
+    Consequence, not a bug: an in-scope entity with zero in-scope
+    relationships gets `degree = 0`, sorts last, and is the first thing
+    this cap drops once a selection's matching entity count exceeds
+    `limit`. That's consistent with ranking by degree at all -- isolated
+    entities are simply the least "prominent" under this metric.
+    """
     result = tx.run(
         "MATCH (e:Entity {user_id: $user_id}) "
+        f"WHERE {_MATCHES_DOCUMENT_SCOPE.format(var='e')} "
         "OPTIONAL MATCH (e)-[r]-(:Entity {user_id: $user_id}) "
+        f"WHERE r IS NULL OR {_MATCHES_DOCUMENT_SCOPE.format(var='r')} "
         "WITH e, count(r) AS degree "
         "ORDER BY degree DESC, e.name ASC "
         "LIMIT $limit "
         "RETURN e.name AS name, e.type AS type, degree",
         user_id=user_id,
+        document_ids=document_ids,
         limit=limit,
     )
     return [{"name": record["name"], "type": record["type"], "degree": record["degree"]} for record in result]
 
 
-def _get_relationships_tx(tx, user_id, keep_ids: list[str]) -> list[dict]:
+def _get_relationships_tx(tx, user_id, keep_ids: list[str], document_ids: list[str]) -> list[dict]:
     """`keep_ids` are `"{type}:{name}"` strings for the entities the caller
     already decided to keep (post-cap) -- a relationship only comes back
     if *both* endpoints are in that set, so a dropped entity never leaves
-    a dangling edge pointing at nothing rendered.
+    a dangling edge pointing at nothing rendered. When `document_ids` is
+    non-empty, the relationship's own `source_document_ids` must also
+    overlap it -- both-endpoints-in-scope is necessary but not sufficient,
+    since a relationship between two in-scope entities could still have
+    been asserted only by a document outside the current selection.
 
     No relationship *type* interpolation here, unlike the write path:
     `type(r)` is a Cypher function returning the type as a value, not
@@ -534,6 +604,7 @@ def _get_relationships_tx(tx, user_id, keep_ids: list[str]) -> list[dict]:
     result = tx.run(
         "MATCH (a:Entity {user_id: $user_id})-[r]->(b:Entity {user_id: $user_id}) "
         "WHERE (a.type + ':' + a.name) IN $keep_ids AND (b.type + ':' + b.name) IN $keep_ids "
+        f"AND {_MATCHES_DOCUMENT_SCOPE.format(var='r')} "
         "RETURN a.name AS source_name, a.type AS source_type, "
         "b.name AS target_name, b.type AS target_type, "
         "type(r) AS relationship_type "
@@ -541,6 +612,7 @@ def _get_relationships_tx(tx, user_id, keep_ids: list[str]) -> list[dict]:
         "LIMIT $edge_limit",
         user_id=user_id,
         keep_ids=keep_ids,
+        document_ids=document_ids,
         edge_limit=GRAPH_EDGE_LIMIT,
     )
     return [
