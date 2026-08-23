@@ -11,14 +11,6 @@ const NODES = [
 const EDGES = [{ source: 'Person:Maria', target: 'Organization:TechCorp', type: 'WORKS_AT' }]
 
 describe('GraphSummary', () => {
-  it('states plainly that the graph is read-only, while the viewport itself can be zoomed/panned (AC7)', () => {
-    render(<GraphSummary nodes={NODES} edges={EDGES} />)
-
-    expect(screen.getByText(/read-only/i)).toBeInTheDocument()
-    expect(screen.getByText(/hover, click and drag are disabled/i)).toBeInTheDocument()
-    expect(screen.getByText(/zoomed and panned/i)).toBeInTheDocument()
-  })
-
   it('reports the entity and relationship counts', () => {
     render(<GraphSummary nodes={NODES} edges={EDGES} />)
 
@@ -39,13 +31,13 @@ describe('GraphSummary', () => {
     expect(orgGroup).toHaveTextContent('TechCorp')
   })
 
-  it('the "View as list" toggle is keyboard-focusable, and starts open (AC1)', () => {
+  it('the "View as list" toggle is keyboard-focusable, and starts closed', () => {
     render(<GraphSummary nodes={NODES} edges={EDGES} />)
 
     const toggle = screen.getByText('View as list')
     toggle.focus()
     expect(toggle).toHaveFocus()
-    expect(toggle.closest('details')).toHaveAttribute('open')
+    expect(toggle.closest('details')).not.toHaveAttribute('open')
   })
 
   it('lists each relationship with its type, using entity names rather than raw ids', () => {

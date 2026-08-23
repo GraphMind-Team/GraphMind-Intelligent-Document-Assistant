@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import GraphPage from './GraphPage'
@@ -17,6 +18,17 @@ vi.mock('../context/AuthContext', () => ({ useAuth: vi.fn() }))
 vi.mock('../components/graph/GraphCanvas', () => ({
   default: ({ graph }) => <div data-testid="graph-canvas-stub">{graph.nodes.length} nodes</div>,
 }))
+
+// GraphScopePanel is now a permanent part of the page, not something a
+// button reveals, so it fetches on every render regardless of which
+// behavior a given test cares about. Defaulting it to an empty, error-free
+// list here keeps that fetch out of tests that aren't about scope at all;
+// the "document scope panel" describe block below overrides it with real
+// documents where that's the point of the test.
+beforeEach(() => {
+  vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([])
+  vi.spyOn(foldersClient, 'listFolders').mockResolvedValue([])
+})
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -133,7 +145,6 @@ describe('GraphPage', () => {
       renderGraphPage()
       await screen.findByTestId('graph-canvas-stub')
 
-      await user.click(screen.getByRole('button', { name: 'Choose document' }))
       const checkbox = await screen.findByLabelText('Team_Directory.md')
       await user.click(checkbox)
 
@@ -154,7 +165,6 @@ describe('GraphPage', () => {
       renderGraphPage()
       await waitFor(() => expect(getGraphSpy).toHaveBeenCalledTimes(1))
 
-      await user.click(screen.getByRole('button', { name: 'Choose document' }))
       await screen.findByText('Team_Directory.md')
       await user.click(screen.getByRole('button', { name: 'Select all' }))
 

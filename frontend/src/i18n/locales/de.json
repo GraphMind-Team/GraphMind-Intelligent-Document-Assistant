@@ -339,8 +339,8 @@
     "noRelationshipsInScope": "Diese Dokumente erwähnen Entitäten, aber noch keine Beziehungen zwischen ihnen.",
     "cappedNote": "Die {{shown}} am stärksten vernetzten Entitäten von insgesamt {{total}} werden angezeigt. Verbindungen zu Entitäten außerhalb dieser Ansicht werden nicht gezeichnet.",
     "scopePanel": {
-      "toggleButton": "Dokument wählen",
       "title": "Dokument wählen",
+      "collapseAria": "Dokumentauswahl einklappen",
       "noDocuments": "Noch keine Dokumente.",
       "showingAll_one": "Der Graph zeigt alle {{count}} Dokument.",
       "showingAll_other": "Der Graph zeigt alle {{count}} Dokumente.",
@@ -362,10 +362,11 @@
       "zoomOut": "Verkleinern",
       "zoomIn": "Vergrößern",
       "fit": "Einpassen",
+      "expand": "Graph groß anzeigen",
+      "collapse": "Großansicht verlassen",
       "entityTypeKey": "Legende der Entitätstypen"
     },
     "summary": {
-      "readOnlyNote": "Nur lesbar — Hover, Klicken und Ziehen sind deaktiviert; die Ansicht kann gezoomt und verschoben werden.",
       "entityCount_one": "{{count}} Entität",
       "entityCount_other": "{{count}} Entitäten",
       "relationshipCount_one": "{{count}} Beziehung",

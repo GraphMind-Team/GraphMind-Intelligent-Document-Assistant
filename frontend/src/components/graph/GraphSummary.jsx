@@ -26,11 +26,11 @@ import { badgeFor, entityTypeLabelFor, paletteFor, relationshipLabelFor, typeCol
 //     still says how much is inside it -- and <details> keeps its
 //     content in the DOM either way, so nothing becomes unreachable.
 //
-// What deliberately did NOT change: this stays inside a `<details open>`
-// labelled "View as list" (collapsible for a large graph, open by default
-// so nobody has to click to read a handful of names), every entity and
-// relationship stays in the DOM regardless of any filter's visual state,
-// and the read-only/count sentence stays exactly as plain as it was.
+// This stays inside a `<details>` labelled "View as list", collapsed by
+// default -- the count line above it already says how much is inside, so
+// nobody has to open it just to confirm there's something there. Every
+// entity and relationship stays in the DOM regardless of the disclosure's
+// or any filter's visual state.
 //
 // Filtering note: the search and type filters drive what is *rendered*,
 // and an empty result renders an explicit "no matches" line rather than
@@ -110,14 +110,13 @@ export default function GraphSummary({ nodes, edges, theme }) {
   return (
     <div className="mt-5 text-sm">
       <p style={{ color: palette.ink2 }}>
-        {t('graph.summary.readOnlyNote')}{' '}
         {t('graph.summary.countsLine', {
           entities: t('graph.summary.entityCount', { count: nodes.length }),
           relationships: t('graph.summary.relationshipCount', { count: edges.length }),
         })}
       </p>
 
-      <details className="mt-3 group" open>
+      <details className="mt-3 group">
         <summary
           className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-bold uppercase tracking-wide"
           style={chipStyle}
