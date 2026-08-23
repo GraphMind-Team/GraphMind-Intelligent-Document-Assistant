@@ -218,6 +218,7 @@ export default function GraphPage() {
               canvas away and back. */}
           {!error && graph && !hasEntities && (
             <div
+              aria-busy={isRefetching}
               className={['rounded-2xl px-6 py-12 text-center transition-opacity', isRefetching ? 'opacity-50' : ''].join(' ')}
               style={{ backgroundColor: 'var(--graph-card-bg)', border: '1px solid var(--graph-card-border)' }}
             >
@@ -242,7 +243,7 @@ export default function GraphPage() {
           )}
 
           {!error && graph && hasEntities && (
-            <div className={['transition-opacity', isRefetching ? 'opacity-50' : ''].join(' ')}>
+            <div aria-busy={isRefetching} className={['transition-opacity', isRefetching ? 'opacity-50' : ''].join(' ')}>
               <div className="mb-5 grid gap-4 sm:grid-cols-3">
                 <StatTile
                   label={t('graph.stats.entities')}

@@ -963,19 +963,18 @@ def test_get_graph_for_user_scoped_degree_decides_which_entity_survives_the_cap(
     fake_tx = _ScopedGraphReadFakeTx(entities, relationships)
     monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: _FakeReadDriver(fake_tx))
 
-    entity_rows, _, _ = get_graph_for_user(
-        "user-1", document_ids=["doc-1"], limit=2
-    )
+    # `limit=1` makes this a real test of cap survival, not just a value
+    # check: every other in-scope entity (Hub, X, Y, Z) ties at scoped
+    # degree 1, so `Frequent`'s scoped degree of 2 is the only thing that
+    # can make it the sole survivor. With unscoped (buggy) degree, Hub's
+    # true count of 6 relationships (1 in-scope + 5 out-of-scope) would
+    # outrank Frequent and `names` would come back `{"Hub"}` instead --
+    # this assertion fails on that regression, not just passes either way.
+    entity_rows, _, _ = get_graph_for_user("user-1", document_ids=["doc-1"], limit=1)
 
     names = {row["name"] for row in entity_rows}
-    # `Frequent` (scoped degree 2) must outrank `Hub` (scoped degree 1,
-    # not the unscoped 6) -- if degree scoping were broken, Hub would
-    # appear here instead of one of the true in-scope entities.
-    assert "Frequent" in names
-    degree_by_name = {row["name"]: row["degree"] for row in entity_rows}
-    assert degree_by_name["Frequent"] == 2
-    if "Hub" in degree_by_name:
-        assert degree_by_name["Hub"] == 1
+    assert names == {"Frequent"}
+    assert entity_rows[0]["degree"] == 2
 
 
 def test_get_graph_for_user_total_node_count_comes_from_the_scoped_count_query(monkeypatch):
