@@ -360,229 +360,253 @@ export default function DocumentsPage() {
 
   return (
     <>
-      <div className="mb-6 flex items-end justify-between gap-4">
-        <div>
-          <p className="text-eyebrow uppercase text-accent">{t('documents.eyebrow')}</p>
-          <h1 className="text-page-title text-text">{t('documents.title')}</h1>
+      {/* Bounds the page's own width, independent of `<main>`'s -- the top
+          nav (Shell.jsx) hands this page the full viewport instead of
+          losing a column to a left sidebar, and past roughly this width
+          the toolbar/grid below start reading as sprawl rather than making
+          good use of the room. Wide enough that laptop/desktop viewports
+          (the common case) never hit it -- this only engages on genuinely
+          ultrawide monitors. */}
+      <div className="mx-auto w-full max-w-[1680px]">
+        <div className="mb-6 flex items-end justify-between gap-4">
+          <div>
+            <p className="text-eyebrow uppercase text-accent">{t('documents.eyebrow')}</p>
+            <h1 className="text-page-title text-text">{t('documents.title')}</h1>
+          </div>
+          <button
+            ref={uploadButtonRef}
+            type="button"
+            onClick={handleOpenModal}
+            className="btn-brand rounded-full px-5 py-2.5 text-sm font-semibold"
+          >
+            {t('documents.upload')}
+          </button>
         </div>
-        <button
-          ref={uploadButtonRef}
-          type="button"
-          onClick={handleOpenModal}
-          className="btn-brand rounded-full px-5 py-2.5 text-sm font-semibold"
-        >
-          {t('documents.upload')}
-        </button>
-      </div>
 
-      {/* Its own banner, separate from the document-list `error` below --
-          a folder-fetch failure must stay visible without hiding the
-          document grid (which stays functional either way, just with zero
-          folder tiles until a retry). */}
-      {folderError && (
-        <p role="alert" className="mb-4 text-sm text-danger">
-          {folderError}
-        </p>
-      )}
+        {/* Its own banner, separate from the document-list `error` below --
+            a folder-fetch failure must stay visible without hiding the
+            document grid (which stays functional either way, just with
+            zero folder tiles until a retry). */}
+        {folderError && (
+          <p role="alert" className="mb-4 text-sm text-danger">
+            {folderError}
+          </p>
+        )}
 
-      {/* Toolbar row: the "Folders" trigger (folder-grouping feature) sits
-          beside Sort/Filter, sized to match -- a plain toggle button, not a
-          dropdown. Pressing it mounts a persistent right-hand panel (below,
-          next to the document grid) that stays open across tile
-          selections; only an outside click or pressing this button again
-          closes it (the effect above). Real <select> elements for
-          Sort/Filter -- not custom listbox widgets -- so keyboard/screen-
-          reader/mobile behavior is the platform's, not something
-          re-implemented here. The visible option text carries the
-          "Sort:"/"Filter:" prefix exactly as the mockup does, so the labels
-          themselves are screen-reader-only rather than duplicating that
-          prefix on screen. */}
-      <div className="mb-4 flex flex-wrap items-center gap-2.5">
-        <button
-          ref={foldersTriggerRef}
-          type="button"
-          aria-pressed={isFoldersOpen}
-          onClick={() => setIsFoldersOpen((open) => !open)}
-          className={[
-            'rounded-full border px-3.5 py-2 text-[13px] font-medium',
-            isFoldersOpen || folderFilter !== ALL_DOCUMENTS_FILTER
-              ? 'border-accent text-accent'
-              : 'border-border bg-input-bg text-text',
-          ].join(' ')}
-        >
-          {t('documents.foldersHeading')}
-        </button>
+        {/* Toolbar row, raised on its own card -- the new top nav gives
+            this page the full viewport width, and a bare row of small pill
+            controls spread across that width reads as loose/unfinished
+            rather than spacious. The card gives the row a floor: the same
+            `--surface2` treatment the empty-library state below already
+            uses, so the toolbar reads as one grouped control strip instead
+            of a few buttons drifting in open space.
 
-        <label className="sr-only" htmlFor="documents-sort">
-          {t('documents.sort.label')}
-        </label>
-        <select
-          id="documents-sort"
-          value={sortBy}
-          onChange={(event) => setSortBy(event.target.value)}
-          className="cursor-pointer rounded-full border border-border bg-input-bg px-3.5 py-2 text-[13px] text-text"
-        >
-          {SORT_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {t(`documents.sort.${option.key}`)}
-            </option>
-          ))}
-        </select>
+            The "Folders" trigger (folder-grouping feature) sits beside
+            Sort/Filter, sized to match -- a plain toggle button, not a
+            dropdown. Pressing it mounts a persistent right-hand panel
+            (below, next to the document grid) that stays open across tile
+            selections; only an outside click or pressing this button again
+            closes it (the effect above). Real <select> elements for
+            Sort/Filter -- not custom listbox widgets -- so keyboard/
+            screen-reader/mobile behavior is the platform's, not something
+            re-implemented here. The visible option text carries the
+            "Sort:"/"Filter:" prefix exactly as the mockup does, so the
+            labels themselves are screen-reader-only rather than
+            duplicating that prefix on screen.
 
-        <label className="sr-only" htmlFor="documents-type-filter">
-          {t('documents.filter.label')}
-        </label>
-        <select
-          id="documents-type-filter"
-          value={typeFilter}
-          onChange={(event) => setTypeFilter(event.target.value)}
-          className="cursor-pointer rounded-full border border-border bg-input-bg px-3.5 py-2 text-[13px] text-text"
-        >
-          {TYPE_FILTER_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {t(`documents.filter.${option.key}`)}
-            </option>
-          ))}
-        </select>
+            Search used to be a fixed 11rem box shoved to the row's far
+            right edge via `ml-auto` -- harmless while this row sat in a
+            ~700px sidebar-narrowed column, but at full page width that
+            left a few hundred pixels of dead air between Filter and
+            Search, reading as a layout bug rather than intentional space.
+            It's `flex-1` now (bounded by a max-width so it doesn't balloon
+            on an ultrawide monitor) and sits right after Filter in normal
+            flow, so it absorbs whatever room the row actually has left
+            instead of leaving it empty -- and doubles as the toolbar's
+            most prominent control, which "find one document by name"
+            deserves once a library grows past a screenful. */}
+        <div className="mb-5 flex flex-wrap items-center gap-2.5 rounded-2xl border border-border bg-surface2 px-3.5 py-3">
+          <button
+            ref={foldersTriggerRef}
+            type="button"
+            aria-pressed={isFoldersOpen}
+            onClick={() => setIsFoldersOpen((open) => !open)}
+            className={[
+              'shrink-0 rounded-full border px-3.5 py-2 text-[13px] font-medium',
+              isFoldersOpen || folderFilter !== ALL_DOCUMENTS_FILTER
+                ? 'border-accent text-accent'
+                : 'border-border bg-input-bg text-text',
+            ].join(' ')}
+          >
+            {t('documents.foldersHeading')}
+          </button>
 
-        {/* Sort and type-filter only get you so far once a library grows
-            past a screenful -- neither helps find one specific file by
-            name. `ml-auto` on desktop pushes it to the row's own right
-            edge, separate from the Folders/Sort/Filter cluster; it just
-            wraps to its own line on narrow viewports like every other
-            control here already does. */}
-        <div className="relative ml-auto">
-          <label className="sr-only" htmlFor="documents-search">
-            {t('documents.search.label')}
+          <label className="sr-only" htmlFor="documents-sort">
+            {t('documents.sort.label')}
           </label>
-          <Icon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text2">
-            <circle cx="11" cy="11" r="7" />
-            <path d="M21 21l-4.3-4.3" />
-          </Icon>
-          <input
-            id="documents-search"
-            type="text"
-            value={searchText}
-            onChange={(event) => setSearchText(event.target.value)}
-            placeholder={t('documents.search.placeholder')}
-            className="w-44 rounded-full border border-border bg-input-bg py-2 pl-9 pr-3.5 text-[13px] text-text"
-          />
-        </div>
-      </div>
+          <select
+            id="documents-sort"
+            value={sortBy}
+            onChange={(event) => setSortBy(event.target.value)}
+            className="shrink-0 cursor-pointer rounded-full border border-border bg-input-bg px-3.5 py-2 text-[13px] text-text"
+          >
+            {SORT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {t(`documents.sort.${option.key}`)}
+              </option>
+            ))}
+          </select>
 
-      {/* The folders panel (when open) sits to the right of the document
-          grid as a real layout column, not an overlay -- this is what lets
-          a document be dragged into it. The grid's own column min-width
-          shrinks while the panel is open (below) so the same document
-          count still lands close to its usual columns-per-row instead of
-          silently dropping a column to the panel. */}
-      <div className="flex items-start gap-4">
-        <div className="min-w-0 flex-1">
-          {/* Mirrors GraphPage.jsx's own error-banner shape (card, not a
-              bare paragraph) plus the one thing it had that this didn't:
-              a Retry button, so a failed load isn't a dead end that only
-              a full page refresh can get past. */}
-          {error && (
-            <div
-              role="alert"
-              className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-danger/30 bg-danger/5 px-5 py-4"
-            >
-              <p className="text-sm text-danger">{error}</p>
-              <button
-                type="button"
-                onClick={() => fetchDocuments()}
-                className="btn-ghost shrink-0 rounded-full px-4 py-1.5 text-xs font-semibold"
-              >
-                {t('common.retry')}
-              </button>
-            </div>
-          )}
+          <label className="sr-only" htmlFor="documents-type-filter">
+            {t('documents.filter.label')}
+          </label>
+          <select
+            id="documents-type-filter"
+            value={typeFilter}
+            onChange={(event) => setTypeFilter(event.target.value)}
+            className="shrink-0 cursor-pointer rounded-full border border-border bg-input-bg px-3.5 py-2 text-[13px] text-text"
+          >
+            {TYPE_FILTER_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {t(`documents.filter.${option.key}`)}
+              </option>
+            ))}
+          </select>
 
-          {!error && isLoading && (
-            <p className="text-sm text-text2">
-              {t('documents.loading')}
-              {isSlow && <span className="block text-xs">{t('common.slowServerHint')}</span>}
-            </p>
-          )}
-
-          {/* A real front door for a brand-new account, not one gray
-              sentence -- this is the first thing a just-registered user
-              sees, and the old text-only state gave them nothing to do
-              next. Reuses the mascot (already the app's own identity
-              element, per LandingPage.jsx) and the upload button's own
-              `handleOpenModal`, so "Upload a document" here opens the
-              exact same modal as the toolbar's button above. */}
-          {showEmptyLibrary && (
-            <div className="flex flex-col items-center gap-4 rounded-2xl border border-dashed border-border bg-surface2 px-6 py-16 text-center">
-              <RobotFigure state="idle" className="w-20" />
-              <div className="max-w-[46ch]">
-                <h2 className="font-display text-[18px] font-bold text-text">
-                  {t('documents.emptyState.title')}
-                </h2>
-                <p className="mt-2 text-sm leading-relaxed text-text2">{t('documents.emptyState.body')}</p>
-              </div>
-              <button
-                type="button"
-                onClick={handleOpenModal}
-                className="btn-brand rounded-full px-6 py-3 text-sm font-semibold"
-              >
-                {t('documents.emptyState.cta')}
-              </button>
-              <p className="text-xs text-text2">
-                {t('documents.uploadModal.supported', { extensions: ALLOWED_EXTENSIONS.join(', ') })}
-              </p>
-            </div>
-          )}
-
-          {showFilteredEmpty && <p className="text-sm text-text2">{t('documents.emptyFiltered')}</p>}
-
-          {/* Card grid rather than the mockup's `.doclist` table -- a
-              human-requested design change, recorded in the spec's Change
-              Log. `auto-fill` + `minmax` reflows by itself as the content
-              area narrows (including at 200% zoom), which is also what
-              retires the table's clipping problem structurally rather than
-              by patching an overflow rule: there is no fixed min-content
-              width to clip. A <ul> because this is a list of things, not a
-              grid of layout boxes -- screen readers announce the count. */}
-          {showGrid && (
-            <ul
-              aria-label={t('documents.title')}
-              className={[
-                'grid list-none gap-4 p-0',
-                isFoldersOpen
-                  ? 'grid-cols-[repeat(auto-fill,minmax(11rem,1fr))]'
-                  : 'grid-cols-[repeat(auto-fill,minmax(14rem,1fr))]',
-              ].join(' ')}
-            >
-              {visibleDocuments.map((doc) => (
-                <DocumentCard
-                  key={doc.id}
-                  document={doc}
-                  onCardClick={handleCardClick}
-                  onDeleted={handleDeleted}
-                  folders={folders}
-                  onFolderChanged={handleDocumentFolderChanged}
-                  onFolderCreated={handleFolderCreated}
-                />
-              ))}
-            </ul>
-          )}
-        </div>
-
-        {isFoldersOpen && (
-          <div ref={foldersPanelRef}>
-            <FolderGrid
-              folders={folders}
-              documents={documents}
-              activeFilter={folderFilter}
-              onSelectFilter={setFolderFilter}
-              onFolderCreated={handleFolderCreated}
-              onFolderUpdated={handleFolderUpdated}
-              onFolderDeleted={handleFolderDeleted}
-              onDocumentFolderChanged={handleDocumentFolderChanged}
+          <div className="relative min-w-[180px] max-w-[420px] flex-1">
+            <label className="sr-only" htmlFor="documents-search">
+              {t('documents.search.label')}
+            </label>
+            <Icon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text2">
+              <circle cx="11" cy="11" r="7" />
+              <path d="M21 21l-4.3-4.3" />
+            </Icon>
+            <input
+              id="documents-search"
+              type="text"
+              value={searchText}
+              onChange={(event) => setSearchText(event.target.value)}
+              placeholder={t('documents.search.placeholder')}
+              className="w-full rounded-full border border-border bg-input-bg py-2 pl-9 pr-3.5 text-[13px] text-text"
             />
           </div>
-        )}
+        </div>
+
+        {/* The folders panel (when open) sits to the right of the document
+            grid as a real layout column, not an overlay -- this is what
+            lets a document be dragged into it. The grid's own column
+            min-width shrinks while the panel is open (below) so the same
+            document count still lands close to its usual columns-per-row
+            instead of silently dropping a column to the panel. */}
+        <div className="flex items-start gap-4">
+          <div className="min-w-0 flex-1">
+            {/* Mirrors GraphPage.jsx's own error-banner shape (card, not a
+                bare paragraph) plus the one thing it had that this didn't:
+                a Retry button, so a failed load isn't a dead end that only
+                a full page refresh can get past. */}
+            {error && (
+              <div
+                role="alert"
+                className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-danger/30 bg-danger/5 px-5 py-4"
+              >
+                <p className="text-sm text-danger">{error}</p>
+                <button
+                  type="button"
+                  onClick={() => fetchDocuments()}
+                  className="btn-ghost shrink-0 rounded-full px-4 py-1.5 text-xs font-semibold"
+                >
+                  {t('common.retry')}
+                </button>
+              </div>
+            )}
+
+            {!error && isLoading && (
+              <p className="text-sm text-text2">
+                {t('documents.loading')}
+                {isSlow && <span className="block text-xs">{t('common.slowServerHint')}</span>}
+              </p>
+            )}
+
+            {/* A real front door for a brand-new account, not one gray
+                sentence -- this is the first thing a just-registered user
+                sees, and the old text-only state gave them nothing to do
+                next. Reuses the mascot (already the app's own identity
+                element, per LandingPage.jsx) and the upload button's own
+                `handleOpenModal`, so "Upload a document" here opens the
+                exact same modal as the toolbar's button above. */}
+            {showEmptyLibrary && (
+              <div className="flex flex-col items-center gap-4 rounded-2xl border border-dashed border-border bg-surface2 px-6 py-16 text-center">
+                <RobotFigure state="idle" className="w-20" />
+                <div className="max-w-[46ch]">
+                  <h2 className="font-display text-[18px] font-bold text-text">
+                    {t('documents.emptyState.title')}
+                  </h2>
+                  <p className="mt-2 text-sm leading-relaxed text-text2">{t('documents.emptyState.body')}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleOpenModal}
+                  className="btn-brand rounded-full px-6 py-3 text-sm font-semibold"
+                >
+                  {t('documents.emptyState.cta')}
+                </button>
+                <p className="text-xs text-text2">
+                  {t('documents.uploadModal.supported', { extensions: ALLOWED_EXTENSIONS.join(', ') })}
+                </p>
+              </div>
+            )}
+
+            {showFilteredEmpty && <p className="text-sm text-text2">{t('documents.emptyFiltered')}</p>}
+
+            {/* Card grid rather than the mockup's `.doclist` table -- a
+                human-requested design change, recorded in the spec's
+                Change Log. `auto-fill` + `minmax` reflows by itself as the
+                content area narrows (including at 200% zoom), which is
+                also what retires the table's clipping problem
+                structurally rather than by patching an overflow rule:
+                there is no fixed min-content width to clip. A <ul>
+                because this is a list of things, not a grid of layout
+                boxes -- screen readers announce the count. */}
+            {showGrid && (
+              <ul
+                aria-label={t('documents.title')}
+                className={[
+                  'grid list-none gap-4 p-0',
+                  isFoldersOpen
+                    ? 'grid-cols-[repeat(auto-fill,minmax(11rem,1fr))]'
+                    : 'grid-cols-[repeat(auto-fill,minmax(14rem,1fr))]',
+                ].join(' ')}
+              >
+                {visibleDocuments.map((doc) => (
+                  <DocumentCard
+                    key={doc.id}
+                    document={doc}
+                    onCardClick={handleCardClick}
+                    onDeleted={handleDeleted}
+                    folders={folders}
+                    onFolderChanged={handleDocumentFolderChanged}
+                    onFolderCreated={handleFolderCreated}
+                  />
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {isFoldersOpen && (
+            <div ref={foldersPanelRef}>
+              <FolderGrid
+                folders={folders}
+                documents={documents}
+                activeFilter={folderFilter}
+                onSelectFilter={setFolderFilter}
+                onFolderCreated={handleFolderCreated}
+                onFolderUpdated={handleFolderUpdated}
+                onFolderDeleted={handleFolderDeleted}
+                onDocumentFolderChanged={handleDocumentFolderChanged}
+              />
+            </div>
+          )}
+        </div>
       </div>
 
       {isModalOpen && <UploadModal onClose={handleCloseModal} />}
