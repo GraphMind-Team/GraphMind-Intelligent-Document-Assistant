@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useTheme } from '../../context/ThemeContext'
 import { updateTheme } from '../../api/settingsClient'
 import ToggleSwitch from '../ToggleSwitch'
+import SettingsSectionCard from './SettingsSectionCard'
 
 const LABEL_ID = 'appearance-dark-mode-label'
 
@@ -47,14 +48,22 @@ export default function AppearanceCard() {
   }
 
   return (
-    <div className="rounded-lg border border-border bg-card-bg p-[22px]">
-      <h2 className="text-base font-bold text-text">{t('settings.appearance.title')}</h2>
-      <div className="mt-4 flex items-center justify-between">
+    <SettingsSectionCard
+      title={t('settings.appearance.title')}
+      description={t('settings.appearance.description')}
+      icon={
+        <>
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 3v2M12 19v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M3 12h2M19 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" />
+        </>
+      }
+    >
+      <div className="flex items-center justify-between">
         {/* Clickable, and the switch's aria-labelledby points here -- one
             source of truth for the wording instead of a duplicated
             aria-label, and clicking the text toggles too (as clicking a
             <label> next to a native control would). */}
-        <span id={LABEL_ID} className="cursor-pointer text-sm text-text" onClick={() => !saving && handleToggle(!checked)}>
+        <span id={LABEL_ID} className="cursor-pointer text-sm font-medium text-text" onClick={() => !saving && handleToggle(!checked)}>
           {t('settings.appearance.darkMode')}
         </span>
         <ToggleSwitch checked={checked} onChange={handleToggle} disabled={saving} busy={saving} labelledBy={LABEL_ID} />
@@ -71,6 +80,6 @@ export default function AppearanceCard() {
           {error}
         </p>
       )}
-    </div>
+    </SettingsSectionCard>
   )
 }

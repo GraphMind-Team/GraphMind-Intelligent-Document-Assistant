@@ -1,6 +1,8 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { MemoryRouter } from 'react-router-dom'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import GraphPage from './GraphPage'
 import { useAuth } from '../context/AuthContext'
 import * as graphClient from '../api/graphClient'
@@ -32,6 +34,18 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+// GraphPage reads `useLocation()` for the ready-toast's optional
+// `presetDocumentId` -- needs a Router ancestor even when a test isn't
+// exercising that preset. `initialEntries` defaults to a plain `/graph`
+// (no state), matching every existing test's assumption of no preset.
+function renderGraphPage(initialEntries = ['/graph']) {
+  return render(
+    <MemoryRouter initialEntries={initialEntries}>
+      <GraphPage />
+    </MemoryRouter>,
+  )
+}
+
 describe('GraphPage', () => {
   it('shows a loading state, then the canvas once entities are fetched', async () => {
     useAuth.mockReturnValue({ authFetch: vi.fn() })
@@ -41,7 +55,7 @@ describe('GraphPage', () => {
       total_node_count: 1,
     })
 
-    render(<GraphPage />)
+    renderGraphPage()
 
     expect(screen.getByText(/loading graph/i)).toBeInTheDocument()
     expect(await screen.findByTestId('graph-canvas-stub')).toHaveTextContent('1 nodes')
@@ -51,7 +65,7 @@ describe('GraphPage', () => {
     useAuth.mockReturnValue({ authFetch: vi.fn() })
     vi.spyOn(graphClient, 'getGraph').mockResolvedValue({ nodes: [], edges: [], total_node_count: 0 })
 
-    render(<GraphPage />)
+    renderGraphPage()
 
     expect(await screen.findByText(/No graph yet\./)).toBeInTheDocument()
     expect(screen.queryByTestId('graph-canvas-stub')).not.toBeInTheDocument()
@@ -61,7 +75,7 @@ describe('GraphPage', () => {
     useAuth.mockReturnValue({ authFetch: vi.fn() })
     vi.spyOn(graphClient, 'getGraph').mockRejectedValue(new Error('Not authenticated.'))
 
-    render(<GraphPage />)
+    renderGraphPage()
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Not authenticated.')
     expect(screen.queryByTestId('graph-canvas-stub')).not.toBeInTheDocument()
@@ -75,7 +89,7 @@ describe('GraphPage', () => {
       total_node_count: 3241,
     })
 
-    render(<GraphPage />)
+    renderGraphPage()
 
     expect(
       await screen.findByText(/Showing the 1 most-connected entities of 3241 total/),
@@ -91,7 +105,7 @@ describe('GraphPage', () => {
       total_node_count: 1,
     })
 
-    render(<GraphPage />)
+    renderGraphPage()
 
     await screen.findByTestId('graph-canvas-stub')
     expect(screen.queryByText(/most-connected entities of/)).not.toBeInTheDocument()
@@ -128,7 +142,7 @@ describe('GraphPage', () => {
         })
       const user = userEvent.setup()
 
-      render(<GraphPage />)
+      renderGraphPage()
       await screen.findByTestId('graph-canvas-stub')
 
       const checkbox = await screen.findByLabelText('Team_Directory.md')
@@ -148,7 +162,7 @@ describe('GraphPage', () => {
       })
       const user = userEvent.setup()
 
-      render(<GraphPage />)
+      renderGraphPage()
       await waitFor(() => expect(getGraphSpy).toHaveBeenCalledTimes(1))
 
       await screen.findByText('Team_Directory.md')
@@ -175,8 +189,11 @@ describe('GraphPage', () => {
       vi.spyOn(graphClient, 'getGraph').mockImplementationOnce(() => firstFetch).mockImplementationOnce(() => secondFetch)
       const user = userEvent.setup()
 
-      render(<GraphPage />)
-      const checkbox = await screen.findByLabelText('Team_Directory.md') // page rendered, first fetch in flight
+      renderGraphPage()
+      await screen.findByRole('button', { name: 'Choose document' }) // page rendered, first fetch in flight
+
+      await user.click(screen.getByRole('button', { name: 'Choose document' }))
+      const checkbox = await screen.findByLabelText('Team_Directory.md')
       await user.click(checkbox) // triggers the second fetch while the first is still pending
 
       // The second (later) selection's response lands first...
@@ -198,6 +215,35 @@ describe('GraphPage', () => {
       // it didn't.
       await new Promise((resolve) => setTimeout(resolve, 10))
       expect(screen.getByTestId('graph-canvas-stub')).toHaveTextContent('1 nodes')
+    })
+  })
+
+  describe('preset document from a ready toast', () => {
+    it('scopes to just that document and opens the scope panel, without waiting on the document list', async () => {
+      // Mirrors ChatPage's own "Ask about it" preset -- DocumentReadyToasts'
+      // "View in graph" CTA arrives with `{ presetDocumentId }` in
+      // navigation state. Unlike ChatPage's preset, this needs no
+      // validation against a loaded document list first: the toast only
+      // ever fires for a document that just turned Ready, so the id is
+      // trustworthy the instant the page mounts.
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([
+        { id: 'doc-1', filename: 'Team_Directory.md', folder_id: null },
+      ])
+      vi.spyOn(foldersClient, 'listFolders').mockResolvedValue([])
+      const getGraphSpy = vi.spyOn(graphClient, 'getGraph').mockResolvedValue({
+        nodes: [{ id: 'Person:A', name: 'A', type: 'Person', degree: 0 }],
+        edges: [],
+        total_node_count: 1,
+      })
+
+      renderGraphPage([{ pathname: '/graph', state: { presetDocumentId: 'doc-1' } }])
+
+      await waitFor(() => expect(getGraphSpy).toHaveBeenCalledWith(expect.anything(), ['doc-1']))
+      // The scope panel is already open, not tucked behind the toggle --
+      // the point of arriving here from a toast is to land straight on the
+      // narrowed view, not one more click away from it.
+      expect(await screen.findByLabelText('Team_Directory.md')).toBeChecked()
     })
   })
 })

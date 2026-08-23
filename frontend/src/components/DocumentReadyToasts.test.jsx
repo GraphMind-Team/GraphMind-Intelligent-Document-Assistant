@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import DocumentReadyToasts from './DocumentReadyToasts'
 import { useAuth } from '../context/AuthContext'
 import * as documentsClient from '../api/documentsClient'
+import * as graphClient from '../api/graphClient'
 
 vi.mock('../context/AuthContext', () => ({ useAuth: vi.fn() }))
 
@@ -29,12 +30,19 @@ function ChatProbe() {
   return <div>Chat probe: {location.state?.presetDocumentId}</div>
 }
 
+// Same idea as ChatProbe, for the "View in graph" CTA's own preset.
+function GraphProbe() {
+  const location = useLocation()
+  return <div>Graph probe: {location.state?.presetDocumentId}</div>
+}
+
 function renderWatcher() {
   return render(
     <MemoryRouter initialEntries={['/documents']}>
       <Routes>
         <Route path="/documents" element={<DocumentReadyToasts />} />
         <Route path="/chat" element={<ChatProbe />} />
+        <Route path="/graph" element={<GraphProbe />} />
       </Routes>
     </MemoryRouter>,
   )
@@ -78,6 +86,55 @@ describe('DocumentReadyToasts', () => {
     // `findBy*`'s internal polling relies on real timers and would just
     // time out.
     expect(screen.getByText('Chat probe: doc-pdf')).toBeInTheDocument()
+  })
+
+  it('shows how many entities the graph found for that document, and its "View in graph" CTA jumps to Graph with that document preset', async () => {
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    vi.spyOn(documentsClient, 'listDocuments')
+      .mockResolvedValueOnce([{ ...PDF_DOC, status: 'Uploaded' }])
+      .mockResolvedValue([{ ...PDF_DOC, status: 'Ready' }])
+    const getGraphSpy = vi.spyOn(graphClient, 'getGraph').mockResolvedValue({
+      nodes: [{}, {}, {}],
+      edges: [],
+      total_node_count: 3,
+    })
+
+    vi.useFakeTimers()
+    renderWatcher()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000)
+    })
+
+    expect(getGraphSpy).toHaveBeenCalledWith(expect.anything(), ['doc-pdf'])
+    expect(screen.getByText('3 entities found in the graph')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'View in graph' }))
+
+    expect(screen.getByText('Graph probe: doc-pdf')).toBeInTheDocument()
+  })
+
+  it('still shows the toast, without an entity count, when the graph count fetch fails', async () => {
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    vi.spyOn(documentsClient, 'listDocuments')
+      .mockResolvedValueOnce([{ ...PDF_DOC, status: 'Uploaded' }])
+      .mockResolvedValue([{ ...PDF_DOC, status: 'Ready' }])
+    vi.spyOn(graphClient, 'getGraph').mockRejectedValue(new Error('boom'))
+
+    vi.useFakeTimers()
+    renderWatcher()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000)
+    })
+
+    expect(screen.getByText('beta-report.pdf is ready')).toBeInTheDocument()
+    expect(screen.queryByText(/entities found in the graph/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'View in graph' })).toBeInTheDocument()
   })
 
   it('shows no toast for a document that was already Ready on the very first check (e.g. right after login)', async () => {

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../../context/AuthContext'
 import { deleteAccount } from '../../api/settingsClient'
+import SettingsSectionCard from './SettingsSectionCard'
 
 // Story 5.3: wires up Story 5.1's danger-zone shell with the real cascade
 // delete. Mirrors DocumentCard.jsx's confirm state machine exactly --
@@ -94,12 +95,20 @@ export default function DeleteAccountCard() {
   }
 
   return (
-    <div className="rounded-lg border border-danger/30 bg-danger/5 p-[22px]">
-      <h2 className="text-base font-bold text-text">{t('settings.deleteAccount.title')}</h2>
-      <p className="mt-2 text-sm text-text">
-        {t('settings.deleteAccount.description')}
-      </p>
-
+    <SettingsSectionCard
+      title={t('settings.deleteAccount.title')}
+      description={t('settings.deleteAccount.description')}
+      danger
+      className="sm:col-span-2"
+      icon={
+        <>
+          <path d="M4 7h16" />
+          <path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" />
+          <path d="M6.5 7l1 12.5a2 2 0 0 0 2 1.8h5a2 2 0 0 0 2-1.8L17.5 7" />
+          <path d="M10 11v6M14 11v6" />
+        </>
+      }
+    >
       {/* Stays mounted whether resting or confirming -- like
           DocumentCard.jsx's trash button -- so `deleteButtonRef` is never
           null when `collapseConfirm` refocuses it. `hidden` (not removal
@@ -109,7 +118,7 @@ export default function DeleteAccountCard() {
         type="button"
         aria-expanded={isConfirming}
         onClick={openConfirm}
-        className={`mt-4 self-start rounded-md border border-border bg-card-bg px-3 py-1.5 text-sm text-danger ${isConfirming ? 'hidden' : ''}`}
+        className={`self-start rounded-full border border-danger/40 bg-card-bg px-4 py-2 text-sm font-semibold text-danger hover:bg-danger/10 ${isConfirming ? 'hidden' : ''}`}
       >
         {t('settings.deleteAccount.button')}
       </button>
@@ -120,24 +129,24 @@ export default function DeleteAccountCard() {
         <div
           role="alert"
           onKeyDown={handleConfirmBoxKeyDown}
-          className="mt-4 flex flex-col gap-2 rounded-md border border-danger/30 bg-card-bg p-2.5"
+          className="flex flex-col gap-3 rounded-xl border border-danger/30 bg-card-bg p-4"
         >
-          <p id={boundaryTextId} className="text-xs text-text">
+          <p id={boundaryTextId} className="text-sm text-text2">
             {t('settings.deleteAccount.boundaryText')}
           </p>
           {error && (
-            <p role="alert" className="text-xs text-danger">
+            <p role="alert" className="text-sm text-danger">
               {error}
             </p>
           )}
-          <div className="flex justify-end gap-2">
+          <div className="flex justify-end gap-2.5">
             <button
               ref={cancelButtonRef}
               type="button"
               aria-describedby={boundaryTextId}
               onClick={handleCancel}
               disabled={isDeleting}
-              className="rounded-md border border-border bg-card-bg px-2.5 py-1 text-xs font-semibold text-primary"
+              className="rounded-full border border-border bg-card-bg px-4 py-2 text-sm font-semibold text-text disabled:opacity-60"
             >
               {t('settings.deleteAccount.cancel')}
             </button>
@@ -146,13 +155,13 @@ export default function DeleteAccountCard() {
               aria-describedby={boundaryTextId}
               aria-disabled={isDeleting}
               onClick={handleConfirmDelete}
-              className="rounded-md border border-border bg-card-bg px-2.5 py-1 text-xs font-semibold text-danger"
+              className="rounded-full bg-danger px-4 py-2 text-sm font-semibold text-white hover:brightness-105"
             >
               {isDeleting ? t('settings.deleteAccount.deleting') : t('settings.deleteAccount.confirm')}
             </button>
           </div>
         </div>
       )}
-    </div>
+    </SettingsSectionCard>
   )
 }

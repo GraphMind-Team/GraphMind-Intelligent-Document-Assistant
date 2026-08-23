@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../../context/AuthContext'
 import { changePassword } from '../../api/settingsClient'
+import SettingsSectionCard from './SettingsSectionCard'
 
 // Story 5.1. Independent of ProfileCard -- its own current/new password
 // fields, its own saving/error state, its own request. Clears its own
@@ -48,22 +49,34 @@ export default function ChangePasswordCard() {
   }
 
   return (
-    <div className="rounded-lg border border-border bg-card-bg p-[22px]">
-      <h2 className="text-base font-bold text-text">{t('settings.changePassword.title')}</h2>
-      <form className="mt-4 flex flex-col gap-3" onSubmit={handleSubmit}>
-        <label className="flex flex-col gap-1 text-sm text-text">
-          {t('settings.changePassword.currentPassword')}
+    <SettingsSectionCard
+      title={t('settings.changePassword.title')}
+      description={t('settings.changePassword.description')}
+      icon={
+        <>
+          <rect x="5" y="10.5" width="14" height="9" rx="2.2" />
+          <path d="M8 10.5V7.8a4 4 0 0 1 8 0v2.7" />
+        </>
+      }
+    >
+      <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-semibold text-text2">
+            {t('settings.changePassword.currentPassword')}
+          </span>
           <input
             type="password"
             value={currentPassword}
             onChange={(event) => setCurrentPassword(event.target.value)}
             disabled={saving}
             autoComplete="current-password"
-            className="rounded-md border border-border bg-transparent px-3 py-2 text-sm text-text"
+            className="w-full rounded-xl border border-border bg-input-bg px-4 py-2.5 text-sm text-text disabled:opacity-60"
           />
         </label>
-        <label className="flex flex-col gap-1 text-sm text-text">
-          {t('settings.changePassword.newPassword')}
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-semibold text-text2">
+            {t('settings.changePassword.newPassword')}
+          </span>
           <input
             type="password"
             value={newPassword}
@@ -71,13 +84,13 @@ export default function ChangePasswordCard() {
             disabled={saving}
             autoComplete="new-password"
             minLength={8}
-            className="rounded-md border border-border bg-transparent px-3 py-2 text-sm text-text"
+            className="w-full rounded-xl border border-border bg-input-bg px-4 py-2.5 text-sm text-text disabled:opacity-60"
           />
         </label>
         <button
           type="submit"
           disabled={saving || !canSubmit}
-          className="self-start rounded-md border border-border px-3 py-1.5 text-sm text-text transition-colors hover:border-primary hover:bg-primary/10 hover:text-primary disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-transparent disabled:hover:text-text"
+          className="btn-brand self-start rounded-full px-5 py-2.5 text-sm font-semibold disabled:opacity-60"
         >
           {saving ? t('settings.changePassword.saving') : t('settings.changePassword.submit')}
         </button>
@@ -86,13 +99,13 @@ export default function ChangePasswordCard() {
         {status === 'saving' ? t('settings.changePassword.savingStatus') : status === 'saved' ? t('settings.changePassword.savedStatus') : ''}
       </p>
       {status === 'saved' && (
-        <p className="mt-3 text-sm text-success">{t('settings.changePassword.saved')}</p>
+        <p className="mt-3 text-sm font-medium text-success">{t('settings.changePassword.saved')}</p>
       )}
       {error && (
         <p role="alert" className="mt-3 text-sm text-danger">
           {error}
         </p>
       )}
-    </div>
+    </SettingsSectionCard>
   )
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../../context/AuthContext'
 import { updateProfile } from '../../api/settingsClient'
+import SettingsSectionCard from './SettingsSectionCard'
 
 // Story 5.1. Saves independently of the other cards (Change Password,
 // Appearance, Delete Account) -- its own local state, its own request.
@@ -84,21 +85,29 @@ export default function ProfileCard() {
   }
 
   return (
-    <div className="rounded-lg border border-border bg-card-bg p-[22px]">
-      <h2 className="text-base font-bold text-text">{t('settings.profile.title')}</h2>
-      <form className="mt-4 flex flex-col gap-3" onSubmit={handleSubmit}>
-        <label className="flex flex-col gap-1 text-sm text-text">
-          {t('settings.profile.fullName')}
+    <SettingsSectionCard
+      title={t('settings.profile.title')}
+      description={t('settings.profile.description')}
+      icon={
+        <>
+          <circle cx="12" cy="8" r="3.4" />
+          <path d="M5 20c.7-3.8 3.7-6 7-6s6.3 2.2 7 6" />
+        </>
+      }
+    >
+      <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-semibold text-text2">{t('settings.profile.fullName')}</span>
           <input
             type="text"
             value={fullName}
             onChange={(event) => setFullName(event.target.value)}
             disabled={loading || saving}
-            className="rounded-md border border-border bg-transparent px-3 py-2 text-sm text-text"
+            className="w-full rounded-xl border border-border bg-input-bg px-4 py-2.5 text-sm text-text disabled:opacity-60"
           />
         </label>
-        <label className="flex flex-col gap-1 text-sm text-text">
-          {t('settings.profile.email')}
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-semibold text-text2">{t('settings.profile.email')}</span>
           {/* Read-only per the resolved email-editability question -- only
               full_name is editable in this story. */}
           <input
@@ -106,13 +115,13 @@ export default function ProfileCard() {
             value={email}
             disabled
             readOnly
-            className="rounded-md border border-border bg-transparent px-3 py-2 text-sm text-text opacity-60"
+            className="w-full rounded-xl border border-border bg-input-bg px-4 py-2.5 text-sm text-text opacity-60"
           />
         </label>
         <button
           type="submit"
           disabled={loading || saving || fullName.trim() === ''}
-          className="self-start rounded-md border border-border px-3 py-1.5 text-sm text-text transition-colors hover:border-primary hover:bg-primary/10 hover:text-primary disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-transparent disabled:hover:text-text"
+          className="btn-brand self-start rounded-full px-5 py-2.5 text-sm font-semibold disabled:opacity-60"
         >
           {saving ? t('settings.profile.saving') : t('settings.profile.save')}
         </button>
@@ -121,13 +130,13 @@ export default function ProfileCard() {
         {status === 'saving' ? t('settings.profile.savingStatus') : status === 'saved' ? t('settings.profile.savedStatus') : ''}
       </p>
       {status === 'saved' && (
-        <p className="mt-3 text-sm text-success">{t('settings.profile.saved')}</p>
+        <p className="mt-3 text-sm font-medium text-success">{t('settings.profile.saved')}</p>
       )}
       {error && (
         <p role="alert" className="mt-3 text-sm text-danger">
           {error}
         </p>
       )}
-    </div>
+    </SettingsSectionCard>
   )
 }
