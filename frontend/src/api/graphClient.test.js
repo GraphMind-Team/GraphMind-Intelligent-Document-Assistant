@@ -38,4 +38,31 @@ describe('getGraph', () => {
 
     await expect(getGraph(authFetch)).rejects.toThrow('Failed to load graph (500)')
   })
+
+  it('sends no query string when documentIds is omitted or empty', async () => {
+    const body = { nodes: [], edges: [], total_node_count: 0 }
+    // A fresh Response per call -- its body stream can only be read once,
+    // so reusing one mocked instance across two `getGraph` calls would
+    // make the second call's own `.json()` fail.
+    const authFetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(body), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(body), { status: 200 }))
+
+    await getGraph(authFetch)
+    expect(authFetch).toHaveBeenCalledWith('/kg/graph')
+
+    authFetch.mockClear()
+    await getGraph(authFetch, [])
+    expect(authFetch).toHaveBeenCalledWith('/kg/graph')
+  })
+
+  it('forwards documentIds as repeated document_ids query params', async () => {
+    const body = { nodes: [], edges: [], total_node_count: 0 }
+    const authFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status: 200 }))
+
+    await getGraph(authFetch, ['doc-1', 'doc-2'])
+
+    expect(authFetch).toHaveBeenCalledWith('/kg/graph?document_ids=doc-1&document_ids=doc-2')
+  })
 })

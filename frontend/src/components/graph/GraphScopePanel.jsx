@@ -64,6 +64,8 @@ export default function GraphScopePanel({ authFetch, selectedDocumentIds, onTogg
   }, [documents, folders, t])
 
   const allDocumentIds = useMemo(() => documents.map((doc) => doc.id), [documents])
+  const isAllSelected =
+    allDocumentIds.length > 0 && allDocumentIds.every((id) => selectedDocumentIds.includes(id))
 
   return (
     <aside className="w-full shrink-0 self-start rounded-2xl border border-border bg-card-bg p-5 shadow-card min-[901px]:w-[280px]">
@@ -86,12 +88,17 @@ export default function GraphScopePanel({ authFetch, selectedDocumentIds, onTogg
               : t('graph.scopePanel.selected', { selected: selectedDocumentIds.length, total: documents.length })}
           </p>
 
+          {/* A toggle, not a one-way action -- once everything is selected,
+              this is also the natural way back to the unfiltered default
+              (empty selection), mirroring the per-folder select/clear
+              toggle below rather than leaving the global control as a
+              dead end once every document is already checked. */}
           <button
             type="button"
-            onClick={() => onSelectAll(allDocumentIds)}
+            onClick={() => onSelectAll(isAllSelected ? [] : allDocumentIds)}
             className="mb-3 text-[13.5px] font-semibold text-accent"
           >
-            {t('graph.scopePanel.selectAll')}
+            {isAllSelected ? t('graph.scopePanel.clearAll') : t('graph.scopePanel.selectAll')}
           </button>
 
           <div className="space-y-2">

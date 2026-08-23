@@ -302,6 +302,7 @@
       "showingAll_other": "Графът показва всичките {{count}} документа.",
       "selected": "{{selected}} от {{total}} избрани.",
       "selectAll": "Избери всички",
+      "clearAll": "Изчисти всички",
       "selectFolder": "Избери папка",
       "clearFolder": "Изчисти папка",
       "ungrouped": "Без папка"

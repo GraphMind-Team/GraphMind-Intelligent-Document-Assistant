@@ -708,11 +708,13 @@ def test_get_graph_for_user_entities_query_scopes_the_degree_relationship_too(mo
 
     entities_query, _ = fake_tx.calls[1]
     assert "OPTIONAL MATCH (e)-[r]-(:Entity {user_id: $user_id})" in entities_query
-    # The `r`-scope check is ORed with `r IS NULL` -- a genuinely isolated
-    # entity (no relationship at all) must not be excluded by this WHERE,
-    # only an out-of-scope relationship should be nulled out of the count.
-    assert "WHERE r IS NULL OR" in entities_query
-    assert "any(id IN coalesce(r.source_document_ids, []) WHERE id IN $document_ids)" in entities_query
+    # No `r IS NULL OR` guard needed: `OPTIONAL MATCH ... WHERE` behaves
+    # like a LEFT JOIN's `ON` clause -- when every candidate `r` for a
+    # given `e` fails the predicate, Neo4j substitutes a single null `r`
+    # for that `e` rather than dropping the row, so a genuinely isolated
+    # entity survives regardless of how this `WHERE` reads. See
+    # `_get_entities_tx`'s own docstring for the full reasoning.
+    assert "WHERE (size($document_ids) = 0 OR any(id IN coalesce(r.source_document_ids" in entities_query
 
 
 def test_get_graph_for_user_relationships_query_requires_the_relationships_own_scope(monkeypatch):
@@ -756,6 +758,224 @@ def test_get_graph_for_user_returns_an_isolated_entity_under_a_filter(monkeypatc
     assert entities == [{"name": "Solo Corp", "type": "Organization", "degree": 0}]
     assert relationships == []
     assert total == 1
+
+
+class _ScopedGraphReadFakeTx:
+    """Unlike `_FakeReadTx` above (which only scripts fixed responses and
+    proves query *shape*), this interprets the three read-path Cypher
+    shapes `get_graph_for_user` issues against real in-memory graph state
+    -- the same way `_GraphFakeTx` below interprets the write-path shapes
+    for `prune_document_from_graph`'s reference-counting tests, rather
+    than just asserting on query text.
+
+    This lets the tests below prove *behavior*: given entities and
+    relationships with real `source_document_ids`, does a filtered
+    `get_graph_for_user` call actually hide a relationship asserted only
+    by an excluded document, actually exclude a legacy entity with no
+    `source_document_ids`, and actually let scoped degree decide which
+    entity survives the node cap? The query-shape tests above already
+    prove the right Cypher text is sent; this proves that if a real Neo4j
+    executes `OPTIONAL MATCH ... WHERE` with the LEFT-JOIN-style
+    null-substitution semantics Neo4j documents (see `_get_entities_tx`'s
+    own docstring), the results this module claims actually follow from
+    that text -- as close to an integration test as this suite can get
+    without a live database (there is none in CI; see this file's own
+    header for that accepted gap).
+
+    `entities`: dict[(name, type)] -> {"source_document_ids": [...] |
+    None}. `relationships`: list of dicts with `source`/`target` as
+    `(name, type)` tuples, `type`, and `source_document_ids`.
+    """
+
+    def __init__(self, entities, relationships):
+        self.entities = entities
+        self.relationships = relationships
+
+    def run(self, query, **params):
+        if "RETURN count(e) AS total" in query:
+            document_ids = params["document_ids"]
+            total = sum(
+                1 for e in self.entities.values() if self._matches_scope(e["source_document_ids"], document_ids)
+            )
+            return _FakeReadResult([{"total": total}])
+
+        if "RETURN e.name AS name, e.type AS type, degree" in query:
+            document_ids = params["document_ids"]
+            rows = [
+                {"name": name, "type": type_, "degree": self._degree(name, type_, document_ids)}
+                for (name, type_), e in self.entities.items()
+                if self._matches_scope(e["source_document_ids"], document_ids)
+            ]
+            rows.sort(key=lambda r: (-r["degree"], r["name"]))
+            return _FakeReadResult(rows[: params["limit"]])
+
+        if "RETURN a.name AS source_name" in query:
+            keep_ids = params["keep_ids"]
+            document_ids = params["document_ids"]
+            rows = []
+            for rel in self.relationships:
+                source_id = f"{rel['source'][1]}:{rel['source'][0]}"
+                target_id = f"{rel['target'][1]}:{rel['target'][0]}"
+                if source_id not in keep_ids or target_id not in keep_ids:
+                    continue
+                if not self._matches_scope(rel["source_document_ids"], document_ids):
+                    continue
+                rows.append(
+                    {
+                        "source_name": rel["source"][0],
+                        "source_type": rel["source"][1],
+                        "target_name": rel["target"][0],
+                        "target_type": rel["target"][1],
+                        "relationship_type": rel["type"],
+                    }
+                )
+            rows.sort(key=lambda r: (r["source_name"], r["target_name"], r["relationship_type"]))
+            return _FakeReadResult(rows[: params["edge_limit"]])
+
+        raise AssertionError(f"Unrecognized query shape in test fake: {query}")
+
+    @staticmethod
+    def _matches_scope(source_document_ids, document_ids):
+        if not document_ids:
+            return True
+        return any(doc_id in document_ids for doc_id in (source_document_ids or []))
+
+    def _degree(self, name, type_, document_ids):
+        count = 0
+        for rel in self.relationships:
+            touches = rel["source"] == (name, type_) or rel["target"] == (name, type_)
+            if touches and self._matches_scope(rel["source_document_ids"], document_ids):
+                count += 1
+        return count
+
+
+def test_get_graph_for_user_hides_a_relationship_asserted_only_by_an_excluded_document(monkeypatch):
+    """The core "no invented connections" guarantee, proven behaviorally:
+    both endpoints of a relationship can independently be in scope for the
+    selected document without the relationship itself having been
+    asserted by that document -- it must not render."""
+    entities = {
+        ("A", "Person"): {"source_document_ids": ["doc-1"]},
+        ("B", "Organization"): {"source_document_ids": ["doc-1", "doc-2"]},
+    }
+    relationships = [
+        {
+            "source": ("A", "Person"),
+            "target": ("B", "Organization"),
+            "type": "WORKS_AT",
+            # Asserted only by doc-2 -- excluded from this selection, even
+            # though both A and B are themselves in scope for doc-1.
+            "source_document_ids": ["doc-2"],
+        }
+    ]
+    fake_tx = _ScopedGraphReadFakeTx(entities, relationships)
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: _FakeReadDriver(fake_tx))
+
+    entity_rows, relationship_rows, total = get_graph_for_user("user-1", document_ids=["doc-1"])
+
+    assert {(row["name"], row["type"]) for row in entity_rows} == {("A", "Person"), ("B", "Organization")}
+    assert total == 2
+    assert relationship_rows == []
+
+
+def test_get_graph_for_user_includes_the_relationship_when_the_selected_document_asserted_it(monkeypatch):
+    """Sanity counterpart to the test above -- the same shape, but with the
+    relationship attributed to the selected document, must render it."""
+    entities = {
+        ("A", "Person"): {"source_document_ids": ["doc-1"]},
+        ("B", "Organization"): {"source_document_ids": ["doc-1"]},
+    }
+    relationships = [
+        {
+            "source": ("A", "Person"),
+            "target": ("B", "Organization"),
+            "type": "WORKS_AT",
+            "source_document_ids": ["doc-1"],
+        }
+    ]
+    fake_tx = _ScopedGraphReadFakeTx(entities, relationships)
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: _FakeReadDriver(fake_tx))
+
+    _, relationship_rows, _ = get_graph_for_user("user-1", document_ids=["doc-1"])
+
+    assert relationship_rows == [
+        {
+            "source_name": "A",
+            "source_type": "Person",
+            "target_name": "B",
+            "target_type": "Organization",
+            "relationship_type": "WORKS_AT",
+        }
+    ]
+
+
+def test_get_graph_for_user_excludes_a_legacy_entity_with_no_source_document_ids_under_a_filter(monkeypatch):
+    """An entity written before `source_document_ids` existed (`None`, not
+    `[]`) can't be attributed to any document, so it must drop out of any
+    non-empty selection -- but still appear in the unfiltered default."""
+    entities = {
+        ("Legacy Corp", "Organization"): {"source_document_ids": None},
+        ("Modern Corp", "Organization"): {"source_document_ids": ["doc-1"]},
+    }
+    fake_tx = _ScopedGraphReadFakeTx(entities, [])
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: _FakeReadDriver(fake_tx))
+
+    filtered_entities, _, filtered_total = get_graph_for_user("user-1", document_ids=["doc-1"])
+    assert {(row["name"]) for row in filtered_entities} == {"Modern Corp"}
+    assert filtered_total == 1
+
+    fake_tx_unfiltered = _ScopedGraphReadFakeTx(entities, [])
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: _FakeReadDriver(fake_tx_unfiltered))
+    unfiltered_entities, _, unfiltered_total = get_graph_for_user("user-1")
+    assert {row["name"] for row in unfiltered_entities} == {"Legacy Corp", "Modern Corp"}
+    assert unfiltered_total == 2
+
+
+def test_get_graph_for_user_scoped_degree_decides_which_entity_survives_the_cap(monkeypatch):
+    """`Hub` has far more relationships in total than `Frequent`, but all
+    of Hub's extra relationships were asserted only by an excluded
+    document -- under a filter and a cap of 1, `Frequent` (the true
+    in-scope hub) must survive, not `Hub` (whose apparent size is an
+    artifact of documents outside the current selection)."""
+    entities = {
+        ("Hub", "Organization"): {"source_document_ids": ["doc-1"]},
+        ("Frequent", "Organization"): {"source_document_ids": ["doc-1"]},
+        ("X", "Person"): {"source_document_ids": ["doc-1"]},
+        ("Y", "Person"): {"source_document_ids": ["doc-1"]},
+        ("Z", "Person"): {"source_document_ids": ["doc-1"]},
+    }
+    relationships = [
+        # Hub: 1 in-scope relationship (doc-1), 5 out-of-scope (doc-2).
+        {"source": ("Hub", "Organization"), "target": ("X", "Person"), "type": "WORKS_AT", "source_document_ids": ["doc-1"]},
+        *[
+            {
+                "source": ("Hub", "Organization"),
+                "target": (f"Ghost{i}", "Person"),
+                "type": "WORKS_AT",
+                "source_document_ids": ["doc-2"],
+            }
+            for i in range(5)
+        ],
+        # Frequent: 2 in-scope relationships (doc-1), none out-of-scope.
+        {"source": ("Frequent", "Organization"), "target": ("Y", "Person"), "type": "WORKS_AT", "source_document_ids": ["doc-1"]},
+        {"source": ("Frequent", "Organization"), "target": ("Z", "Person"), "type": "WORKS_AT", "source_document_ids": ["doc-1"]},
+    ]
+    fake_tx = _ScopedGraphReadFakeTx(entities, relationships)
+    monkeypatch.setattr(neo4j_client_module, "get_neo4j_driver", lambda: _FakeReadDriver(fake_tx))
+
+    entity_rows, _, _ = get_graph_for_user(
+        "user-1", document_ids=["doc-1"], limit=2
+    )
+
+    names = {row["name"] for row in entity_rows}
+    # `Frequent` (scoped degree 2) must outrank `Hub` (scoped degree 1,
+    # not the unscoped 6) -- if degree scoping were broken, Hub would
+    # appear here instead of one of the true in-scope entities.
+    assert "Frequent" in names
+    degree_by_name = {row["name"]: row["degree"] for row in entity_rows}
+    assert degree_by_name["Frequent"] == 2
+    if "Hub" in degree_by_name:
+        assert degree_by_name["Hub"] == 1
 
 
 def test_get_graph_for_user_total_node_count_comes_from_the_scoped_count_query(monkeypatch):

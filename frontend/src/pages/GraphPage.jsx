@@ -119,6 +119,12 @@ export default function GraphPage() {
     })
   }, [])
 
+  // Only the very first fetch (no graph on screen yet) gets the skeleton
+  // treatment -- a scope-triggered refetch dims the graph already on
+  // screen instead of swapping it out for a pulse block, so toggling a
+  // checkbox doesn't make the canvas flicker away and back on every click.
+  const isInitialLoad = isLoading && !graph
+  const isRefetching = isLoading && Boolean(graph)
   const hasEntities = Boolean(graph && graph.nodes.length > 0)
   // Story 4.1's node cap (`GRAPH_NODE_LIMIT` in neo4j_client.py): the
   // backend can return fewer entities than the account actually has.
@@ -176,12 +182,14 @@ export default function GraphPage() {
             </div>
           )}
 
-          {!error && isLoading && (
+          {!error && isInitialLoad && (
             // Skeleton rather than a bare "Loading graph..." line: the
             // canvas is a 520px block, and collapsing the page to one
             // sentence and back is a bigger visual jolt than holding its
             // shape. The text stays in the DOM for assistive tech (and for
             // the page's tests), it just sits inside the placeholder now.
+            // Only for the true first load -- a scope-triggered refetch
+            // dims the existing content below instead (see `isRefetching`).
             <div
               className="animate-pulse rounded-2xl"
               style={{
@@ -204,10 +212,13 @@ export default function GraphPage() {
               copy instead -- "no entities in the selected documents yet"
               reads very differently from "you have no documents at all,"
               and the account-wide copy would misreport the second as the
-              first. */}
-          {!error && !isLoading && graph && !hasEntities && (
+              first. Not gated on `!isLoading` -- a refetch dims this
+              instead of replacing it with the skeleton (see
+              `isRefetching`), so a checkbox toggle doesn't flicker the
+              canvas away and back. */}
+          {!error && graph && !hasEntities && (
             <div
-              className="rounded-2xl px-6 py-12 text-center"
+              className={['rounded-2xl px-6 py-12 text-center transition-opacity', isRefetching ? 'opacity-50' : ''].join(' ')}
               style={{ backgroundColor: 'var(--graph-card-bg)', border: '1px solid var(--graph-card-border)' }}
             >
               {/* Three unconnected dots -- the graph's own shape, before
@@ -230,8 +241,8 @@ export default function GraphPage() {
             </div>
           )}
 
-          {!error && !isLoading && graph && hasEntities && (
-            <>
+          {!error && graph && hasEntities && (
+            <div className={['transition-opacity', isRefetching ? 'opacity-50' : ''].join(' ')}>
               <div className="mb-5 grid gap-4 sm:grid-cols-3">
                 <StatTile
                   label={t('graph.stats.entities')}
@@ -269,7 +280,7 @@ export default function GraphPage() {
               >
                 <GraphCanvas graph={graph} />
               </div>
-            </>
+            </div>
           )}
         </div>
 

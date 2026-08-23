@@ -302,6 +302,7 @@
       "showingAll_other": "Der Graph zeigt alle {{count}} Dokumente.",
       "selected": "{{selected}} von {{total}} ausgewählt.",
       "selectAll": "Alle auswählen",
+      "clearAll": "Alle abwählen",
       "selectFolder": "Ordner auswählen",
       "clearFolder": "Ordner abwählen",
       "ungrouped": "Ohne Ordner"

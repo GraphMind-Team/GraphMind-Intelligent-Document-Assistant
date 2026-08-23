@@ -550,12 +550,23 @@ def _get_entities_tx(tx, user_id, document_ids: list[str], limit) -> list[dict]:
     this cap drops once a selection's matching entity count exceeds
     `limit`. That's consistent with ranking by degree at all -- isolated
     entities are simply the least "prominent" under this metric.
+
+    No `r IS NULL OR` guard needed on the `WHERE` below, even though it
+    might look like one should protect a genuinely isolated entity from
+    being filtered out: `OPTIONAL MATCH ... WHERE` behaves like a SQL LEFT
+    JOIN's `ON` clause, not a post-hoc row filter -- when every candidate
+    `r` for a given `e` fails the predicate (including the trivial case of
+    no candidates at all), Neo4j substitutes a single null `r` for that
+    `e` rather than dropping the row, so `e` always survives regardless of
+    how the `WHERE` reads. The predicate below only ever discards
+    individual out-of-scope `(e, r)` candidates; it can't discard `e`
+    itself.
     """
     result = tx.run(
         "MATCH (e:Entity {user_id: $user_id}) "
         f"WHERE {_MATCHES_DOCUMENT_SCOPE.format(var='e')} "
         "OPTIONAL MATCH (e)-[r]-(:Entity {user_id: $user_id}) "
-        f"WHERE r IS NULL OR {_MATCHES_DOCUMENT_SCOPE.format(var='r')} "
+        f"WHERE {_MATCHES_DOCUMENT_SCOPE.format(var='r')} "
         "WITH e, count(r) AS degree "
         "ORDER BY degree DESC, e.name ASC "
         "LIMIT $limit "
