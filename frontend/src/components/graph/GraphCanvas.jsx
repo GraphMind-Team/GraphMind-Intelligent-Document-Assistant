@@ -491,8 +491,33 @@ export default function GraphCanvas({ graph }) {
     fitToView()
   }, [fitToView, width, graphData])
 
+  // Bug workaround, not a design choice: on some real graphs the very
+  // first cooldown settles (fires `onEngineStop`) while the layout still
+  // reads visually cramped/overlapping -- reproducing reliably only on a
+  // real, focused browser tab, never in this repo's automated/headless one
+  // (`document.hidden` stays true there, which suppresses the
+  // `requestAnimationFrame` ticks force-graph's simulation runs on
+  // entirely, so it can't be watched or diagnosed from here). A window
+  // resize event was the one thing observed to fix it live -- it changes
+  // `width`, which re-runs the force-configuration effect above and calls
+  // `d3ReheatSimulation()`. This automates exactly that same recovery once,
+  // automatically, right after the first natural stop, so a viewer never
+  // has to trigger it by hand. Guarded to run once per graph (reset
+  // whenever `graphData` changes) so it can't loop forever chasing its own
+  // `onEngineStop` callback.
+  const hasAutoRecoveredRef = useRef(false)
+  useEffect(() => {
+    hasAutoRecoveredRef.current = false
+  }, [graphData])
+
   const handleEngineStop = useCallback(() => {
     if (userAdjustedZoomRef.current) return
+    const engine = graphRef.current
+    if (engine && !hasAutoRecoveredRef.current) {
+      hasAutoRecoveredRef.current = true
+      engine.d3ReheatSimulation()
+      return // let the reheated ticks run; onEngineStop fires again once they settle for real
+    }
     fitToView()
   }, [fitToView])
 

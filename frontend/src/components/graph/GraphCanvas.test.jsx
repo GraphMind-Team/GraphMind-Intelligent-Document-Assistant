@@ -208,8 +208,10 @@ describe('GraphCanvas', () => {
     // taking over the viewport.
     fireEvent.pointerMove(screen.getByRole('img'), { buttons: 0 })
 
+    const onEngineStop = MockForceGraph2D.mock.calls.at(-1)[0].onEngineStop
+    onEngineStop() // consumes the one-time auto-recovery reheat (see its own comment)
     mockEngine.zoomToFit.mockClear()
-    MockForceGraph2D.mock.calls.at(-1)[0].onEngineStop()
+    onEngineStop()
     expect(mockEngine.zoomToFit).toHaveBeenCalled()
   })
 
@@ -227,6 +229,54 @@ describe('GraphCanvas', () => {
 
     props.onEngineStop()
     expect(mockEngine.zoomToFit).toHaveBeenCalled()
+  })
+
+  describe('one-time auto-recovery reheat', () => {
+    it('reheats once on the first settle instead of fitting immediately, then fits on the next settle', async () => {
+      render(<GraphCanvas graph={GRAPH} />)
+      await screen.findByTestId('force-graph-stub')
+
+      const props = MockForceGraph2D.mock.calls.at(-1)[0]
+      mockEngine.zoomToFit.mockClear()
+      mockEngine.d3ReheatSimulation.mockClear()
+
+      props.onEngineStop()
+      expect(mockEngine.d3ReheatSimulation).toHaveBeenCalledTimes(1)
+      expect(mockEngine.zoomToFit).not.toHaveBeenCalled()
+
+      props.onEngineStop()
+      expect(mockEngine.zoomToFit).toHaveBeenCalled()
+      // Only the one bonus reheat per graph, not a loop chasing its own
+      // onEngineStop callback.
+      expect(mockEngine.d3ReheatSimulation).toHaveBeenCalledTimes(1)
+    })
+
+    it('skips the reheat entirely once the user has already taken over the view', async () => {
+      const user = userEvent.setup()
+      render(<GraphCanvas graph={GRAPH} />)
+      await screen.findByTestId('force-graph-stub')
+
+      await user.click(screen.getByRole('button', { name: /zoom in/i }))
+      mockEngine.d3ReheatSimulation.mockClear()
+
+      MockForceGraph2D.mock.calls.at(-1)[0].onEngineStop()
+      expect(mockEngine.d3ReheatSimulation).not.toHaveBeenCalled()
+    })
+
+    it('gets a fresh reheat allowance for a newly loaded graph', async () => {
+      const { rerender } = render(<GraphCanvas graph={GRAPH} />)
+      await screen.findByTestId('force-graph-stub')
+
+      const firstProps = MockForceGraph2D.mock.calls.at(-1)[0]
+      firstProps.onEngineStop() // consumes GRAPH's own allowance
+
+      rerender(<GraphCanvas graph={PARALLEL_EDGES_GRAPH} />)
+      mockEngine.d3ReheatSimulation.mockClear()
+
+      const secondProps = MockForceGraph2D.mock.calls.at(-1)[0]
+      secondProps.onEngineStop()
+      expect(mockEngine.d3ReheatSimulation).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('outlines every node so a pale fill is still a distinguishable shape (WCAG 1.4.11)', async () => {
@@ -403,6 +453,7 @@ describe('GraphCanvas', () => {
     await screen.findByTestId('force-graph-stub')
 
     const props = MockForceGraph2D.mock.calls.at(-1)[0]
+    props.onEngineStop() // consumes the one-time auto-recovery reheat (see its own comment)
     mockEngine.zoomToFit.mockClear()
     mockEngine.zoom.mockClear()
     // A graph small enough that fitting it would zoom *in*.
@@ -419,6 +470,7 @@ describe('GraphCanvas', () => {
     await screen.findByTestId('force-graph-stub')
 
     const props = MockForceGraph2D.mock.calls.at(-1)[0]
+    props.onEngineStop() // consumes the one-time auto-recovery reheat (see its own comment)
     mockEngine.zoom.mockClear()
     mockEngine.zoom.mockImplementation(() => 0.31)
 
