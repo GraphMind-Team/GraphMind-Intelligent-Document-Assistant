@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import DocumentsPage from './DocumentsPage'
 import { useAuth } from '../context/AuthContext'
@@ -40,12 +40,21 @@ function DetailProbe() {
   return <div>Detail probe for {documentId}</div>
 }
 
+// Stands in for ChatPage so the ready-toast's "Ask about it" CTA is
+// observable (which document it preset) without pulling ChatPage's own
+// auth/history-fetch mocking into these tests.
+function ChatProbe() {
+  const location = useLocation()
+  return <div>Chat probe: {location.state?.presetDocumentId}</div>
+}
+
 function renderPage() {
   return render(
     <MemoryRouter initialEntries={['/documents']}>
       <Routes>
         <Route path="/documents" element={<DocumentsPage />} />
         <Route path="/documents/:documentId" element={<DetailProbe />} />
+        <Route path="/chat" element={<ChatProbe />} />
       </Routes>
     </MemoryRouter>,
   )
@@ -334,6 +343,48 @@ describe('DocumentsPage', () => {
         await vi.advanceTimersByTimeAsync(4000 * 3)
       })
       expect(listSpy).toHaveBeenCalledTimes(4)
+    })
+
+    it('toasts when a document turns Ready mid-poll, and its CTA jumps to chat with that document preset', async () => {
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      vi.spyOn(documentsClient, 'listDocuments')
+        .mockResolvedValueOnce([{ ...PDF_DOC, status: 'Uploaded' }])
+        .mockResolvedValue([{ ...PDF_DOC, status: 'Ready' }])
+
+      vi.useFakeTimers()
+      renderPage()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      // Not yet Ready on the very first load -- no toast to show.
+      expect(screen.queryByText('beta-report.pdf is ready')).not.toBeInTheDocument()
+
+      // This poll's response is the Uploaded -> Ready transition.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4000)
+      })
+
+      expect(screen.getByText('beta-report.pdf is ready')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Ask about it' }))
+
+      // Sync, not `findByText`: fake timers are still active here (see
+      // this describe block's own note above) -- `findBy*`'s internal
+      // polling relies on real timers and would just time out.
+      expect(screen.getByText('Chat probe: doc-pdf')).toBeInTheDocument()
+    })
+
+    it('shows no toast for a document that was already Ready on the very first load', async () => {
+      // A toast is for a transition this page actually watched happen --
+      // an account whose document was Ready before this page ever loaded
+      // (a fresh login, a page refresh) must not get a toast for it.
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      vi.spyOn(documentsClient, 'listDocuments').mockResolvedValue([{ ...PDF_DOC, status: 'Ready' }])
+
+      renderPage()
+
+      await screen.findByText('Ready')
+      expect(screen.queryByText(/is ready/i)).not.toBeInTheDocument()
     })
 
     it('stops polling once a document reaches the terminal Failed status', async () => {

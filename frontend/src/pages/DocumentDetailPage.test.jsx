@@ -1,10 +1,19 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import DocumentDetailPage from './DocumentDetailPage'
 import { useAuth } from '../context/AuthContext'
 import * as documentsClient from '../api/documentsClient'
+
+// Renders the incoming navigation `state` as plain text so the "Ask about
+// this document" tests below can assert on it without a real ChatPage
+// mount (which needs its own auth/history-fetch mocking, none of which is
+// this page's concern to set up).
+function ChatRouteStub() {
+  const location = useLocation()
+  return <div>Chat page: {JSON.stringify(location.state)}</div>
+}
 
 vi.mock('../context/AuthContext', () => ({ useAuth: vi.fn() }))
 
@@ -27,6 +36,7 @@ function renderDetail(documentId = 'doc-1') {
       <Routes>
         <Route path="/documents" element={<div>Documents library</div>} />
         <Route path="/documents/:documentId" element={<DocumentDetailPage />} />
+        <Route path="/chat" element={<ChatRouteStub />} />
       </Routes>
     </MemoryRouter>,
   )
@@ -407,6 +417,35 @@ describe('DocumentDetailPage', () => {
       // The modal restores this itself on unmount -- the page holds no ref
       // of its own for it.
       expect(screen.getByRole('button', { name: 'Preview' })).toHaveFocus()
+    })
+  })
+
+  describe('ask about this document', () => {
+    it('offers no entry point until the document is Ready', async () => {
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      vi.spyOn(documentsClient, 'getDocument').mockResolvedValue(UPLOADED_DOC)
+
+      renderDetail()
+
+      await screen.findByRole('heading', { name: 'vendor-agreement.pdf', level: 1 })
+      expect(screen.queryByRole('button', { name: 'Ask about this document' })).not.toBeInTheDocument()
+    })
+
+    it('navigates to /chat with this document preset as the scope once Ready', async () => {
+      useAuth.mockReturnValue({ authFetch: vi.fn() })
+      vi.spyOn(documentsClient, 'getDocument').mockResolvedValue({
+        ...UPLOADED_DOC,
+        status: 'Ready',
+        chapter_breakdown: { 'Chapter One': 5 },
+      })
+      const user = userEvent.setup()
+
+      renderDetail()
+      await screen.findByRole('heading', { name: 'vendor-agreement.pdf', level: 1 })
+
+      await user.click(screen.getByRole('button', { name: 'Ask about this document' }))
+
+      expect(await screen.findByText(/Chat page:/)).toHaveTextContent('"presetDocumentId":"doc-1"')
     })
   })
 })

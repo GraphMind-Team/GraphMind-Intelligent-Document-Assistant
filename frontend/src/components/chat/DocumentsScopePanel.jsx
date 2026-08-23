@@ -27,11 +27,12 @@ export default function DocumentsScopePanel({ authFetch, onDocumentsLoaded }) {
         // ChatScopeContext.jsx's retainOnly comment. A no-op on this
         // first load since the selection starts empty.
         retainOnly(data.filter((doc) => doc.status === 'Ready').map((doc) => doc.id))
-        // ChatPage's empty-thread welcome placeholder needs to know
-        // whether the account has any documents at all -- this panel
-        // already owns that fetch, so it just reports the count up rather
+        // ChatPage's empty-thread welcome placeholder (document count) and
+        // its preset-scope handoff from DocumentDetailPage (needs each
+        // document's own `status`) both read off this -- this panel
+        // already owns the fetch, so it reports the full list up rather
         // than ChatPage duplicating the request.
-        onDocumentsLoaded?.(data.length)
+        onDocumentsLoaded?.(data)
       })
       .catch((err) => {
         if (!cancelled) setError(err.message)

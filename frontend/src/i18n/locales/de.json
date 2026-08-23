@@ -13,8 +13,8 @@
   "nav": {
     "settings": "Benutzereinstellungen",
     "documents": "Dokumente",
-    "chat": "Chat",
-    "graph": "Graph-Vorschau",
+    "chat": "Fragen",
+    "graph": "Wissensgraph",
     "logout": "Abmelden"
   },
   "settings": {
@@ -153,6 +153,11 @@
       "cta": "Dokument hochladen"
     },
     "deleteAria": "{{filename}} löschen",
+    "readyToast": {
+      "title": "{{filename}} ist bereit",
+      "cta": "Frag dazu",
+      "dismissAria": "Schließen"
+    },
     "deleteConfirmPrefix": "{{filename}} löschen?",
     "deleteBoundaryText": "Entfernt die zugehörigen Textabschnitte sowie alle Entitäten und Beziehungen, die in keinem anderen Dokument vorkommen.",
     "deleting": "Wird gelöscht…",
@@ -218,6 +223,7 @@
     "backToDocuments": "Zurück zu den Dokumenten",
     "loading": "Dokument wird geladen...",
     "preview": "Vorschau",
+    "askAboutThis": "Frag zu diesem Dokument",
     "deleting": "Wird gelöscht…",
     "deleteConfirmPrefix": "{{filename}} löschen?",
     "uploadedLabel": "Hochgeladen",

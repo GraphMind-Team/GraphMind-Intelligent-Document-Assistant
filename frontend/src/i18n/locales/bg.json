@@ -13,8 +13,8 @@
   "nav": {
     "settings": "Настройки",
     "documents": "Документи",
-    "chat": "Чат",
-    "graph": "Преглед на графа",
+    "chat": "Питай",
+    "graph": "Граф на знанието",
     "logout": "Изход от профила"
   },
   "settings": {
@@ -153,6 +153,11 @@
       "cta": "Качи документ"
     },
     "deleteAria": "Изтрий {{filename}}",
+    "readyToast": {
+      "title": "{{filename}} е готов",
+      "cta": "Питай за него",
+      "dismissAria": "Затвори"
+    },
     "deleteConfirmPrefix": "Изтриване на {{filename}}?",
     "deleteBoundaryText": "Изтрива неговите откъси, както и обектите и връзките, които не присъстват в друг документ.",
     "deleting": "Изтриване…",
@@ -218,6 +223,7 @@
     "backToDocuments": "Обратно към документите",
     "loading": "Зареждане на документа...",
     "preview": "Преглед",
+    "askAboutThis": "Питай за този документ",
     "deleting": "Изтриване…",
     "deleteConfirmPrefix": "Изтриване на {{filename}}?",
     "uploadedLabel": "Качен",

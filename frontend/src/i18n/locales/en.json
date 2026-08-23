@@ -13,8 +13,8 @@
   "nav": {
     "settings": "User Settings",
     "documents": "Documents",
-    "chat": "Chat",
-    "graph": "Graph Preview",
+    "chat": "Ask",
+    "graph": "Knowledge Graph",
     "logout": "Log out"
   },
   "settings": {
@@ -153,6 +153,11 @@
       "cta": "Upload a document"
     },
     "deleteAria": "Delete {{filename}}",
+    "readyToast": {
+      "title": "{{filename}} is ready",
+      "cta": "Ask about it",
+      "dismissAria": "Dismiss"
+    },
     "deleteConfirmPrefix": "Delete {{filename}}?",
     "deleteBoundaryText": "Removes its passages, and any entities/relationships not shared with another document.",
     "deleting": "Deleting…",
@@ -218,6 +223,7 @@
     "backToDocuments": "Back to documents",
     "loading": "Loading document...",
     "preview": "Preview",
+    "askAboutThis": "Ask about this document",
     "deleting": "Deleting…",
     "deleteConfirmPrefix": "Delete {{filename}}?",
     "uploadedLabel": "Uploaded",

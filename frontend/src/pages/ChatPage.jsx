@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 import { ChatScopeProvider, useChatScope } from '../context/ChatScopeContext'
@@ -88,7 +88,15 @@ export default function ChatPage() {
 function ChatPageContent() {
   const { t } = useTranslation()
   const { authFetch } = useAuth()
-  const { selectedDocumentIds } = useChatScope()
+  const { selectedDocumentIds, selectAll } = useChatScope()
+  // DocumentDetailPage's "Ask about this document" link arrives here with
+  // `{ presetDocumentId }` in navigation state -- picked up once below,
+  // as soon as the scope panel's own document list confirms that id is
+  // actually Ready (a Pending/Failed one can't be selected, same as the
+  // scope panel's own checkboxes).
+  const location = useLocation()
+  const presetDocumentId = location.state?.presetDocumentId ?? null
+  const hasAppliedPresetRef = useRef(false)
   const [messages, setMessages] = useState([])
   const [question, setQuestion] = useState('')
   // Chat-history search (right column). Filters `messages` at render
@@ -98,12 +106,30 @@ function ChatPageContent() {
   const [chatSearch, setChatSearch] = useState('')
   const [isAsking, setIsAsking] = useState(false)
   // Reported up by DocumentsScopePanel once its own fetch resolves (it
-  // already owns the document list -- this just mirrors the count rather
-  // than duplicating the fetch). `null` means "not known yet", which the
-  // welcome placeholder below treats the same as "still loading": neither
-  // of its two variants (no documents / ready to ask) is correct to show
-  // before this settles.
-  const [documentCount, setDocumentCount] = useState(null)
+  // already owns the document list -- this mirrors it rather than
+  // duplicating the fetch). `null` means "not known yet", which the
+  // welcome placeholder below (and the preset-scope effect) treat the
+  // same as "still loading".
+  const [scopeDocuments, setScopeDocuments] = useState(null)
+  const documentCount = scopeDocuments ? scopeDocuments.length : null
+
+  // Applies the incoming preset once the scope panel's document list has
+  // loaded -- not on `presetDocumentId` alone, since that's known
+  // immediately but the id can't be validated (or selected -- `selectAll`
+  // just overwrites `selectedDocumentIds` outright) until the real list
+  // is in. `hasAppliedPresetRef` makes this a one-time thing per mount:
+  // without it, a later scope-panel refetch (there isn't one today, but
+  // nothing guarantees that stays true) would silently re-clobber
+  // whatever the user had since selected by hand back down to just the
+  // preset document.
+  useEffect(() => {
+    if (!presetDocumentId || hasAppliedPresetRef.current || !scopeDocuments) return
+    const target = scopeDocuments.find((doc) => doc.id === presetDocumentId)
+    if (target && target.status === 'Ready') {
+      selectAll([presetDocumentId])
+    }
+    hasAppliedPresetRef.current = true
+  }, [presetDocumentId, scopeDocuments, selectAll])
   // { kind: 'service' | 'other', message } -- a 503 (or client-side
   // timeout/abort) renders as a banner here, structurally separate from
   // `messages`, so it can never render as an answer or a refusal (AC12).
@@ -721,7 +747,7 @@ function ChatPageContent() {
             onPrevMatch={() => stepMatch(-1)}
             onNextMatch={() => stepMatch(1)}
           />
-          <DocumentsScopePanel authFetch={authFetch} onDocumentsLoaded={setDocumentCount} />
+          <DocumentsScopePanel authFetch={authFetch} onDocumentsLoaded={setScopeDocuments} />
         </div>
       </div>
     </>

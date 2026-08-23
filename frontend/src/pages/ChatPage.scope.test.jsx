@@ -1,5 +1,7 @@
+import { useEffect } from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import ChatPage from './ChatPage'
 import { useAuth } from '../context/AuthContext'
@@ -17,8 +19,18 @@ vi.mock('../components/chat/DocumentsScopePanel', () => ({ default: ScopePanelSt
 // safe to reference from the (also-hoisted) `vi.mock` factory above despite
 // appearing later in source order. Named + capitalized so lint's
 // rules-of-hooks recognizes it as a component allowed to call useChatScope.
-function ScopePanelStub() {
+//
+// Also reports a fixed one-document list up via `onDocumentsLoaded`,
+// mirroring the real DocumentsScopePanel's own contract -- this is what
+// lets the preset-scope tests below exercise ChatPage's handling of a
+// `presetDocumentId` without a real fetch. Harmless for the two
+// pre-existing tests in this file: they never set `presetDocumentId`, so
+// ChatPage's own preset effect is a no-op regardless of what this reports.
+function ScopePanelStub({ onDocumentsLoaded }) {
   const { toggleDocument } = useChatScope()
+  useEffect(() => {
+    onDocumentsLoaded?.([{ id: 'doc-9', filename: 'preset.pdf', status: 'Ready' }])
+  }, [onDocumentsLoaded])
   return <button onClick={() => toggleDocument('doc-1')}>toggle doc-1</button>
 }
 
@@ -47,7 +59,7 @@ describe('ChatPage document scope', () => {
     const authFetch = vi.fn().mockResolvedValue(jsonResponse({ segments: [], empty_reason: null }))
     useAuth.mockReturnValue({ authFetch })
     const user = userEvent.setup()
-    render(<ChatPage />)
+    render(<ChatPage />, { wrapper: MemoryRouter })
 
     await user.click(screen.getByRole('button', { name: 'toggle doc-1' }))
     await user.type(screen.getByLabelText(/ask a question/i), 'q{Enter}')
@@ -60,11 +72,29 @@ describe('ChatPage document scope', () => {
     const authFetch = vi.fn().mockResolvedValue(jsonResponse({ segments: [], empty_reason: null }))
     useAuth.mockReturnValue({ authFetch })
     const user = userEvent.setup()
-    render(<ChatPage />)
+    render(<ChatPage />, { wrapper: MemoryRouter })
 
     await user.type(screen.getByLabelText(/ask a question/i), 'q{Enter}')
 
     const [, options] = findAskCall(authFetch)
     expect(JSON.parse(options.body).document_ids).toEqual([])
+  })
+
+  it('preselects the document handed off from DocumentDetailPage\'s "Ask about this document" link', async () => {
+    const authFetch = vi.fn().mockResolvedValue(jsonResponse({ segments: [], empty_reason: null }))
+    useAuth.mockReturnValue({ authFetch })
+    const user = userEvent.setup()
+    render(<ChatPage />, {
+      wrapper: ({ children }) => (
+        <MemoryRouter initialEntries={[{ pathname: '/chat', state: { presetDocumentId: 'doc-9' } }]}>
+          {children}
+        </MemoryRouter>
+      ),
+    })
+
+    await user.type(screen.getByLabelText(/ask a question/i), 'q{Enter}')
+
+    const [, options] = findAskCall(authFetch)
+    expect(JSON.parse(options.body).document_ids).toEqual(['doc-9'])
   })
 })

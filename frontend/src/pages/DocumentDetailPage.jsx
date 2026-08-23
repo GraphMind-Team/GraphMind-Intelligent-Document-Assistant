@@ -169,15 +169,30 @@ export default function DocumentDetailPage() {
                 {/* Only offered once a document is Ready: a Pending/Failed
                     document has no reliably-parsed content worth
                     previewing, even though the raw bytes exist earlier
-                    too -- a UX choice, not a backend restriction. */}
+                    too -- a UX choice, not a backend restriction. Same
+                    reasoning for "Ask about this document" beside it --
+                    the scope panel on `/chat` can't select a non-Ready
+                    document either. Navigation state (`presetDocumentId`),
+                    not a query param: this is a one-time handoff into
+                    ChatPage's own scope selection, not shareable/
+                    bookmarkable URL state. */}
                 {doc.status === 'Ready' && (
-                  <button
-                    type="button"
-                    onClick={() => setIsPreviewOpen(true)}
-                    className="rounded-md border border-border bg-surface2 px-3 py-1.5 text-xs font-semibold text-primary"
-                  >
-                    {t('documentDetail.preview')}
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setIsPreviewOpen(true)}
+                      className="rounded-md border border-border bg-surface2 px-3 py-1.5 text-xs font-semibold text-primary"
+                    >
+                      {t('documentDetail.preview')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/chat', { state: { presetDocumentId: doc.id } })}
+                      className="btn-brand rounded-md px-3 py-1.5 text-xs font-semibold"
+                    >
+                      {t('documentDetail.askAboutThis')}
+                    </button>
+                  </>
                 )}
                 {/* Story 2.7: Document Detail's own entry point to the same
                     delete action DocumentCard.jsx's trash icon offers.

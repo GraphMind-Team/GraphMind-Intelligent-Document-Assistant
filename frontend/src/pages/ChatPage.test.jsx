@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import ChatPage from './ChatPage'
 import { useAuth } from '../context/AuthContext'
@@ -25,7 +26,7 @@ function renderChatPage({ historyPage } = {}) {
   vi.spyOn(chatClient, 'getChatHistory').mockResolvedValue(
     historyPage ?? { messages: [], next_cursor: null, has_more: false },
   )
-  return render(<ChatPage />)
+  return render(<ChatPage />, { wrapper: MemoryRouter })
 }
 
 // Mirrors the real `AskResponse` shape, `chunk_indexes` included -- nothing
@@ -339,7 +340,7 @@ describe('ChatPage conversation history (Story 3.4)', () => {
       has_more: false,
     })
     useAuth.mockReturnValue({ authFetch: vi.fn() })
-    render(<ChatPage />)
+    render(<ChatPage />, { wrapper: MemoryRouter })
 
     await waitFor(() => expect(historySpy).toHaveBeenCalled())
     const [, options] = historySpy.mock.calls[0]
@@ -441,7 +442,7 @@ describe('ChatPage conversation history (Story 3.4)', () => {
       has_more: false,
     })
     useAuth.mockReturnValue({ authFetch: vi.fn() })
-    render(<ChatPage />)
+    render(<ChatPage />, { wrapper: MemoryRouter })
 
     expect(await screen.findByText('Recent question?')).toBeInTheDocument()
     expect(screen.queryByText('Older question?')).not.toBeInTheDocument()
@@ -500,7 +501,7 @@ describe('ChatPage conversation history (Story 3.4)', () => {
     historySpy.mockResolvedValueOnce(page('m2', 'Middle question?', 'cursor-2', true))
     historySpy.mockResolvedValueOnce(page('m1', 'Oldest question?', null, false))
     useAuth.mockReturnValue({ authFetch: vi.fn() })
-    render(<ChatPage />)
+    render(<ChatPage />, { wrapper: MemoryRouter })
 
     // No scroll gesture anywhere in this test: the thread fills itself.
     expect(await screen.findByText('Oldest question?')).toBeInTheDocument()
@@ -532,7 +533,7 @@ describe('ChatPage conversation history (Story 3.4)', () => {
       has_more: false,
     })
     useAuth.mockReturnValue({ authFetch: vi.fn() })
-    render(<ChatPage />)
+    render(<ChatPage />, { wrapper: MemoryRouter })
     await screen.findByText('Only question?')
 
     const log = screen.getByRole('log', { name: /conversation/i })
@@ -598,7 +599,7 @@ describe('ChatPage conversation history (Story 3.4)', () => {
       has_more: false,
     })
     useAuth.mockReturnValue({ authFetch: vi.fn() })
-    render(<ChatPage />)
+    render(<ChatPage />, { wrapper: MemoryRouter })
     await screen.findByText('Recent question?')
 
     const log = screen.getByRole('log', { name: /conversation/i })
@@ -698,7 +699,7 @@ describe('ChatPage conversation history (Story 3.4)', () => {
     vi.spyOn(chatClient, 'askQuestion').mockResolvedValue(ANSWER_RESULT)
     const user = userEvent.setup()
     useAuth.mockReturnValue({ authFetch: vi.fn() })
-    render(<ChatPage />)
+    render(<ChatPage />, { wrapper: MemoryRouter })
 
     await user.type(screen.getByLabelText(/ask a question/i), 'What is the refund window?')
     await user.click(screen.getByRole('button', { name: 'Ask' }))
@@ -761,7 +762,7 @@ describe('ChatPage conversation history (Story 3.4)', () => {
       () => new Promise((resolve) => { resolveSecond = resolve }),
     )
     useAuth.mockReturnValue({ authFetch: vi.fn() })
-    render(<ChatPage />)
+    render(<ChatPage />, { wrapper: MemoryRouter })
 
     await screen.findByText('Recent question?')
     const log = screen.getByRole('log', { name: /conversation/i })
