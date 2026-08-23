@@ -31,7 +31,7 @@ describe('DocumentsScopePanel', () => {
     await waitFor(() => expect(screen.getByText('Vendor_Agreement_2026.pdf')).toBeInTheDocument())
     expect(screen.getByText('Sprint_Planning_Notes.md')).toBeInTheDocument()
     expect(screen.getByText('Ready')).toBeInTheDocument()
-    expect(screen.getByText('Extracting')).toBeInTheDocument()
+    expect(screen.getByText('Reading document')).toBeInTheDocument()
   })
 
   it('shows an empty-library message when there are no documents', async () => {
@@ -82,7 +82,11 @@ describe('DocumentsScopePanel', () => {
     renderPanel()
 
     await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(2))
-    const extractingCheckbox = screen.getByLabelText(/Sprint_Planning_Notes\.md.*Extracting/)
+    // The human-readable label ("Reading document"), not the raw backend
+    // status word ("Extracting") -- a screen-reader user hearing this
+    // must get the same wording StatusPill shows sighted users, not
+    // pipeline jargon neither of them sees anywhere else on screen.
+    const extractingCheckbox = screen.getByLabelText(/Sprint_Planning_Notes\.md.*Reading document/)
     expect(extractingCheckbox).toBeDisabled()
 
     const readyCheckbox = screen.getByLabelText('Vendor_Agreement_2026.pdf')

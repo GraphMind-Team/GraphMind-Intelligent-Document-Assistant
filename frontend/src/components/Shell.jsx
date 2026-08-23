@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
+import DocumentReadyToasts from './DocumentReadyToasts'
+import Icon from './Icon'
 
 // Authenticated shell: fixed-width sidebar + fluid content, per UX-DR1.
 // DOM order matches visual order (sidebar first, then <Outlet/>) so tab
@@ -21,25 +23,6 @@ import { useAuth } from '../context/AuthContext'
 // NavLink's className render-prop supplies the `active` state from the
 // current URL, so exactly one link is ever active with no manual
 // `useLocation` comparison.
-
-// Shared stroke-icon frame -- one size, one stroke weight, one join
-// style for every glyph in the rail, so they read as a set.
-function Icon({ children }) {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="h-[18px] w-[18px] shrink-0"
-    >
-      {children}
-    </svg>
-  )
-}
 
 // Ordered by how often a session actually touches each destination --
 // Documents/Chat/Graph are the working screens, so they lead; Settings is
@@ -119,28 +102,39 @@ function initialsFor(fullName) {
 }
 
 export default function Shell() {
-  const { logout, authFetch } = useAuth()
+  const { logout, authFetch, accountFullName, accountEmail, setAccountFullName, setAccountEmail } = useAuth()
   const navigate = useNavigate()
   const { t } = useTranslation()
 
-  // AuthContext only tracks the token and account theme/language -- it has
-  // no full_name/email fields (ProfileCard.jsx fetches its own copy for
-  // the same reason). This is purely identity display, so a failed fetch
-  // is swallowed rather than surfaced as an error banner: the rail still
+  // `accountFullName`/`accountEmail` are shared AuthContext state (not
+  // local to this component) precisely so a name change saved on
+  // Settings -> ProfileCard shows up here immediately: ProfileCard writes
+  // through the same `setAccountFullName`/`setAccountEmail` this effect
+  // uses, so both ultimately point at one value instead of Shell holding
+  // its own stale copy until a reload. This fetch only runs when that
+  // value isn't already known -- typically right after a fresh login,
+  // since login() itself has nothing to seed it from (unlike
+  // accountTheme/accountLanguage, full_name/email aren't part of
+  // LoginResponse) and the boot-time `/auth/me` check only fires for a
+  // *stored* token, not one just issued by login(). A failed fetch is
+  // swallowed rather than surfaced as an error banner: the rail still
   // works with no name shown, same as before this existed.
-  const [account, setAccount] = useState(null)
   useEffect(() => {
+    if (accountFullName !== null) return
     let cancelled = false
     authFetch('/auth/me')
       .then((response) => (response.ok ? response.json() : null))
       .then((data) => {
-        if (!cancelled && data) setAccount({ fullName: data.full_name, email: data.email })
+        if (!cancelled && data) {
+          setAccountFullName(data.full_name)
+          setAccountEmail(data.email)
+        }
       })
       .catch(() => {})
     return () => {
       cancelled = true
     }
-  }, [authFetch])
+  }, [accountFullName, authFetch, setAccountFullName, setAccountEmail])
 
   function handleExit() {
     logout()
@@ -195,19 +189,19 @@ export default function Shell() {
             is signed in, then the way out, grouped together since neither
             is a working screen. */}
         <div className="mt-auto flex flex-col gap-1 border-t border-sidebar-border pt-1">
-          {account && (
-            <div className="flex items-center gap-3 px-3 py-2" title={`${account.fullName} · ${account.email}`}>
+          {accountFullName && (
+            <div className="flex items-center gap-3 px-3 py-2" title={`${accountFullName} · ${accountEmail}`}>
               <span
                 aria-hidden="true"
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[image:var(--grad-brand)] text-[12px] font-bold text-white"
               >
-                {initialsFor(account.fullName)}
+                {initialsFor(accountFullName)}
               </span>
               <div className="min-w-0 flex-1 max-[900px]:sr-only">
                 <p className="truncate text-[13px] font-semibold text-sidebar-active-foreground">
-                  {account.fullName}
+                  {accountFullName}
                 </p>
-                <p className="truncate text-[11.5px] text-sidebar-foreground">{account.email}</p>
+                <p className="truncate text-[11.5px] text-sidebar-foreground">{accountEmail}</p>
               </div>
             </div>
           )}
@@ -229,6 +223,10 @@ export default function Shell() {
       <main className="min-w-0 flex-1 px-2 py-4 sm:px-6">
         <Outlet />
       </main>
+
+      {/* Session-scoped, not page-scoped -- see its own file comment for
+          why this can't live inside DocumentsPage. */}
+      <DocumentReadyToasts />
     </div>
   )
 }

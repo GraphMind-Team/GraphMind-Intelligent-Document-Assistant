@@ -5,12 +5,14 @@ import { AuthProvider, useAuth } from './AuthContext'
 import * as authClient from '../api/authClient'
 
 function Consumer() {
-  const { isAuthenticated, isInitializing, accountTheme } = useAuth()
+  const { isAuthenticated, isInitializing, accountTheme, accountFullName, accountEmail } = useAuth()
   return (
     <div>
       <span data-testid="authenticated">{String(isAuthenticated)}</span>
       <span data-testid="initializing">{String(isInitializing)}</span>
       <span data-testid="account-theme">{String(accountTheme)}</span>
+      <span data-testid="account-full-name">{String(accountFullName)}</span>
+      <span data-testid="account-email">{String(accountEmail)}</span>
     </div>
   )
 }
@@ -281,5 +283,72 @@ describe('AuthContext accountTheme (Story 5.2)', () => {
     await user.click(screen.getByRole('button', { name: 'logout' }))
 
     expect(screen.getByTestId('account-theme')).toHaveTextContent('null')
+  })
+})
+
+describe('AuthContext accountFullName/accountEmail', () => {
+  it('sets accountFullName/accountEmail from a successful boot /auth/me response', async () => {
+    window.localStorage.setItem('access_token', 'a-valid-token')
+    vi.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ theme: 'dark', full_name: 'Priya Raman', email: 'priya@example.com' }), {
+        status: 200,
+      }),
+    )
+
+    render(
+      <AuthProvider>
+        <Consumer />
+      </AuthProvider>,
+    )
+
+    await waitFor(() => expect(screen.getByTestId('account-full-name')).toHaveTextContent('Priya Raman'))
+    expect(screen.getByTestId('account-email')).toHaveTextContent('priya@example.com')
+  })
+
+  it('stays null after login -- LoginResponse carries no full_name/email to seed it from', async () => {
+    // Unlike accountTheme/accountLanguage: this is Shell.jsx's own reason
+    // for still running its own `/auth/me` fetch after a fresh login.
+    vi.spyOn(authClient, 'loginAccount').mockResolvedValue({
+      access_token: 'real-token',
+      token_type: 'bearer',
+      theme: 'dark',
+    })
+    const user = userEvent.setup()
+
+    render(
+      <AuthProvider>
+        <LoginButton />
+        <Consumer />
+      </AuthProvider>,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'login' }))
+
+    await waitFor(() => expect(screen.getByTestId('account-theme')).toHaveTextContent('dark'))
+    expect(screen.getByTestId('account-full-name')).toHaveTextContent('null')
+  })
+
+  it('resets accountFullName/accountEmail to null on logout', async () => {
+    window.localStorage.setItem('access_token', 'a-valid-token')
+    vi.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ theme: 'dark', full_name: 'Priya Raman', email: 'priya@example.com' }), {
+        status: 200,
+      }),
+    )
+    const user = userEvent.setup()
+
+    render(
+      <AuthProvider>
+        <LogoutButton />
+        <Consumer />
+      </AuthProvider>,
+    )
+
+    await waitFor(() => expect(screen.getByTestId('account-full-name')).toHaveTextContent('Priya Raman'))
+
+    await user.click(screen.getByRole('button', { name: 'logout' }))
+
+    expect(screen.getByTestId('account-full-name')).toHaveTextContent('null')
+    expect(screen.getByTestId('account-email')).toHaveTextContent('null')
   })
 })

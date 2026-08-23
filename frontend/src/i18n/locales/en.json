@@ -4,7 +4,8 @@
     "save": "Save",
     "saving": "Saving...",
     "delete": "Delete",
-    "loading": "Loading…"
+    "loading": "Loading…",
+    "slowServerHint": "The server was idle and is waking up — this can take up to a minute."
   },
   "notFound": {
     "message": "Page not found.",
@@ -176,13 +177,15 @@
     },
     "status": {
       "Uploaded": "Uploaded",
-      "Extracting": "Extracting",
-      "Graphing": "Graphing",
+      "Extracting": "Reading document",
+      "Graphing": "Finding connections",
       "Ready": "Ready",
       "Failed": "Failed"
     },
+    "cardMenu": {
+      "aria": "More actions for {{filename}}"
+    },
     "folderMenu": {
-      "moveAria": "Move {{filename}} to folder",
       "moveToFolder": "Move to folder",
       "ungrouped": "Ungrouped",
       "createNewFolder": "Create new folder"

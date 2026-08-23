@@ -4,7 +4,8 @@
     "save": "Speichern",
     "saving": "Speichert...",
     "delete": "Löschen",
-    "loading": "Lädt…"
+    "loading": "Lädt…",
+    "slowServerHint": "Der Server war inaktiv und wacht gerade auf — das kann bis zu einer Minute dauern."
   },
   "notFound": {
     "message": "Seite nicht gefunden.",
@@ -176,13 +177,15 @@
     },
     "status": {
       "Uploaded": "Hochgeladen",
-      "Extracting": "Wird extrahiert",
-      "Graphing": "Graph wird erstellt",
+      "Extracting": "Dokument wird gelesen",
+      "Graphing": "Verbindungen werden gesucht",
       "Ready": "Bereit",
       "Failed": "Fehlgeschlagen"
     },
+    "cardMenu": {
+      "aria": "Weitere Aktionen für {{filename}}"
+    },
     "folderMenu": {
-      "moveAria": "{{filename}} in Ordner verschieben",
       "moveToFolder": "In Ordner verschieben",
       "ungrouped": "Ohne Ordner",
       "createNewFolder": "Neuen Ordner erstellen"

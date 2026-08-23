@@ -9,6 +9,7 @@ import FolderGrid, { ALL_DOCUMENTS_FILTER, UNGROUPED_FILTER } from '../component
 import { DOCUMENT_STATUSES } from '../components/StatusPill'
 import UploadModal from '../components/UploadModal'
 import { RobotFigure } from '../components/chat/RobotMascot'
+import { useSlowRequestHint } from '../hooks/useSlowRequestHint'
 
 // Documents library (Story 2.2): a card grid (file-type tile, title,
 // status pill, uploaded date, trash icon per card), a toolbar above it,
@@ -83,20 +84,7 @@ export default function DocumentsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
-  // Closes the loop on the polling below (Story 2.3/2.4's background
-  // status watch) with a moment of payoff instead of leaving the status
-  // pill as the only signal that anything happened: id -> status as of
-  // the last fetch, so the next fetch can tell "just turned Ready" apart
-  // from "was already Ready" (the initial load) or "was never observed
-  // in flight" (a stale/instant status this page never watched). Ref, not
-  // state -- read-then-write every fetch, and a render in between the two
-  // is neither needed nor safe to race against.
-  const previousStatusesRef = useRef(new Map())
-  // One toast per newly-Ready document, oldest first. Kept as its own
-  // list (not derived from `documents`) since a dismissed or auto-expired
-  // toast must stay gone even though the document itself is still Ready
-  // on every later render.
-  const [readyToasts, setReadyToasts] = useState([])
+  const isSlow = useSlowRequestHint(isLoading)
   const [sortBy, setSortBy] = useState('recent')
   const [typeFilter, setTypeFilter] = useState('all')
   const uploadButtonRef = useRef(null)
@@ -167,25 +155,7 @@ export default function DocumentsPage() {
       }
       try {
         const data = await listDocuments(authFetch)
-        // A transition, not a status snapshot: only a document this page
-        // has actually watched move through the pipeline before (present
-        // in the *previous* fetch at a pollable status) qualifies -- this
-        // is what keeps the very first fetch of a session silent even
-        // though every already-Ready document in it is, by definition,
-        // "new" to `previousStatusesRef`.
-        const previousStatuses = previousStatusesRef.current
-        const newlyReady = data.filter((doc) => {
-          const previousStatus = previousStatuses.get(doc.id)
-          return doc.status === 'Ready' && POLLABLE_STATUSES.includes(previousStatus)
-        })
-        previousStatusesRef.current = new Map(data.map((doc) => [doc.id, doc.status]))
         setDocuments(data)
-        if (newlyReady.length > 0) {
-          setReadyToasts((prev) => [
-            ...prev,
-            ...newlyReady.map((doc) => ({ toastId: `${doc.id}-${Date.now()}`, documentId: doc.id, filename: doc.filename })),
-          ])
-        }
       } catch (err) {
         if (!silent) setError(err.message)
       } finally {
@@ -194,22 +164,6 @@ export default function DocumentsPage() {
     },
     [authFetch],
   )
-
-  function dismissReadyToast(toastId) {
-    setReadyToasts((prev) => prev.filter((toast) => toast.toastId !== toastId))
-  }
-
-  // Auto-dismiss (8s) so a session left running doesn't accumulate a
-  // stack of stale toasts -- still independently dismissible by hand
-  // (below) for anyone who wants it gone sooner, or needs longer than 8s
-  // to read and click it.
-  useEffect(() => {
-    if (readyToasts.length === 0) return undefined
-    const timers = readyToasts.map((toast) =>
-      setTimeout(() => dismissReadyToast(toast.toastId), 8000),
-    )
-    return () => timers.forEach(clearTimeout)
-  }, [readyToasts])
 
   useEffect(() => {
     fetchDocuments()
@@ -494,7 +448,12 @@ export default function DocumentsPage() {
             </p>
           )}
 
-          {!error && isLoading && <p className="text-sm text-text2">{t('documents.loading')}</p>}
+          {!error && isLoading && (
+            <p className="text-sm text-text2">
+              {t('documents.loading')}
+              {isSlow && <span className="block text-xs">{t('common.slowServerHint')}</span>}
+            </p>
+          )}
 
           {/* A real front door for a brand-new account, not one gray
               sentence -- this is the first thing a just-registered user
@@ -575,50 +534,6 @@ export default function DocumentsPage() {
           </div>
         )}
       </div>
-
-      {/* Closes the ingestion loop: a document reaching Ready today only
-          ever changed a status pill in a grid the user may not even be
-          looking at anymore. `aria-live="polite"` on the stack (not
-          `role="alert"`) -- this is good news, not an error, so it
-          shouldn't interrupt like one. Fixed bottom-right, stacking
-          upward (`flex-col-reverse`) so the newest toast lands next to
-          the pointer instead of pushing older ones down past it. */}
-      {readyToasts.length > 0 && (
-        <div
-          aria-live="polite"
-          className="fixed bottom-5 right-5 z-20 flex w-[min(320px,calc(100vw-2.5rem))] flex-col-reverse gap-2.5"
-        >
-          {readyToasts.map((toast) => (
-            <div
-              key={toast.toastId}
-              className="flex items-start gap-3 rounded-2xl border border-border bg-card-bg p-4 shadow-modal"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[13px] font-semibold text-text" title={toast.filename}>
-                  {t('documents.readyToast.title', { filename: toast.filename })}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => navigate('/chat', { state: { presetDocumentId: toast.documentId } })}
-                  className="mt-2 text-[12.5px] font-semibold text-accent hover:underline"
-                >
-                  {t('documents.readyToast.cta')}
-                </button>
-              </div>
-              <button
-                type="button"
-                onClick={() => dismissReadyToast(toast.toastId)}
-                aria-label={t('documents.readyToast.dismissAria')}
-                className="shrink-0 text-text2 hover:text-text"
-              >
-                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-4 w-4">
-                  <path d="M6 6l12 12M18 6L6 18" />
-                </svg>
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
 
       {isModalOpen && <UploadModal onClose={handleCloseModal} />}
     </>

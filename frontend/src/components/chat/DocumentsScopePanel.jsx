@@ -142,8 +142,16 @@ export default function DocumentsScopePanel({ authFetch, onDocumentsLoaded }) {
                     // UX-DR27: the disabled reason must be exposed
                     // programmatically, not left as sighted-only inline
                     // text -- StatusPill next to it already covers "status
-                    // noted inline" as real DOM text.
-                    aria-label={t('chat.scopePanel.notAvailableYet', { filename: doc.filename, status: doc.status })}
+                    // noted inline" as real DOM text. The status itself is
+                    // translated the same way StatusPill renders it (not
+                    // the raw backend value) -- a screen-reader user
+                    // hearing "not available yet (Extracting)" while
+                    // StatusPill visibly says "Reading document" would be
+                    // hearing pipeline jargon a sighted user never sees.
+                    aria-label={t('chat.scopePanel.notAvailableYet', {
+                      filename: doc.filename,
+                      status: t(`documents.status.${doc.status}`, { defaultValue: doc.status }),
+                    })}
                     className="shrink-0"
                   />
                   <span className="min-w-0 flex-1 truncate">{doc.filename}</span>

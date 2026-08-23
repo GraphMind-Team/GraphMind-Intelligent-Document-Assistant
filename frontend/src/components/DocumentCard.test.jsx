@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import DocumentCard from './DocumentCard'
 import { useAuth } from '../context/AuthContext'
@@ -207,41 +207,65 @@ describe('DocumentCard delete', () => {
 // (the original "no new dropdown" boundary is explicitly struck).
 describe('DocumentCard "⋮" move-to-folder menu', () => {
   async function openMenu(user) {
-    await user.click(screen.getByRole('button', { name: `Move ${DOC.filename} to folder` }))
+    await user.click(screen.getByRole('button', { name: `More actions for ${DOC.filename}` }))
   }
 
-  it('lists every folder plus a trailing "Create new folder" item, with no "Ungrouped" item for an already-ungrouped document', async () => {
+  it('lists Preview and Ask about this document first (Ready), then every folder plus a trailing "Create new folder" item, with no "Ungrouped" item for an already-ungrouped document', async () => {
     useAuth.mockReturnValue({ authFetch: vi.fn() })
     const user = userEvent.setup()
 
     renderCard({ folders: [FOLDER_A, FOLDER_B] })
     await openMenu(user)
 
-    const menu = screen.getByRole('menu', { name: 'Move to folder' })
+    const menu = screen.getByRole('menu', { name: `More actions for ${DOC.filename}` })
     const items = within(menu).getAllByRole('menuitem')
-    expect(items.map((item) => item.textContent)).toEqual(['Contracts', 'Invoices', 'Create new folder'])
+    expect(items.map((item) => item.textContent)).toEqual([
+      'Preview',
+      'Ask about this document',
+      'Contracts',
+      'Invoices',
+      'Create new folder',
+    ])
   })
 
-  it('includes an "Ungrouped" item first when the document already belongs to a folder', async () => {
+  it('includes an "Ungrouped" item right after Preview/Ask when the document already belongs to a folder', async () => {
     useAuth.mockReturnValue({ authFetch: vi.fn() })
     const user = userEvent.setup()
 
     renderCard({ document: { ...DOC, folder_id: 'folder-a' }, folders: [FOLDER_A] })
     await openMenu(user)
 
-    const menu = screen.getByRole('menu', { name: 'Move to folder' })
+    const menu = screen.getByRole('menu', { name: `More actions for ${DOC.filename}` })
     const items = within(menu).getAllByRole('menuitem')
-    expect(items.map((item) => item.textContent)).toEqual(['Ungrouped', 'Contracts', 'Create new folder'])
+    expect(items.map((item) => item.textContent)).toEqual([
+      'Preview',
+      'Ask about this document',
+      'Ungrouped',
+      'Contracts',
+      'Create new folder',
+    ])
   })
 
-  it('moves focus to the first menu item on open', async () => {
+  it('does not offer Preview or Ask about this document for a non-Ready document', async () => {
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    const user = userEvent.setup()
+
+    renderCard({ document: { ...DOC, status: 'Extracting' }, folders: [FOLDER_A] })
+    await openMenu(user)
+
+    const menu = screen.getByRole('menu', { name: `More actions for ${DOC.filename}` })
+    const items = within(menu).getAllByRole('menuitem')
+    expect(items.map((item) => item.textContent)).toEqual(['Contracts', 'Create new folder'])
+  })
+
+  it('moves focus to the first menu item on open (Preview, for a Ready document)', async () => {
     useAuth.mockReturnValue({ authFetch: vi.fn() })
     const user = userEvent.setup()
 
     renderCard({ folders: [FOLDER_A] })
     await openMenu(user)
 
-    expect(screen.getByRole('menuitem', { name: 'Contracts' })).toHaveFocus()
+    expect(screen.getByRole('menuitem', { name: 'Preview' })).toHaveFocus()
   })
 
   it('Escape closes the menu and returns focus to the "⋮" button', async () => {
@@ -249,7 +273,7 @@ describe('DocumentCard "⋮" move-to-folder menu', () => {
     const user = userEvent.setup()
 
     renderCard({ folders: [FOLDER_A] })
-    const menuButton = screen.getByRole('button', { name: `Move ${DOC.filename} to folder` })
+    const menuButton = screen.getByRole('button', { name: `More actions for ${DOC.filename}` })
     await openMenu(user)
 
     await user.keyboard('{Escape}')
@@ -362,6 +386,124 @@ describe('DocumentCard "⋮" move-to-folder menu', () => {
     expect(updateSpy).toHaveBeenCalledWith(expect.any(Function), DOC.id, 'new-folder')
     await waitFor(() => expect(onFolderChanged).toHaveBeenCalledWith(DOC.id, 'new-folder'))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+})
+
+describe('DocumentCard preview and ask-about-this-document', () => {
+  // Mirrors DocumentDetailPage.test.jsx's own stub -- PreviewModal needs
+  // these regardless of which page mounts it.
+  function stubObjectUrls() {
+    vi.stubGlobal('URL', {
+      ...URL,
+      createObjectURL: vi.fn(() => 'blob:mock-object-url'),
+      revokeObjectURL: vi.fn(),
+    })
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  // A `/chat` route + probe, since "Ask about this document" navigates
+  // there with `{ presetDocumentId }` in state -- `renderCard`'s own bare
+  // MemoryRouter (no <Routes>) has nowhere for that navigation to render
+  // anything observable.
+  function ChatRouteProbe() {
+    const location = useLocation()
+    return <div>Chat probe: {location.state?.presetDocumentId}</div>
+  }
+
+  function renderCardWithChatRoute(props = {}) {
+    const document = props.document ?? DOC
+    return render(
+      <MemoryRouter initialEntries={['/documents']}>
+        <Routes>
+          <Route
+            path="/documents"
+            element={
+              <ul>
+                <DocumentCard
+                  document={document}
+                  onCardClick={props.onCardClick ?? vi.fn()}
+                  onDeleted={props.onDeleted ?? vi.fn()}
+                  folders={props.folders ?? []}
+                  onFolderChanged={props.onFolderChanged ?? vi.fn()}
+                  onFolderCreated={props.onFolderCreated ?? vi.fn()}
+                />
+              </ul>
+            }
+          />
+          <Route path="/chat" element={<ChatRouteProbe />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+  }
+
+  it('clicking the filename opens the preview for a Ready document, instead of navigating to the detail page', async () => {
+    stubObjectUrls()
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    vi.spyOn(documentsClient, 'getDocumentContent').mockResolvedValue(
+      new Blob(['%PDF-1.4'], { type: 'application/pdf' }),
+    )
+    const user = userEvent.setup()
+
+    renderCardWithChatRoute()
+    await user.click(screen.getByRole('button', { name: DOC.filename }))
+
+    expect(await screen.findByRole('dialog', { name: DOC.filename })).toBeInTheDocument()
+  })
+
+  it('the filename is a real link to the detail page for a non-Ready document -- there is nothing to preview yet', () => {
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+
+    renderCardWithChatRoute({ document: { ...DOC, status: 'Extracting' } })
+
+    const link = screen.getByRole('link', { name: DOC.filename })
+    expect(link).toHaveAttribute('href', `/documents/${DOC.id}`)
+    expect(screen.queryByRole('button', { name: DOC.filename })).not.toBeInTheDocument()
+  })
+
+  it('the "⋮" menu\'s Preview item opens the same preview and closes the menu', async () => {
+    stubObjectUrls()
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    vi.spyOn(documentsClient, 'getDocumentContent').mockResolvedValue(
+      new Blob(['%PDF-1.4'], { type: 'application/pdf' }),
+    )
+    const user = userEvent.setup()
+
+    renderCardWithChatRoute()
+    await user.click(screen.getByRole('button', { name: `More actions for ${DOC.filename}` }))
+    await user.click(screen.getByRole('menuitem', { name: 'Preview' }))
+
+    expect(await screen.findByRole('dialog', { name: DOC.filename })).toBeInTheDocument()
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+
+  it('the "⋮" menu\'s Ask about this document navigates to /chat with this document preset as the scope', async () => {
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    const user = userEvent.setup()
+
+    renderCardWithChatRoute()
+    await user.click(screen.getByRole('button', { name: `More actions for ${DOC.filename}` }))
+    await user.click(screen.getByRole('menuitem', { name: 'Ask about this document' }))
+
+    expect(await screen.findByText(`Chat probe: ${DOC.id}`)).toBeInTheDocument()
+  })
+
+  it('never navigates to the detail page when the filename is clicked to open the preview', async () => {
+    stubObjectUrls()
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    vi.spyOn(documentsClient, 'getDocumentContent').mockResolvedValue(
+      new Blob(['%PDF-1.4'], { type: 'application/pdf' }),
+    )
+    const onCardClick = vi.fn()
+    const user = userEvent.setup()
+
+    renderCardWithChatRoute({ onCardClick })
+    await user.click(screen.getByRole('button', { name: DOC.filename }))
+    await screen.findByRole('dialog', { name: DOC.filename })
+
+    expect(onCardClick).not.toHaveBeenCalled()
   })
 })
 

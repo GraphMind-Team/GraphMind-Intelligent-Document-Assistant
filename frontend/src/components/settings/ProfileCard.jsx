@@ -11,7 +11,7 @@ import { updateProfile } from '../../api/settingsClient'
 // saving/error/status state.
 export default function ProfileCard() {
   const { t } = useTranslation()
-  const { authFetch } = useAuth()
+  const { authFetch, setAccountFullName, setAccountEmail } = useAuth()
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [loading, setLoading] = useState(true)
@@ -19,13 +19,18 @@ export default function ProfileCard() {
   const [error, setError] = useState(null)
   const [status, setStatus] = useState(null) // null | 'saving' | 'saved'
 
-  // AuthContext only tracks the token and account theme (Story 5.2) -- it
-  // has no full_name/email fields, so this card fetches its own copy from
-  // /auth/me on mount rather than guessing at a shape AuthContext doesn't
-  // expose. A failed load (network error, non-401 server error -- a 401
-  // itself triggers authFetch's own logout) is surfaced the same way a
-  // failed save is (role="alert"), rather than silently leaving the form
-  // blank with no indication why or how to retry.
+  // This card fetches its own copy from /auth/me on mount, rather than
+  // seeding the form from AuthContext's accountFullName/accountEmail --
+  // those are null-until-known and Shell's own identity block may not
+  // have populated them yet at the moment this card mounts, so this stays
+  // an independent load exactly as before. What's new is pushing the
+  // result back into AuthContext (both here and after a save, below) --
+  // that's the single shared value Shell's sidebar reads, so without this
+  // sync a saved name change would only show there after a full reload.
+  // A failed load (network error, non-401 server error -- a 401 itself
+  // triggers authFetch's own logout) is surfaced the same way a failed
+  // save is (role="alert"), rather than silently leaving the form blank
+  // with no indication why or how to retry.
   // Visible "Saved!" confirmation clears itself after a few seconds --
   // long enough to notice, not glued to the form forever the way the
   // sr-only announcement below effectively is (it only fires once per
@@ -44,6 +49,8 @@ export default function ProfileCard() {
         if (cancelled) return
         setFullName(data.full_name)
         setEmail(data.email)
+        setAccountFullName(data.full_name)
+        setAccountEmail(data.email)
       })
       .catch((err) => {
         if (cancelled) return
@@ -55,7 +62,7 @@ export default function ProfileCard() {
     return () => {
       cancelled = true
     }
-  }, [authFetch])
+  }, [authFetch, setAccountFullName, setAccountEmail])
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -66,6 +73,7 @@ export default function ProfileCard() {
     try {
       const data = await updateProfile(authFetch, { fullName })
       setFullName(data.full_name)
+      setAccountFullName(data.full_name)
       setStatus('saved')
     } catch (err) {
       setError(err.message)

@@ -4,7 +4,8 @@
     "save": "Запази",
     "saving": "Запазване...",
     "delete": "Изтрий",
-    "loading": "Зареждане…"
+    "loading": "Зареждане…",
+    "slowServerHint": "Сървърът е бил неактивен и в момента се събужда — това може да отнеме до минута."
   },
   "notFound": {
     "message": "Страницата не е намерена.",
@@ -176,13 +177,15 @@
     },
     "status": {
       "Uploaded": "Качен",
-      "Extracting": "Извличане",
-      "Graphing": "Изграждане на граф",
+      "Extracting": "Четене на документа",
+      "Graphing": "Търсене на връзки",
       "Ready": "Готов",
       "Failed": "Неуспешен"
     },
+    "cardMenu": {
+      "aria": "Още действия за {{filename}}"
+    },
     "folderMenu": {
-      "moveAria": "Премести {{filename}} в папка",
       "moveToFolder": "Премести в папка",
       "ungrouped": "Без папка",
       "createNewFolder": "Създай нова папка"

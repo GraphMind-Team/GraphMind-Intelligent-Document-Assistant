@@ -229,7 +229,10 @@ describe('DocumentDetailPage', () => {
       renderDetail()
       await screen.findByRole('heading', { name: 'vendor-agreement.pdf', level: 1 })
 
-      await user.click(screen.getByRole('button', { name: 'Delete' }))
+      // Icon-only trigger (mirrors DocumentCard.jsx's own trash button) --
+      // its accessible name carries the filename, so it's never just
+      // "Delete" the way a plain-text button would be.
+      await user.click(screen.getByRole('button', { name: 'Delete vendor-agreement.pdf' }))
 
       const box = screen.getByRole('alert')
       expect(box).toHaveTextContent(/Removes its passages/)
@@ -244,7 +247,7 @@ describe('DocumentDetailPage', () => {
 
       renderDetail()
       await screen.findByRole('heading', { name: 'vendor-agreement.pdf', level: 1 })
-      const deleteButton = screen.getByRole('button', { name: 'Delete' })
+      const deleteButton = screen.getByRole('button', { name: 'Delete vendor-agreement.pdf' })
 
       await user.click(deleteButton)
 
@@ -255,12 +258,12 @@ describe('DocumentDetailPage', () => {
       const boundaryId = boundaryText.getAttribute('id')
       expect(boundaryId).toBeTruthy()
       expect(cancelButton).toHaveAttribute('aria-describedby', boundaryId)
-      // Two buttons render the visible label "Delete" once the box is
-      // open (the trigger and the confirm action) -- select the one
-      // inside the alert box for this assertion.
-      const confirmButton = within(screen.getByRole('alert')).getByRole('button', {
-        name: 'Delete',
-      })
+      // The trigger's own accessible name carries the filename (icon-only,
+      // mirrors DocumentCard.jsx), so it no longer collides with the
+      // confirm box's plain-text "Delete" action the way two identically-
+      // named buttons once did -- no `within(alert)` scoping needed to
+      // tell them apart.
+      const confirmButton = screen.getByRole('button', { name: 'Delete' })
       expect(confirmButton).toHaveAttribute('aria-describedby', boundaryId)
 
       await user.keyboard('{Escape}')
@@ -276,7 +279,7 @@ describe('DocumentDetailPage', () => {
 
       renderDetail()
       await screen.findByRole('heading', { name: 'vendor-agreement.pdf', level: 1 })
-      const deleteButton = screen.getByRole('button', { name: 'Delete' })
+      const deleteButton = screen.getByRole('button', { name: 'Delete vendor-agreement.pdf' })
       await user.click(deleteButton)
 
       await user.click(screen.getByRole('button', { name: 'Cancel' }))
@@ -293,7 +296,7 @@ describe('DocumentDetailPage', () => {
 
       renderDetail()
       await screen.findByRole('heading', { name: 'vendor-agreement.pdf', level: 1 })
-      await user.click(screen.getByRole('button', { name: 'Delete' }))
+      await user.click(screen.getByRole('button', { name: 'Delete vendor-agreement.pdf' }))
       await user.click(within(screen.getByRole('alert')).getByRole('button', { name: 'Delete' }))
 
       await waitFor(() => expect(screen.getByText('Documents library')).toBeInTheDocument())
@@ -310,7 +313,7 @@ describe('DocumentDetailPage', () => {
 
       renderDetail()
       await screen.findByRole('heading', { name: 'vendor-agreement.pdf', level: 1 })
-      await user.click(screen.getByRole('button', { name: 'Delete' }))
+      await user.click(screen.getByRole('button', { name: 'Delete vendor-agreement.pdf' }))
       await user.click(within(screen.getByRole('alert')).getByRole('button', { name: 'Delete' }))
 
       expect(await screen.findByText('Document not found.')).toBeInTheDocument()
@@ -349,7 +352,7 @@ describe('DocumentDetailPage', () => {
       expect(screen.queryByRole('button', { name: 'Preview' })).not.toBeInTheDocument()
       // Delete is still offered at every status -- this gate is Preview's
       // alone, not the whole action row's.
-      expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Delete vendor-agreement.pdf' })).toBeInTheDocument()
     })
 
     it('offers no Preview entry point for a Failed document either', async () => {

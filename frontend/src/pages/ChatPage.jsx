@@ -8,6 +8,7 @@ import ChatMessage from '../components/chat/ChatMessage'
 import RobotMascot, { RobotFigure } from '../components/chat/RobotMascot'
 import DocumentsScopePanel from '../components/chat/DocumentsScopePanel'
 import ChatSearchPanel from '../components/chat/ChatSearchPanel'
+import { useSlowRequestHint } from '../hooks/useSlowRequestHint'
 
 // UX-DR29/Story 3.4: one page size for both the initial load and every
 // scroll-up page after it.
@@ -105,6 +106,10 @@ function ChatPageContent() {
   // list while a query is active.
   const [chatSearch, setChatSearch] = useState('')
   const [isAsking, setIsAsking] = useState(false)
+  // A slow answer is normally just LLM latency, but the backend itself
+  // can also be a Render cold start (see useSlowRequestHint) -- either
+  // way, "Thinking…" alone reads the same as a hang past a few seconds.
+  const isSlowToAnswer = useSlowRequestHint(isAsking)
   // Reported up by DocumentsScopePanel once its own fetch resolves (it
   // already owns the document list -- this mirrors it rather than
   // duplicating the fetch). `null` means "not known yet", which the
@@ -630,6 +635,11 @@ function ChatPageContent() {
                 />
               ))}
               {isAsking && <ChatMessage message={{ role: 'thinking' }} />}
+              {isAsking && isSlowToAnswer && (
+                <p role="status" className="mr-auto max-w-[78%] px-1 text-xs text-text2">
+                  {t('common.slowServerHint')}
+                </p>
+              )}
             </div>
 
             {!isNearBottom && (
