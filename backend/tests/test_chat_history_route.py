@@ -117,7 +117,14 @@ def test_history_returns_messages_newest_first(client, db_session):
         ("assistant", None),
         ("user", "Q1?"),
     ]
-    assert body["messages"][0]["segments"] == [{"text": "A2.", "citations": []}]
+    # A row seeded before `kind` existed (`_seed_turn` writes no `kind`
+    # key at all) round-trips as `kind: "grounded"` -- `AnswerSegmentResponse
+    # .kind`'s default, proving an already-persisted `chat_messages` row
+    # reads back with its original pre-3.5 meaning intact, not merely
+    # constructible in code.
+    assert body["messages"][0]["segments"] == [
+        {"text": "A2.", "citations": [], "kind": "grounded"}
+    ]
     assert body["has_more"] is False
 
 
@@ -332,6 +339,7 @@ def test_history_row_with_real_citations_round_trips_through_the_response(client
                     "chunk_indexes": [0, 3],
                 }
             ],
+            "kind": "grounded",
         }
     ]
 

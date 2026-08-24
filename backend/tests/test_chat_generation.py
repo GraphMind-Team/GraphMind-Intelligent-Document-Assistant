@@ -9,7 +9,14 @@ approach: mocks `httpx.post`, builds real `httpx.Response` objects so
 
 Story 3.4/FR-17 adds `bound_chat_history` (the HISTORY_MAX_TURNS/
 HISTORY_MAX_CHARS budgeting) and `generate_answer`'s new `history` param,
-covered at the bottom of this file.
+covered further down.
+
+Story 3.5 adds two more sections, both at the bottom of this file:
+`resolve_question` (intent classification/query rewrite, and its
+never-raises fallback contract) and the `kind="grounded"/"prose"`
+segment split (citation enforcement still applies to "grounded" only,
+the `_MAX_PROSE_SEGMENTS` cap, and `generate_answer(mode="overview")`'s
+own prompt/budget).
 """
 
 import json
@@ -23,8 +30,10 @@ from app.shared.llm_client import (
     AnswerResult,
     ChatCompletionError,
     ChatHistoryTurn,
+    QuestionPlan,
     bound_chat_history,
     generate_answer,
+    resolve_question,
 )
 
 _REQUEST = httpx.Request("POST", llm_client_module.OPENROUTER_URL)
@@ -40,6 +49,7 @@ def _openrouter_response(status_code, *, content=None, body=None, headers=None):
 def _openrouter_api_key(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.delenv("OPENROUTER_CHAT_MODEL", raising=False)
+    monkeypatch.delenv("OPENROUTER_ROUTER_MODEL", raising=False)
 
 
 @pytest.fixture(autouse=True)
@@ -587,3 +597,414 @@ def test_bound_chat_history_default_constants_are_three_turns_and_2000_chars():
     turns, capped at 2000 total characters")."""
     assert llm_client_module.HISTORY_MAX_TURNS == 3
     assert llm_client_module.HISTORY_MAX_CHARS == 2000
+
+
+# ---------------------------------------------------------------------------
+# Story 3.5: resolve_question (intent classification / query rewrite).
+# ---------------------------------------------------------------------------
+
+
+def _router_content(intent="factual", search_query="rewritten query", reply=""):
+    return json.dumps({"intent": intent, "search_query": search_query, "reply": reply})
+
+
+def test_resolve_question_returns_the_models_intent_and_rewritten_query(monkeypatch):
+    monkeypatch.setattr(
+        llm_client_module.httpx,
+        "post",
+        lambda *a, **k: _openrouter_response(
+            200, content=_router_content(intent="factual", search_query="What is Project Aurora's budget?")
+        ),
+    )
+
+    plan = resolve_question("what about its budget?", [])
+
+    assert plan == QuestionPlan(
+        intent="factual", search_query="What is Project Aurora's budget?", reply=None
+    )
+
+
+def test_resolve_question_greeting_intent_carries_the_reply(monkeypatch):
+    monkeypatch.setattr(
+        llm_client_module.httpx,
+        "post",
+        lambda *a, **k: _openrouter_response(
+            200, content=_router_content(intent="greeting", search_query="hello", reply="Hi there!")
+        ),
+    )
+
+    plan = resolve_question("hello", [])
+
+    assert plan.intent == "greeting"
+    assert plan.reply == "Hi there!"
+
+
+def test_resolve_question_greeting_with_blank_reply_falls_back_to_factual(monkeypatch):
+    """A "greeting" intent with nothing usable to render must not reach
+    `chat/service.py`'s greeting branch empty-handed -- the whole plan
+    degrades, not just the field."""
+    monkeypatch.setattr(
+        llm_client_module.httpx,
+        "post",
+        lambda *a, **k: _openrouter_response(
+            200, content=_router_content(intent="greeting", search_query="hello", reply="   ")
+        ),
+    )
+
+    plan = resolve_question("hello", [])
+
+    assert plan == QuestionPlan(intent="factual", search_query="hello", reply=None)
+
+
+def test_resolve_question_out_of_vocabulary_intent_defaults_to_factual(monkeypatch, caplog):
+    monkeypatch.setattr(
+        llm_client_module.httpx,
+        "post",
+        lambda *a, **k: _openrouter_response(
+            200, content=_router_content(intent="chitchat", search_query="rewritten")
+        ),
+    )
+
+    with caplog.at_level("WARNING"):
+        plan = resolve_question("some question", [])
+
+    assert plan.intent == "factual"
+    assert plan.search_query == "rewritten"
+    assert "out-of-vocabulary intent" in caplog.text
+
+
+def test_resolve_question_unhashable_intent_defaults_to_factual(monkeypatch, caplog):
+    """Regression: `intent not in _ROUTER_ALLOWED_INTENTS` used to be
+    checked before confirming `intent` was even hashable, so a model
+    returning a list/object for `intent` (instead of a string) raised
+    `TypeError` -- not a `_RouterCallError`, so it escaped
+    `resolve_question`'s "never raises" contract and, since
+    `chat/service.py` deliberately has no `try`/`except` around this
+    call, would have 500'd `/chat/ask` instead of degrading to
+    `factual`."""
+    content = json.dumps({"intent": ["factual"], "search_query": "rewritten", "reply": ""})
+    monkeypatch.setattr(
+        llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content=content)
+    )
+
+    with caplog.at_level("WARNING"):
+        plan = resolve_question("some question", [])
+
+    assert plan.intent == "factual"
+    assert plan.search_query == "rewritten"
+    assert "out-of-vocabulary intent" in caplog.text
+
+
+def test_resolve_question_never_raises_on_a_null_content_body(monkeypatch):
+    """Regression: `_parse_and_validate_plan` used to catch only
+    `json.JSONDecodeError`, but a provider that answers with
+    `"content": null` (some free-tier models do, putting their output in
+    a sibling field instead) hands `json.loads` a `None`, which is a
+    `TypeError`, not a decode error -- uncaught, it broke the
+    never-raises contract the same way the two `TypeError`s above did."""
+    monkeypatch.setattr(
+        llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content=None)
+    )
+
+    plan = resolve_question("a question", [])
+
+    assert plan == QuestionPlan(intent="factual", search_query="a question", reply=None)
+
+
+def test_resolve_question_blank_search_query_falls_back_to_the_original_question(monkeypatch):
+    monkeypatch.setattr(
+        llm_client_module.httpx,
+        "post",
+        lambda *a, **k: _openrouter_response(200, content=_router_content(search_query="   ")),
+    )
+
+    plan = resolve_question("the original question", [])
+
+    assert plan.search_query == "the original question"
+
+
+def test_resolve_question_never_raises_on_malformed_json(monkeypatch):
+    monkeypatch.setattr(
+        llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content="not json")
+    )
+
+    plan = resolve_question("a question", [])
+
+    assert plan == QuestionPlan(intent="factual", search_query="a question", reply=None)
+
+
+def test_resolve_question_never_raises_on_a_5xx_response(monkeypatch):
+    monkeypatch.setattr(
+        llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(500, content="boom")
+    )
+
+    plan = resolve_question("a question", [])
+
+    assert plan == QuestionPlan(intent="factual", search_query="a question", reply=None)
+
+
+def test_resolve_question_never_raises_on_a_timeout(monkeypatch):
+    def _raise_timeout(*a, **k):
+        raise httpx.TimeoutException("router timed out", request=_REQUEST)
+
+    monkeypatch.setattr(llm_client_module.httpx, "post", _raise_timeout)
+
+    plan = resolve_question("a question", [])
+
+    assert plan == QuestionPlan(intent="factual", search_query="a question", reply=None)
+
+
+def test_resolve_question_never_raises_when_api_key_missing(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    plan = resolve_question("a question", [])
+
+    assert plan == QuestionPlan(intent="factual", search_query="a question", reply=None)
+
+
+def test_resolve_question_is_never_retried(monkeypatch):
+    """Unlike `generate_answer`'s `_CHAT_MAX_ATTEMPTS`, a router failure
+    degrades to the fallback on the first failure -- a second attempt
+    would only add latency in front of the real answer for a call whose
+    failure mode already has a safe, cheap fallback."""
+    calls = []
+
+    def _raise_timeout(*a, **k):
+        calls.append(1)
+        raise httpx.TimeoutException("router timed out", request=_REQUEST)
+
+    monkeypatch.setattr(llm_client_module.httpx, "post", _raise_timeout)
+
+    resolve_question("a question", [])
+
+    assert len(calls) == 1
+
+
+def test_resolve_question_folds_history_into_the_request(monkeypatch):
+    captured = {}
+
+    def _fake_post(url, *, headers, json, timeout):
+        captured["system_prompt"] = json["messages"][0]["content"]
+        return _openrouter_response(200, content=_router_content())
+
+    monkeypatch.setattr(llm_client_module.httpx, "post", _fake_post)
+
+    resolve_question(
+        "what about its budget?",
+        [ChatHistoryTurn(question="Who is the vendor?", answer="TechCorp is the vendor.")],
+    )
+
+    assert "Who is the vendor?" in captured["system_prompt"]
+
+
+def test_resolve_question_uses_router_model_override_when_set(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_ROUTER_MODEL", "test/router-model:free")
+    captured = {}
+
+    def _fake_post(url, *, headers, json, timeout):
+        captured["model"] = json["model"]
+        return _openrouter_response(200, content=_router_content())
+
+    monkeypatch.setattr(llm_client_module.httpx, "post", _fake_post)
+
+    resolve_question("a question", [])
+
+    assert captured["model"] == "test/router-model:free"
+
+
+def test_resolve_question_falls_back_to_chat_model_when_router_model_unset(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_CHAT_MODEL", "test/chat-model:free")
+    captured = {}
+
+    def _fake_post(url, *, headers, json, timeout):
+        captured["model"] = json["model"]
+        return _openrouter_response(200, content=_router_content())
+
+    monkeypatch.setattr(llm_client_module.httpx, "post", _fake_post)
+
+    resolve_question("a question", [])
+
+    assert captured["model"] == "test/chat-model:free"
+
+
+# ---------------------------------------------------------------------------
+# Story 3.5: "grounded"/"prose" segment kinds.
+# ---------------------------------------------------------------------------
+
+
+def test_generate_answer_prose_segment_survives_with_no_citations(monkeypatch):
+    content = json.dumps(
+        {
+            "segments": [
+                {"text": "Sure, here's what I found:", "kind": "prose", "passage_numbers": []},
+                {
+                    "text": "TechCorp's refund window is 30 days.",
+                    "kind": "grounded",
+                    "passage_numbers": [1],
+                },
+            ]
+        }
+    )
+    monkeypatch.setattr(
+        llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content=content)
+    )
+
+    result = generate_answer("What is the refund window?", [_passage()])
+
+    assert [s.kind for s in result.segments] == ["prose", "grounded"]
+    assert result.segments[0].passage_numbers == []
+    assert result.segments[1].passage_numbers == [1]
+
+
+def test_generate_answer_grounded_segment_without_citation_is_still_dropped(monkeypatch):
+    """`kind="grounded"` (explicit, not just the default) is held to the
+    same citation requirement as pre-3.5 -- "prose" is the only exemption,
+    never a value that happens to have no passage_numbers."""
+    content = json.dumps(
+        {"segments": [{"text": "An uncited claim.", "kind": "grounded", "passage_numbers": []}]}
+    )
+    monkeypatch.setattr(
+        llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content=content)
+    )
+
+    result = generate_answer("A question?", [_passage()])
+
+    assert result.segments == []
+
+
+def test_generate_answer_missing_kind_defaults_to_grounded(monkeypatch):
+    """A response with no `kind` key at all (an older prompt shape, or a
+    provider that ignores the field) must still be held to the citation
+    requirement -- never silently treated as unchecked prose."""
+    content = json.dumps({"segments": [{"text": "An uncited claim.", "passage_numbers": []}]})
+    monkeypatch.setattr(
+        llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content=content)
+    )
+
+    result = generate_answer("A question?", [_passage()])
+
+    assert result.segments == []
+
+
+def test_generate_answer_out_of_vocabulary_kind_defaults_to_grounded(monkeypatch, caplog):
+    content = json.dumps(
+        {
+            "segments": [
+                {"text": "Some text.", "kind": "sarcastic", "passage_numbers": [1]},
+            ]
+        }
+    )
+    monkeypatch.setattr(
+        llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content=content)
+    )
+
+    with caplog.at_level("WARNING"):
+        result = generate_answer("A question?", [_passage()])
+
+    assert result.segments[0].kind == "grounded"
+    assert "out-of-vocabulary kind" in caplog.text
+
+
+def test_generate_answer_unhashable_kind_defaults_to_grounded_instead_of_raising(monkeypatch, caplog):
+    """Regression: `raw_kind in _VALID_SEGMENT_KINDS` used to be checked
+    before confirming `raw_kind` was even hashable, so a model returning
+    a list/object for `kind` (instead of a string) raised `TypeError` --
+    not a `_RetryableChatError`, so it escaped `generate_answer`'s retry
+    loop entirely and surfaced as an unhandled 500 rather than the
+    documented "default to grounded" behaviour every other malformed
+    `kind` value already gets."""
+    content = json.dumps(
+        {
+            "segments": [
+                {"text": "Some text.", "kind": ["grounded"], "passage_numbers": [1]},
+            ]
+        }
+    )
+    monkeypatch.setattr(
+        llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content=content)
+    )
+
+    with caplog.at_level("WARNING"):
+        result = generate_answer("A question?", [_passage()])
+
+    assert result.segments[0].kind == "grounded"
+    assert "out-of-vocabulary kind" in caplog.text
+
+
+def test_generate_answer_caps_prose_segments_at_the_configured_maximum(monkeypatch):
+    content = json.dumps(
+        {
+            "segments": [
+                {"text": "Prose one.", "kind": "prose", "passage_numbers": []},
+                {"text": "Prose two.", "kind": "prose", "passage_numbers": []},
+                {"text": "Prose three.", "kind": "prose", "passage_numbers": []},
+                {"text": "A grounded claim.", "kind": "grounded", "passage_numbers": [1]},
+            ]
+        }
+    )
+    monkeypatch.setattr(
+        llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content=content)
+    )
+
+    result = generate_answer("A question?", [_passage()])
+
+    prose_segments = [s for s in result.segments if s.kind == "prose"]
+    assert len(prose_segments) == llm_client_module._MAX_PROSE_SEGMENTS
+    assert [s.text for s in prose_segments] == ["Prose one.", "Prose two."]
+    assert any(s.kind == "grounded" for s in result.segments)
+
+
+# ---------------------------------------------------------------------------
+# Story 3.5: generate_answer(mode="overview").
+# ---------------------------------------------------------------------------
+
+
+def test_generate_answer_overview_mode_includes_document_structure_in_the_prompt(monkeypatch):
+    captured = {}
+
+    def _fake_post(url, *, headers, json, timeout):
+        captured["system_prompt"] = json["messages"][0]["content"]
+        captured["timeout"] = timeout
+        return _openrouter_response(200, content='{"segments": []}')
+
+    monkeypatch.setattr(llm_client_module.httpx, "post", _fake_post)
+
+    generate_answer(
+        "What is this document about?",
+        [_passage()],
+        mode="overview",
+        document_structure="report.pdf:\n  - Introduction: 3 passages",
+    )
+
+    assert "report.pdf" in captured["system_prompt"]
+    assert "Introduction: 3 passages" in captured["system_prompt"]
+    assert captured["timeout"] == llm_client_module._OVERVIEW_TIMEOUT_SECONDS
+
+
+def test_select_overview_passages_within_budget_returns_everything_when_it_fits():
+    passages = [_passage(chunk_id=f"chunk-{i}") for i in range(3)]
+
+    selected = llm_client_module._select_overview_passages_within_budget(passages)
+
+    assert selected == passages
+
+
+def test_select_overview_passages_within_budget_samples_across_the_whole_list_when_over_budget(
+    monkeypatch,
+):
+    """Unlike `_select_passages_within_budget`'s tail-drop (correct for a
+    nearest-first relevance-ranked list), an overview's passage list has
+    no relevance ordering -- dropping the tail would silently summarize
+    only the document's first pages. An even stride must keep passages
+    from across the whole list, not just a contiguous prefix."""
+    monkeypatch.setattr(llm_client_module, "_OVERVIEW_MAX_PROMPT_CHARS", 200)
+    passages = [_passage(chunk_id=f"chunk-{i}", text="x" * 50) for i in range(10)]
+
+    selected = llm_client_module._select_overview_passages_within_budget(passages)
+
+    assert 1 <= len(selected) < len(passages)
+    # Not merely a prefix -- the surviving indices must skip ahead rather
+    # than being a contiguous run starting at 0, which is what a stride
+    # sample looks like and a tail-drop-style selection never would.
+    indices = sorted(int(p.chunk_id.split("-")[1]) for p in selected)
+    assert indices != list(range(len(indices)))

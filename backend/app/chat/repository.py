@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import and_, case, delete, desc, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.shared.data_access.tenancy import user_scoped_select
@@ -105,6 +105,64 @@ def get_filenames_for_documents(
     stmt = user_scoped_select(Document, user_id).where(Document.id.in_(parsed_ids))
     rows = db.execute(stmt).scalars().all()
     return {str(row.id): row.filename for row in rows}
+
+
+# Story 3.5: the max number of documents one `document_overview` answer
+# will ever be built from -- one full document's worth of passages already
+# makes for a sizeable prompt (`_OVERVIEW_MAX_PROMPT_CHARS`,
+# `shared/llm_client`); a handful more lets "summarize these two/three
+# reports" work without unbounded latency/cost from a request that scoped
+# (or an empty scope that resolved to) a whole library. Applied uniformly
+# below to both the explicit-scope and empty-scope branches, so
+# `_answer_document_overview`'s caller never has to reason about which
+# branch produced the list it got back.
+MAX_OVERVIEW_DOCUMENTS = 3
+
+
+def get_overview_documents(
+    db: Session, user_id: uuid.UUID, document_ids: list[uuid.UUID]
+) -> list[Document]:
+    """Documents in scope for a `document_overview` chat answer (this
+    story's addition), scoped to this account via `user_scoped_select`
+    (AD-2) same as every other read in this module.
+
+    `document_ids` non-empty (Story 3.3's own scope semantics, reused
+    here): exactly those documents, regardless of status -- `chat/
+    service.py` is the one that decides what an explicitly-scoped
+    not-yet-Ready document means for this intent (today: its
+    `chapter_breakdown` is simply `None`, so it contributes no outline,
+    the same "Pending, never a fabricated 0" rule `Document.
+    chapter_breakdown`'s own docstring states).
+
+    `document_ids` empty: every `Ready` document this account owns --
+    the same "no explicit scope means everything" default `search_
+    passages`/`AskRequest.document_ids` already establish for the
+    factual path, narrowed to `Ready` here because a `chapter_breakdown`
+    only ever exists on a `Ready` row in the first place (see `Document`'s
+    own docstring), so including a not-yet-`Ready` row in the unscoped
+    case would only ever add a document that outlines as empty.
+
+    Capped at `MAX_OVERVIEW_DOCUMENTS`, newest first (`order_by(desc(
+    Document.created_at))`, same ordering `documents/repository.py`'s own
+    `list_documents_for_user` uses) -- deterministic so the same request
+    truncates to the same documents every time, rather than whatever order
+    Postgres happened to return rows in. Applies to both branches: an
+    explicit scope of more than `MAX_OVERVIEW_DOCUMENTS` ids is narrowed
+    the same way an empty scope over a larger library is, so neither
+    branch can build an unbounded prompt.
+
+    `Document.content` is deferred -- this function is read for
+    `filename`/`chapter_breakdown` only, mirroring `list_documents_for_
+    user`'s own reasoning against pulling the raw upload bytes for a
+    card-grid-shaped read.
+    """
+    stmt = user_scoped_select(Document, user_id).options(defer(Document.content))
+    if document_ids:
+        stmt = stmt.where(Document.id.in_(document_ids))
+    else:
+        stmt = stmt.where(Document.status == "Ready")
+    stmt = stmt.order_by(desc(Document.created_at)).limit(MAX_OVERVIEW_DOCUMENTS)
+    return list(db.execute(stmt).scalars().all())
 
 
 def save_message(db: Session, message: ChatMessage) -> ChatMessage:

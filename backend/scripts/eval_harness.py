@@ -586,7 +586,19 @@ def _run_question(
         # comparable. Passed explicitly rather than relying on the
         # default so the statelessness this harness depends on is visible
         # at the call site.
-        response = ask_fn(db, user, question["question"], document_ids, use_history=False)
+        #
+        # `use_router=False` (Story 3.5): same reasoning, one layer up --
+        # `resolve_question` classifies intent and rewrites the retrieval
+        # query, neither of which this harness's fixture questions (all
+        # deliberately factual, all standalone) were calibrated against.
+        # Routing every question through it would add latency for no
+        # measurement benefit, and a misclassified "document_overview"
+        # would bypass RELEVANCE_THRESHOLD entirely -- silently corrupting
+        # SM-2's refusal count. Skipping it keeps every question on the
+        # exact pre-3.5 `factual` path OD-3's baseline was measured on.
+        response = ask_fn(
+            db, user, question["question"], document_ids, use_history=False, use_router=False
+        )
     except Exception as exc:
         if isinstance(exc, HTTPException):
             detail = f"{exc.status_code}: {exc.detail}"

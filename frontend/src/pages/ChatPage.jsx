@@ -705,7 +705,12 @@ function ChatPageContent({ sessionId }) {
                       <div className="mt-1 flex flex-col items-center gap-1.5">
                         <p className="text-[11.5px] font-semibold text-text2">{t('chat.welcome.tryLabel')}</p>
                         <div className="flex flex-wrap justify-center gap-2">
-                          {[t('chat.welcome.sample1'), t('chat.welcome.sample2'), t('chat.welcome.sample3')].map(
+                          {[
+                            t('chat.welcome.sample1'),
+                            t('chat.welcome.sample2'),
+                            t('chat.welcome.sample3'),
+                            t('chat.welcome.sample4'),
+                          ].map(
                             (sample) => (
                               <button
                                 key={sample}
