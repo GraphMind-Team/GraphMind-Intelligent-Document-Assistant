@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -275,6 +275,70 @@ describe('GraphCanvas', () => {
 
       const secondProps = MockForceGraph2D.mock.calls.at(-1)[0]
       secondProps.onEngineStop()
+      expect(mockEngine.d3ReheatSimulation).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('large view (expand/collapse)', () => {
+    it('opens a focused modal dialog and returns focus to the toggle on Escape (UX-DR25)', async () => {
+      const user = userEvent.setup()
+      render(<GraphCanvas graph={GRAPH} />)
+      await screen.findByTestId('force-graph-stub')
+
+      const expandButton = screen.getByRole('button', { name: /show graph larger/i })
+      await user.click(expandButton)
+
+      expect(screen.getByRole('dialog', { name: /show graph larger/i })).toBeInTheDocument()
+      // The toggle button relocates into the dialog (it's also the
+      // dialog's own "collapse" action there) -- it, not some separate
+      // close control, is where focus lands.
+      const collapseButton = screen.getByRole('button', { name: /exit large view/i })
+      expect(collapseButton).toHaveFocus()
+
+      fireEvent.keyDown(document, { key: 'Escape' })
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      // Same button, now back in its inline position -- focus returns to
+      // it rather than being dropped to the document body.
+      expect(screen.getByRole('button', { name: /show graph larger/i })).toHaveFocus()
+    })
+
+    it('traps Tab focus inside the dialog while expanded', async () => {
+      const user = userEvent.setup()
+      render(<GraphCanvas graph={GRAPH} />)
+      await screen.findByTestId('force-graph-stub')
+
+      await user.click(screen.getByRole('button', { name: /show graph larger/i }))
+
+      const dialog = screen.getByRole('dialog')
+      const buttons = within(dialog).getAllByRole('button')
+      const first = buttons[0]
+      const last = buttons[buttons.length - 1]
+      expect(last).toHaveFocus() // the collapse toggle, focused on open, is the toolbar's last button
+
+      fireEvent.keyDown(document, { key: 'Tab' })
+      expect(first).toHaveFocus()
+
+      fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })
+      expect(last).toHaveFocus()
+    })
+
+    it('gives the newly mounted large-view canvas its own fresh auto-recovery allowance', async () => {
+      const user = userEvent.setup()
+      render(<GraphCanvas graph={GRAPH} />)
+      await screen.findByTestId('force-graph-stub')
+
+      // Consumes the small view's one-time reheat allowance.
+      MockForceGraph2D.mock.calls.at(-1)[0].onEngineStop()
+
+      await user.click(screen.getByRole('button', { name: /show graph larger/i }))
+      mockEngine.d3ReheatSimulation.mockClear()
+
+      // Expanding remounts ForceGraph2D onto the dialog's own container --
+      // a brand new simulation instance that must not inherit an
+      // already-spent allowance from the view it replaced.
+      const expandedProps = MockForceGraph2D.mock.calls.at(-1)[0]
+      expandedProps.onEngineStop()
       expect(mockEngine.d3ReheatSimulation).toHaveBeenCalledTimes(1)
     })
   })

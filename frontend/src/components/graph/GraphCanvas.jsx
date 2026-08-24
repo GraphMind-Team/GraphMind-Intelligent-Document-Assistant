@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import ForceGraphKapsule from 'force-graph'
 import fromKapsule from 'react-kapsule'
@@ -57,6 +57,12 @@ const BACKDROP_STYLE = {
   backgroundImage:
     'repeating-linear-gradient(45deg, rgba(255,255,255,0.06) 0px, rgba(255,255,255,0.06) 1px, transparent 1px, transparent 10px)',
 }
+
+// Same UX-DR25 focus-trap selector as FolderModal.jsx/UploadModal.jsx --
+// duplicated for the same reason BACKDROP_STYLE is: those two keep it as
+// their own unexported constant rather than sharing one.
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 // Edge stroke width, in world units like everything else drawn here. v2
 // thins the line so the (also-scaled) label pills and the nodes stay the
 // loudest things on the canvas.
@@ -293,7 +299,13 @@ function truncateToWidth(ctx, text, maxWidth) {
 // forces a fresh measurement exactly when that happens.
 function useContainerWidth(ref, remeasureKey) {
   const [width, setWidth] = useState(0)
-  useEffect(() => {
+  // `useLayoutEffect`, not `useEffect`: on the expand/collapse toggle,
+  // `remeasureKey` (isExpanded) changes in the same commit that swaps
+  // `canvasHeight` to its new value -- a passive effect would let that
+  // commit paint (and `ForceGraph2D` measure itself) with the new height
+  // but the *previous* width for one frame before this ran. Measuring
+  // synchronously before paint keeps both in step.
+  useLayoutEffect(() => {
     const el = ref.current
     if (!el) return undefined
     const measure = () => setWidth(el.clientWidth)
@@ -327,15 +339,65 @@ export default function GraphCanvas({ graph }) {
   const width = useContainerWidth(containerRef, isExpanded)
   const canvasHeight = isExpanded ? EXPANDED_CANVAS_HEIGHT : CANVAS_HEIGHT
 
-  // Escape closes the large view, same as every other dismissible overlay
-  // in this app (FolderModal, UploadModal). Only attached while expanded.
+  const dialogRef = useRef(null)
+  // The one and only trigger for the large view -- unlike FolderModal/
+  // UploadModal (opened from a control that stays put while the dialog is
+  // up), *this* control itself relocates: expanding moves it from the
+  // inline toolbar into the dialog's own toolbar (it doubles as the
+  // dialog's "collapse" action there), and collapsing moves it back.
+  // Because that's a tree-position change, not a style change, React
+  // unmounts and remounts the underlying DOM node rather than keeping the
+  // same one -- so capturing `document.activeElement` up front and
+  // refocusing it later (the usual UX-DR25 pattern) would refocus a
+  // detached node once the button has moved. Re-reading `expandToggleRef`
+  // at focus time instead always reaches whichever instance currently
+  // exists, since refs re-attach to the new node during the same commit
+  // that unmounts the old one, before this effect's cleanup runs.
+  const expandToggleRef = useRef(null)
+
+  // Full UX-DR25 treatment, same as FolderModal.jsx/UploadModal.jsx: focus
+  // moves onto the dialog on open, a Tab-key focus trap keeps it inside
+  // while up, Escape closes it, and focus returns to the trigger on close.
+  // Only attached while expanded.
   useEffect(() => {
     if (!isExpanded) return undefined
+
+    expandToggleRef.current?.focus()
+
     function handleKeyDown(event) {
-      if (event.key === 'Escape') setIsExpanded(false)
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setIsExpanded(false)
+        return
+      }
+      if (event.key !== 'Tab') return
+
+      const node = dialogRef.current
+      if (!node) return
+      const focusable = Array.from(node.querySelectorAll(FOCUSABLE_SELECTOR))
+      if (focusable.length === 0) return
+
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
     }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
+
+    document.addEventListener('keydown', handleKeyDown, true)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown, true)
+      // Deliberately reading `.current` live here, not a value captured
+      // earlier in the effect -- see `expandToggleRef`'s own comment for
+      // why a snapshot would refocus a detached node.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      expandToggleRef.current?.focus()
+    }
   }, [isExpanded])
 
   const palette = paletteFor(theme)
@@ -503,12 +565,17 @@ export default function GraphCanvas({ graph }) {
   // `d3ReheatSimulation()`. This automates exactly that same recovery once,
   // automatically, right after the first natural stop, so a viewer never
   // has to trigger it by hand. Guarded to run once per graph (reset
-  // whenever `graphData` changes) so it can't loop forever chasing its own
-  // `onEngineStop` callback.
+  // whenever `graphData` changes, or whenever `isExpanded` toggles --
+  // expanding/collapsing swaps `canvasBlock` to a different spot in the
+  // tree, which remounts `ForceGraph2D` onto a fresh `containerRef` and
+  // starts an entirely new simulation from scratch at the new size, so
+  // that new instance needs its own fresh allowance rather than inheriting
+  // an already-spent one from the view it replaced) so it can't loop
+  // forever chasing its own `onEngineStop` callback.
   const hasAutoRecoveredRef = useRef(false)
   useEffect(() => {
     hasAutoRecoveredRef.current = false
-  }, [graphData])
+  }, [graphData, isExpanded])
 
   const handleEngineStop = useCallback(() => {
     if (userAdjustedZoomRef.current) return
@@ -742,9 +809,10 @@ export default function GraphCanvas({ graph }) {
   // a backdrop blur keeps the nodes underneath faintly visible, so the
   // pill reads as glass sitting on the canvas rather than a hole cut in
   // it.
-  function ToolbarButton({ onClick, children, color }) {
+  function ToolbarButton({ onClick, children, color, buttonRef }) {
     return (
       <button
+        ref={buttonRef}
         type="button"
         onClick={onClick}
         className="rounded-full px-3 py-1.5 text-sm font-semibold"
@@ -853,7 +921,7 @@ export default function GraphCanvas({ graph }) {
             screen" call. Toggling this swaps which of the two spots below
             renders `canvasBlock`/`legendBlock`, which remounts
             `ForceGraph2D` at the new size and re-fits automatically. */}
-        <ToolbarButton onClick={() => setIsExpanded((expanded) => !expanded)}>
+        <ToolbarButton buttonRef={expandToggleRef} onClick={() => setIsExpanded((expanded) => !expanded)}>
           {isExpanded ? (
             <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
               <path d="M9 3v3a2 2 0 0 1-2 2H4M20 9h-3a2 2 0 0 1-2-2V4M4 15h3a2 2 0 0 1 2 2v3M15 20v-3a2 2 0 0 1 2-2h3" />
@@ -917,6 +985,7 @@ export default function GraphCanvas({ graph }) {
           onClick={() => setIsExpanded(false)}
         >
           <div
+            ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-label={t('graph.canvas.expand')}

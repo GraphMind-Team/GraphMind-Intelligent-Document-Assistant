@@ -2,7 +2,6 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
-import { afterEach, describe, expect, it, vi } from 'vitest'
 import GraphPage from './GraphPage'
 import { useAuth } from '../context/AuthContext'
 import * as graphClient from '../api/graphClient'
@@ -145,6 +144,8 @@ describe('GraphPage', () => {
       renderGraphPage()
       await screen.findByTestId('graph-canvas-stub')
 
+      // Collapsed by default (no presetDocumentId) -- open it first.
+      await user.click(screen.getByRole('button', { name: 'Choose document' }))
       const checkbox = await screen.findByLabelText('Team_Directory.md')
       await user.click(checkbox)
 
@@ -165,6 +166,8 @@ describe('GraphPage', () => {
       renderGraphPage()
       await waitFor(() => expect(getGraphSpy).toHaveBeenCalledTimes(1))
 
+      // Collapsed by default (no presetDocumentId) -- open it first.
+      await user.click(screen.getByRole('button', { name: 'Choose document' }))
       await screen.findByText('Team_Directory.md')
       await user.click(screen.getByRole('button', { name: 'Select all' }))
 
