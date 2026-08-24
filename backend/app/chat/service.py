@@ -264,9 +264,12 @@ def _answer_document_overview(
     query can be to a nearest-match result.
 
     Document selection mirrors `_answer_factual`'s own scoping: an
-    explicit `document_ids` scope means exactly those documents
-    (`repository.get_overview_documents`), an empty scope means every
-    `Ready` document this account owns.
+    explicit `document_ids` scope means exactly those documents, an
+    empty scope means every `Ready` document this account owns --
+    both capped at `repository.MAX_OVERVIEW_DOCUMENTS` (newest first),
+    so neither an over-wide explicit scope nor a large library can build
+    an unbounded prompt (`repository.get_overview_documents`'s own
+    docstring).
     """
     documents = repository.get_overview_documents(db, current_user.id, document_ids)
     if not documents:

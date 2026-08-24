@@ -642,12 +642,14 @@ def test_a_non_connection_error_is_not_retried(monkeypatch):
     collection.query.near_text.assert_called_once()
 
 
-def test_fetch_passages_for_documents_filters_on_user_id_and_document_ids(monkeypatch):
+def test_fetch_passages_for_documents_filters_on_user_id_and_document_id(monkeypatch):
     """Story 3.5's document-overview intent: a `fetch_objects` retrieval
-    (not `near_text`), still tenancy-scoped to `user_id` (AD-2/FR-2) AND
-    narrowed to the requested `document_ids` -- the same combined-filter
-    shape `search_passages`'s own `document_ids` scoping and
-    `delete_passages_for_document` both already use."""
+    (not `near_text`) per requested document, still tenancy-scoped to
+    `user_id` (AD-2/FR-2) AND narrowed to that one document -- an `equal`
+    filter, not `contains_any`, since each call now targets exactly one
+    document (see the per-document split's own docstring for why: a
+    shared cap across a `contains_any` over several documents could
+    starve the later ones)."""
     fake_client, fake_collection = _fake_client(exists=True)
     fake_collection.query.fetch_objects.return_value = MagicMock(
         objects=[_fake_weaviate_object("chunk-0", distance=0.4)]
@@ -664,12 +666,41 @@ def test_fetch_passages_for_documents_filters_on_user_id_and_document_ids(monkey
     assert filters.filters[0].target == "user_id"
     assert filters.filters[0].value == "user-1"
     assert filters.filters[1].target == "document_id"
-    assert filters.filters[1].value == ["doc-1"]
-    assert filters.filters[1].operator == Filter.by_property("document_id").contains_any(["x"]).operator
+    assert filters.filters[1].value == "doc-1"
+    assert filters.filters[1].operator == Filter.by_property("document_id").equal("x").operator
     # No `near_text` call at all -- this is a retrieval, not a search, so
     # there is nothing to embed and nothing scored.
     fake_collection.query.near_text.assert_not_called()
     assert len(results) == 1
+
+
+def test_fetch_passages_for_documents_queries_once_per_document(monkeypatch):
+    """The per-document-cap fix (Story 3.5 follow-up): a shared cap over
+    one `contains_any` query across several documents could legally
+    return N chunks from the first document(s) and nothing at all from
+    the rest, since `fetch_objects` makes no cross-document fairness
+    guarantee. One `fetch_objects` call per document, each under its own
+    `limit_per_document`, is what keeps every requested document
+    contributing its own passages regardless of how many others were
+    requested alongside it."""
+    fake_client, fake_collection = _fake_client(exists=True)
+    fake_collection.query.fetch_objects.side_effect = [
+        MagicMock(objects=[_fake_weaviate_object("chunk-a0", document_id="doc-a", chunk_index=0)]),
+        MagicMock(objects=[_fake_weaviate_object("chunk-b0", document_id="doc-b", chunk_index=0)]),
+    ]
+    monkeypatch.setattr(
+        "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: fake_client
+    )
+
+    results = fetch_passages_for_documents(["doc-a", "doc-b"], "user-1", limit_per_document=1)
+
+    assert fake_collection.query.fetch_objects.call_count == 2
+    calls = fake_collection.query.fetch_objects.call_args_list
+    assert calls[0].kwargs["filters"].filters[1].value == "doc-a"
+    assert calls[0].kwargs["limit"] == 1
+    assert calls[1].kwargs["filters"].filters[1].value == "doc-b"
+    assert calls[1].kwargs["limit"] == 1
+    assert {r.chunk_id for r in results} == {"chunk-a0", "chunk-b0"}
 
 
 def test_fetch_passages_for_documents_results_never_carry_a_distance(monkeypatch):
@@ -695,24 +726,38 @@ def test_fetch_passages_for_documents_results_never_carry_a_distance(monkeypatch
 
 
 def test_fetch_passages_for_documents_sorts_by_document_id_then_chunk_index(monkeypatch):
-    """`fetch_objects` makes no ordering guarantee -- the function must
-    sort client-side rather than trust whatever order the response
-    happened to come back in, so a document-overview prompt reads its
+    """`fetch_objects` makes no ordering guarantee within a single
+    document's response, and each requested document is now its own
+    query -- the function must still sort client-side across all of them
+    (`sort=Sort.by_property("chunk_index")` narrows within one call, but
+    the final `.sort()` below is what makes `(document_id, chunk_index)`
+    the returned order regardless of `document_ids` request order or
+    per-call response order), so a document-overview prompt reads its
     passages in the document's own reading order."""
     fake_client, fake_collection = _fake_client(exists=True)
-    fake_collection.query.fetch_objects.return_value = MagicMock(
-        objects=[
-            _fake_weaviate_object("chunk-b2", document_id="doc-b", chunk_index=2),
-            _fake_weaviate_object("chunk-a0", document_id="doc-a", chunk_index=0),
-            _fake_weaviate_object("chunk-b0", document_id="doc-b", chunk_index=0),
-            _fake_weaviate_object("chunk-a1", document_id="doc-a", chunk_index=1),
-        ]
-    )
+    fake_collection.query.fetch_objects.side_effect = [
+        # doc-b requested first, deliberately out of chunk_index order in
+        # its own response too -- if the per-call `sort=` kwarg or the
+        # final client-side sort were dropped, this would surface as a
+        # wrong result order rather than passing by coincidence.
+        MagicMock(
+            objects=[
+                _fake_weaviate_object("chunk-b2", document_id="doc-b", chunk_index=2),
+                _fake_weaviate_object("chunk-b0", document_id="doc-b", chunk_index=0),
+            ]
+        ),
+        MagicMock(
+            objects=[
+                _fake_weaviate_object("chunk-a1", document_id="doc-a", chunk_index=1),
+                _fake_weaviate_object("chunk-a0", document_id="doc-a", chunk_index=0),
+            ]
+        ),
+    ]
     monkeypatch.setattr(
         "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: fake_client
     )
 
-    results = fetch_passages_for_documents(["doc-a", "doc-b"], "user-1")
+    results = fetch_passages_for_documents(["doc-b", "doc-a"], "user-1")
 
     assert [r.chunk_id for r in results] == ["chunk-a0", "chunk-a1", "chunk-b0", "chunk-b2"]
 

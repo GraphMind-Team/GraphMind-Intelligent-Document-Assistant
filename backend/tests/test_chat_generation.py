@@ -605,6 +605,44 @@ def test_resolve_question_out_of_vocabulary_intent_defaults_to_factual(monkeypat
     assert "out-of-vocabulary intent" in caplog.text
 
 
+def test_resolve_question_unhashable_intent_defaults_to_factual(monkeypatch, caplog):
+    """Regression: `intent not in _ROUTER_ALLOWED_INTENTS` used to be
+    checked before confirming `intent` was even hashable, so a model
+    returning a list/object for `intent` (instead of a string) raised
+    `TypeError` -- not a `_RouterCallError`, so it escaped
+    `resolve_question`'s "never raises" contract and, since
+    `chat/service.py` deliberately has no `try`/`except` around this
+    call, would have 500'd `/chat/ask` instead of degrading to
+    `factual`."""
+    content = json.dumps({"intent": ["factual"], "search_query": "rewritten", "reply": ""})
+    monkeypatch.setattr(
+        llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content=content)
+    )
+
+    with caplog.at_level("WARNING"):
+        plan = resolve_question("some question", [])
+
+    assert plan.intent == "factual"
+    assert plan.search_query == "rewritten"
+    assert "out-of-vocabulary intent" in caplog.text
+
+
+def test_resolve_question_never_raises_on_a_null_content_body(monkeypatch):
+    """Regression: `_parse_and_validate_plan` used to catch only
+    `json.JSONDecodeError`, but a provider that answers with
+    `"content": null` (some free-tier models do, putting their output in
+    a sibling field instead) hands `json.loads` a `None`, which is a
+    `TypeError`, not a decode error -- uncaught, it broke the
+    never-raises contract the same way the two `TypeError`s above did."""
+    monkeypatch.setattr(
+        llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content=None)
+    )
+
+    plan = resolve_question("a question", [])
+
+    assert plan == QuestionPlan(intent="factual", search_query="a question", reply=None)
+
+
 def test_resolve_question_blank_search_query_falls_back_to_the_original_question(monkeypatch):
     monkeypatch.setattr(
         llm_client_module.httpx,
@@ -785,6 +823,32 @@ def test_generate_answer_out_of_vocabulary_kind_defaults_to_grounded(monkeypatch
         {
             "segments": [
                 {"text": "Some text.", "kind": "sarcastic", "passage_numbers": [1]},
+            ]
+        }
+    )
+    monkeypatch.setattr(
+        llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content=content)
+    )
+
+    with caplog.at_level("WARNING"):
+        result = generate_answer("A question?", [_passage()])
+
+    assert result.segments[0].kind == "grounded"
+    assert "out-of-vocabulary kind" in caplog.text
+
+
+def test_generate_answer_unhashable_kind_defaults_to_grounded_instead_of_raising(monkeypatch, caplog):
+    """Regression: `raw_kind in _VALID_SEGMENT_KINDS` used to be checked
+    before confirming `raw_kind` was even hashable, so a model returning
+    a list/object for `kind` (instead of a string) raised `TypeError` --
+    not a `_RetryableChatError`, so it escaped `generate_answer`'s retry
+    loop entirely and surfaced as an unhandled 500 rather than the
+    documented "default to grounded" behaviour every other malformed
+    `kind` value already gets."""
+    content = json.dumps(
+        {
+            "segments": [
+                {"text": "Some text.", "kind": ["grounded"], "passage_numbers": [1]},
             ]
         }
     )

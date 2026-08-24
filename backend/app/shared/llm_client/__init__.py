@@ -930,9 +930,17 @@ def _parse_and_validate_plan(content: str, original_question: str, fallback: Que
     `_parse_and_validate`/`_parse_and_validate_answer`'s "never trust the
     prompt alone" enforcement, just with a fallback value in place of a
     raised error, since `resolve_question` itself never raises."""
+    # `TypeError` alongside `JSONDecodeError`: `content` is whatever
+    # `choices[0].message.content` held, and a provider that answers with
+    # `"content": null` (some free-tier models do, putting their output in
+    # a sibling `reasoning` field) hands `json.loads` a `None`, which is a
+    # `TypeError` rather than a decode error. Uncaught, it would escape
+    # this function's own "never raises" contract -- and `chat/service.py`
+    # deliberately has no `try`/`except` around `resolve_question` -- so a
+    # null body would 500 the request instead of degrading to `factual`.
     try:
         payload = json.loads(content)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, TypeError):
         logger.warning("resolve_question: router returned malformed JSON, falling back to factual")
         return fallback
 
@@ -943,7 +951,12 @@ def _parse_and_validate_plan(content: str, original_question: str, fallback: Que
         return fallback
 
     intent = payload.get("intent")
-    if intent not in _ROUTER_ALLOWED_INTENTS:
+    # `isinstance` first, and not merely for tidiness: a membership test
+    # against a `frozenset` *raises* `TypeError` for an unhashable value
+    # (`["factual"] in frozenset(...)`), it does not evaluate `False`, so a
+    # model that returned a list/object here would break the never-raises
+    # contract above rather than fall through to the default.
+    if not isinstance(intent, str) or intent not in _ROUTER_ALLOWED_INTENTS:
         logger.warning(
             "resolve_question: router returned out-of-vocabulary intent %r, defaulting to factual",
             intent,
@@ -1445,8 +1458,16 @@ def _parse_and_validate_answer(content: str, passage_count: int) -> list[AnswerS
         if not isinstance(raw_numbers, list):
             logger.warning("Dropping answer segment with non-list passage_numbers: %r", item)
             continue
-        kind = raw_kind if raw_kind in _VALID_SEGMENT_KINDS else "grounded"
-        if raw_kind not in _VALID_SEGMENT_KINDS:
+        # `isinstance` first, same reason as `_parse_and_validate_plan`'s
+        # own intent check: `{...} in frozenset(...)` raises `TypeError`
+        # for an unhashable value instead of returning `False`, and that
+        # error is not a `_RetryableChatError`, so it would escape
+        # `generate_answer`'s retry loop and `chat/service.py`'s
+        # `ChatCompletionError` handler alike -- a 500 where this loop's
+        # every other field check merely drops the segment.
+        valid_kind = isinstance(raw_kind, str) and raw_kind in _VALID_SEGMENT_KINDS
+        kind = raw_kind if valid_kind else "grounded"
+        if not valid_kind:
             logger.warning(
                 "Answer segment had out-of-vocabulary kind %r, defaulting to 'grounded': %r",
                 raw_kind,
