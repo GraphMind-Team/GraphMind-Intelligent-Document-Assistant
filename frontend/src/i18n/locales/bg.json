@@ -329,7 +329,9 @@
       "filterLabel": "Филтриране на документи в обхвата",
       "filterPlaceholder": "Търсене…",
       "selectAll": "Избери всички",
-      "notAvailableYet": "{{filename}} — все още не е наличен ({{status}})"
+      "notAvailableYet": "{{filename}} — все още не е наличен ({{status}})",
+      "selectAria": "Избери {{filename}}",
+      "previewAria": "Прегледай {{filename}}"
     },
     "scopeChip": {
       "label_one": "Питаш в {{count}} документ",

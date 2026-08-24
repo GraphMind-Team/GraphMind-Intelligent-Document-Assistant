@@ -329,7 +329,9 @@
       "filterLabel": "Dokumente im Umfang filtern",
       "filterPlaceholder": "Suchen…",
       "selectAll": "Alle auswählen",
-      "notAvailableYet": "{{filename}} — noch nicht verfügbar ({{status}})"
+      "notAvailableYet": "{{filename}} — noch nicht verfügbar ({{status}})",
+      "selectAria": "{{filename}} auswählen",
+      "previewAria": "{{filename}} als Vorschau anzeigen"
     },
     "scopeChip": {
       "label_one": "Du fragst in {{count}} Dokument",
