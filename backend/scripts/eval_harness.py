@@ -58,6 +58,7 @@ from fastapi import HTTPException
 from app.auth.repository import get_user_by_email
 from app.chat.schemas import AskResponse
 from app.chat.service import ask_question
+from app.chat.sessions_service import create_session
 from app.documents import service as documents_service
 from app.shared.data_access.session import get_session_factory
 from app.shared.data_access.weaviate_client import TOP_K_PASSAGES
@@ -530,6 +531,7 @@ def _run_question(
     user: User,
     question: dict,
     document_ids_by_filename: dict[str, uuid.UUID],
+    chat_session_id: uuid.UUID,
     *,
     ask_fn=ask_question,
 ) -> QuestionRunResult:
@@ -564,6 +566,17 @@ def _run_question(
     live-service flake -- so it's translated into a clear
     `EvalHarnessError` and allowed to abort the run, same as any other
     setup-time problem.
+
+    `chat_session_id` is the `ChatSession` this question's turn is
+    persisted against (multi-session chat). Created by the caller, one
+    per question, alongside the per-question DB session -- not reused
+    across the run, and not created here: this function's job is to run
+    and classify one question, not to provision the resources it needs
+    (the same reason `document_ids_by_filename` arrives ready-made). A
+    per-question session also makes this harness's statelessness
+    structural -- there is no shared conversation for a future change to
+    read back -- rather than resting solely on the `use_history=False`
+    flag below.
     """
     try:
         for filename in question["document_filenames"]:
@@ -597,7 +610,13 @@ def _run_question(
         # SM-2's refusal count. Skipping it keeps every question on the
         # exact pre-3.5 `factual` path OD-3's baseline was measured on.
         response = ask_fn(
-            db, user, question["question"], document_ids, use_history=False, use_router=False
+            db,
+            user,
+            chat_session_id,
+            question["question"],
+            document_ids,
+            use_history=False,
+            use_router=False,
         )
     except Exception as exc:
         if isinstance(exc, HTTPException):
@@ -797,7 +816,18 @@ def _run() -> None:
         db = session_factory()
         try:
             question_user = _resolve_qa_user(db)
-            result = _run_question(db, question_user, question, document_ids_by_filename)
+            # One fresh `ChatSession` per question, on this question's own
+            # DB session (multi-session chat): `ask_question` persists its
+            # turn against a session, and reusing one across the run would
+            # build exactly the shared conversation `use_history=False`
+            # exists to keep out of the measurement. These rows accumulate
+            # on the QA account across runs, the same way the
+            # `chat_messages` rows they hold already do -- see this
+            # module's own "Known limitation" note.
+            chat_session = create_session(db, question_user)
+            result = _run_question(
+                db, question_user, question, document_ids_by_filename, chat_session.id
+            )
         finally:
             _safe_close(db)
         results.append(result)
