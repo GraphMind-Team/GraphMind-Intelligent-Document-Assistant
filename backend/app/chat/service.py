@@ -544,8 +544,11 @@ def _finish(
     #3): `sessions_repository.touch_session` bumps `session.updated_at`
     unconditionally and sets `session.title` from `question` only the
     first time, while it's still `None` -- see that function's own
-    docstring. Passing `question` itself (not a pre-truncated slice) here
-    keeps the 80-character truncation decision in one place.
+    docstring. Truncates via `sessions_repository.derive_title` rather
+    than a local `[:80].strip()` -- that's the one place the truncation
+    length is defined, which is also what lets `edit_message` below
+    recognize a still-auto-titled session without duplicating the same
+    literal.
 
     `repository.save_message` flushes but never commits -- `get_db_session`
     (shared/data_access) doesn't auto-commit, so this function commits once
@@ -572,7 +575,7 @@ def _finish(
             empty_reason=response.empty_reason,
         ),
     )
-    sessions_repository.touch_session(db, session, title=question[:80].strip() or None)
+    sessions_repository.touch_session(db, session, title=sessions_repository.derive_title(question))
     db.commit()
     response.message_id = assistant_message.id
     response.user_message_id = user_message.id
@@ -699,12 +702,37 @@ def edit_message(
 
     Reuses `ask_question` entirely unchanged for the actual retrieval/
     generation/persistence work, rather than a second, parallel code
-    path: once the trailing rows are gone and committed,
-    `ask_question`'s own history fetch (`repository
-    .get_recent_turn_messages`) naturally sees the truncated conversation,
-    so an edited question behaves exactly like a brand-new one asked at
-    that point -- not a special case that could quietly drift from
-    `ask_question`'s own retrieval/refusal/generation/503 behavior.
+    path: once the trailing rows are deleted, `ask_question`'s own
+    history fetch (`repository.get_recent_turn_messages`) naturally sees
+    the truncated conversation, so an edited question behaves exactly
+    like a brand-new one asked at that point -- not a special case that
+    could quietly drift from `ask_question`'s own retrieval/refusal/
+    generation/503 behavior.
+
+    Deliberately does *not* commit the delete before re-asking. The
+    delete is emitted into this request's open transaction, so every read
+    below (including `ask_question`'s history fetch) already sees the
+    truncated conversation -- committing here would buy nothing except an
+    unrecoverable loss: if generation then fails, `ask_question` raises
+    503 *after* the user's question and every following turn are already
+    gone for good. Left uncommitted, `_finish` commits the delete and the
+    new turn together, and anything that raises on the way there is
+    rolled back explicitly below -- the edited-from conversation survives
+    intact.
+
+    The rollback is explicit rather than left to `get_db_session`'s own
+    `db.close()` (which would also discard the uncommitted delete): this
+    is the one guarantee this function exists to make, and it should not
+    depend on which caller's session-teardown happens to run.
+
+    Re-titling: if the edited question was the session's *first* message,
+    the session's auto-title still reads the old text, and
+    `sessions_repository.touch_session` only titles while `title` is
+    `None`. Clearing it here (only when nothing precedes the edited
+    message, and only while the title still matches
+    `sessions_repository.derive_title` of the *old* question text -- a
+    user's own rename is never thrown away) lets `_finish` re-derive the
+    title from the edited question through that one existing code path.
 
     404s -- not 403 -- on a foreign/nonexistent session id (via
     `sessions_service.get_session`, same as `ask_question`) or message id,
@@ -718,7 +746,18 @@ def edit_message(
     if message is None or message.session_id != session.id or message.role != "user":
         raise HTTPException(status_code=404, detail="Chat message not found.")
 
-    repository.delete_messages_from(db, current_user.id, session_id, message)
-    db.commit()
+    was_first_message = repository.count_messages_before(db, current_user.id, session_id, message) == 0
+    was_auto_titled = session.title == sessions_repository.derive_title(message.question)
+    clears_title = was_first_message and was_auto_titled
 
-    return ask_question(db, current_user, session_id, question, document_ids)
+    repository.delete_messages_from(db, current_user.id, session_id, message)
+    if clears_title:
+        session.title = None
+
+    try:
+        response = ask_question(db, current_user, session_id, question, document_ids)
+    except Exception:
+        db.rollback()
+        raise
+    response.session_retitled = clears_title
+    return response

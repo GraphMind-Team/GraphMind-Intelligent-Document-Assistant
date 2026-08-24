@@ -1256,7 +1256,6 @@ def test_ask_does_not_thread_another_sessions_history(client, db_session, monkey
         client, full_name="Maria", email="maria-chat-history-isolation@example.com", password="password12345"
     )
     other_session_id = _create_session_id(client, token)
-    session_id = _create_session_id(client, token)
     user_id = uuid.UUID(client.get("/auth/me", headers=_auth_headers(token)).json()["id"])
     _seed_turn(
         db_session,
@@ -1266,6 +1265,11 @@ def test_ask_does_not_thread_another_sessions_history(client, db_session, monkey
         answer_text="TechCorp is the vendor.",
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
+    # Created only after the other session has messages: an empty,
+    # untitled session is reused rather than duplicated
+    # (`sessions_service.create_session`), so creating both up front
+    # would hand back one id twice and quietly defeat this test.
+    session_id = _create_session_id(client, token)
     captured = {}
 
     def _capturing_search(query_text, *a, **k):

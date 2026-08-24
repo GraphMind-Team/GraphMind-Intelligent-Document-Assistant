@@ -126,6 +126,19 @@ class AskResponse(BaseModel):
     # reloaded/older turn never shows suggestions again, only the turn just
     # answered live -- the same ChatGPT convention this mirrors.
     followup_questions: list[str] = Field(default_factory=list)
+    # `True` only when this turn came from `chat/service.py::edit_message`
+    # *and* that edit just cleared the session's auto-title (editing the
+    # session's first question -- see that function's own docstring).
+    # Always `False` for a plain `ask_question` turn. Exists so the
+    # frontend (`ChatPage.jsx::handleEditMessage`) knows whether to
+    # refetch the sessions list without guessing from its own locally
+    # loaded message array, which -- unlike this flag -- has no reliable
+    # way to tell "the edited message was at local index 0" apart from
+    # "the edited message was at index 0 of a page, with older history
+    # not loaded yet, so the session's real first message is off-screen."
+    # Only the backend, which already computed this exact fact via
+    # `repository.count_messages_before`, can answer that correctly.
+    session_retitled: bool = False
 
 
 class ChatHistoryMessageResponse(BaseModel):

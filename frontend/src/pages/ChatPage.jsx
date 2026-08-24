@@ -563,6 +563,14 @@ function ChatPageContent({ sessionId }) {
 
     hasSubmittedLiveQuestionRef.current = true
     setLiveAnnouncementsEnabled(true)
+    // Captured before the optimistic truncation below so a failed edit can
+    // put the thread back exactly as it was. The backend keeps its own
+    // delete uncommitted until the new turn succeeds
+    // (chat/service.py::edit_message), so on failure the server still has
+    // every message this truncation just hid -- restoring here keeps the
+    // two ends in agreement instead of leaving the user staring at a
+    // conversation that only *looks* destroyed.
+    const previousMessages = messages
     const userMessage = { role: 'user', id: null, text: trimmed }
     setMessages((previous) => [...previous.slice(0, index), userMessage])
     setIsAsking(true)
@@ -570,8 +578,22 @@ function ChatPageContent({ sessionId }) {
 
     try {
       const result = await editMessage(authFetch, sessionId, messageId, trimmed, selectedDocumentIds)
+      if (result.session_retitled) {
+        // `session_retitled` -- not local `index === 0` -- because index
+        // is a position in whatever page of history happens to be loaded
+        // so far, not in the session's full history: with older pages
+        // not yet loaded (`hasMoreHistory`), the edited message can sit
+        // at local index 0 without being the session's actual first
+        // message, which would fire an unnecessary refetch, and
+        // conversely the true first message might not even be the one
+        // being edited. `chat/service.py::edit_message` already computed
+        // the real answer (`count_messages_before`) and reports it back
+        // here. Fire-and-forget, same as submitQuestion's.
+        refreshSessions()
+      }
       applyTurnResult(userMessage, result)
     } catch (err) {
+      setMessages(previousMessages)
       setError({ kind: err.isServiceError ? 'service' : 'other', message: err.message })
     } finally {
       setIsAsking(false)

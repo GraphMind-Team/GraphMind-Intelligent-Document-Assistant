@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useRef, useState } from 'react'
+import { forwardRef, useEffect, useId, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import highlightMatches from './highlightMatches'
 
@@ -29,6 +29,11 @@ const UserMessage = forwardRef(function UserMessage(
   const [draft, setDraft] = useState(text)
   const [isCopied, setIsCopied] = useState(false)
   const textareaRef = useRef(null)
+  // Per-instance, not a fixed string: nothing stops two messages being in
+  // edit mode at the same time (each bubble owns its own `isEditing`), and
+  // duplicate ids would point both labels' `htmlFor` at whichever textarea
+  // the document happens to hold first.
+  const textareaId = useId()
   const copyTimerRef = useRef(null)
   const activeMatchClass = isActiveMatch ? ' outline outline-2 outline-accent outline-offset-2' : ''
 
@@ -94,11 +99,11 @@ const UserMessage = forwardRef(function UserMessage(
   if (isEditing) {
     return (
       <div ref={ref} className="anim-rise ml-auto flex max-w-[70%] flex-col items-end gap-1.5 self-end">
-        <label htmlFor="edit-user-message" className="sr-only">
+        <label htmlFor={textareaId} className="sr-only">
           {t('chat.userMessage.editLabel')}
         </label>
         <textarea
-          id="edit-user-message"
+          id={textareaId}
           ref={textareaRef}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}

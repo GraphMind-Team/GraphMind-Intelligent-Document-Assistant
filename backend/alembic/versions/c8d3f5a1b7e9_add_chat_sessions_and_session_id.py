@@ -54,6 +54,8 @@ def upgrade() -> None:
         sa.column('id', sa.Uuid()),
         sa.column('user_id', sa.Uuid()),
         sa.column('session_id', sa.Uuid()),
+        sa.column('role', sa.String()),
+        sa.column('question', sa.String()),
         sa.column('created_at', sa.DateTime(timezone=True)),
     )
     chat_sessions = sa.table(
@@ -73,11 +75,33 @@ def upgrade() -> None:
     ).fetchall()
     for row in per_user_bounds:
         session_id = uuid.uuid4()
+        # Titled the same way a live session is: from its own first
+        # question, truncated the same way `sessions_repository
+        # .derive_title` truncates a live auto-title. Leaving it NULL
+        # would show every pre-migration conversation as "New chat" in
+        # the sidebar *and* leave it eligible for auto-titling, so the
+        # next question asked in an old conversation would silently
+        # become its title.
+        #
+        # The `[:80]` below is a deliberate duplicate of `derive_title`'s
+        # own truncation, not a call to it: migrations in this project
+        # never import `app.*` (nothing else in this file does either),
+        # since a later refactor of that application code must not be
+        # able to silently change what an already-applied migration did.
+        # If `MAX_AUTO_TITLE_LENGTH` (`chat/sessions_repository.py`) ever
+        # changes, this literal is intentionally left as-is.
+        first_question = connection.execute(
+            sa.select(chat_messages.c.question)
+            .where(chat_messages.c.user_id == row.user_id, chat_messages.c.role == 'user')
+            .order_by(chat_messages.c.created_at, chat_messages.c.id)
+            .limit(1)
+        ).scalar()
+        title = (first_question or '')[:80].strip() or None
         connection.execute(
             chat_sessions.insert().values(
                 id=session_id,
                 user_id=row.user_id,
-                title=None,
+                title=title,
                 created_at=row.first_created_at,
                 updated_at=row.last_created_at,
             )
@@ -100,9 +124,15 @@ def upgrade() -> None:
         ['session_id', 'created_at', 'role', 'id'],
         unique=False,
     )
+    # The dropped index above was `user_id`-led, so it also served
+    # `chat/repository.py::delete_all_messages_for_user`'s `user_id`-only
+    # filter (account deletion). The replacement is `session_id`-led and
+    # cannot; this keeps that one query off a sequential scan.
+    op.create_index('ix_chat_messages_user_id', 'chat_messages', ['user_id'], unique=False)
 
 
 def downgrade() -> None:
+    op.drop_index('ix_chat_messages_user_id', table_name='chat_messages')
     op.drop_index('ix_chat_messages_session_id_created_at_role_id', table_name='chat_messages')
     op.create_index(
         'ix_chat_messages_user_id_created_at_role_id',

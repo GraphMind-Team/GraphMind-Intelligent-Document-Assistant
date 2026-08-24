@@ -227,11 +227,13 @@ class ChatMessage(Base):
     belongs to -- every real query (`chat/repository.py`'s
     `get_recent_turn_messages`/`list_messages_for_user`) filters on it
     first, then sorts on `(created_at, role, id)`; see the composite index
-    in `__table_args__` below. `user_id` is kept as a plain, unindexed-on-
-    its-own column purely for `delete_all_messages_for_user`'s
-    account-deletion bulk delete -- a session's own ownership (checked via
-    `chat_sessions.user_id` before any message query ever runs) is what
-    actually proves a message row is this user's.
+    in `__table_args__` below. `user_id` carries its own single-column
+    index purely for `delete_all_messages_for_user`'s account-deletion
+    bulk delete, which filters on `user_id` alone and would otherwise be
+    a sequential scan now that the composite index is `session_id`-led --
+    a session's own ownership (checked via `chat_sessions.user_id` before
+    any message query ever runs) is still what actually proves a message
+    row is this user's.
 
     Two disjoint row shapes, both fitting this one table (mirrors
     `AskResponse`'s own "answer OR empty_reason" duality rather than a
@@ -285,4 +287,10 @@ class ChatMessage(Base):
         # of the `created_at` ordering, which is the part that actually
         # grows with conversation length).
         Index("ix_chat_messages_session_id_created_at_role_id", "session_id", "created_at", "role", "id"),
+        # `delete_all_messages_for_user` (account deletion) is the one
+        # query that filters on `user_id` and nothing else; the composite
+        # index above is `session_id`-led, so it can't serve that filter
+        # at all. Cheap to carry, and the alternative is a full table
+        # scan over every account's messages on every account deletion.
+        Index("ix_chat_messages_user_id", "user_id"),
     )

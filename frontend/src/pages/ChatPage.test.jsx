@@ -20,12 +20,21 @@ vi.mock('../components/chat/ChatSessionsPanel', () => ({
   default: () => <div>sessions panel stub</div>,
 }))
 // ChatPage itself now also calls useChatSessions() directly (to refresh
-// the sessions list once the first turn's auto-title lands) -- same
-// "no ChatSessionsProvider ancestor here" reason as the panel mock above.
-vi.mock('../context/ChatSessionsContext', () => ({ useChatSessions: () => ({ refresh: vi.fn() }) }))
+// the sessions list once the first turn's auto-title lands, or once an
+// edit retitles the session) -- same "no ChatSessionsProvider ancestor
+// here" reason as the panel mock above.
+//
+// `vi.hoisted` so the same mock function instance backs every render in
+// every test in this file (the `vi.mock` factory below is hoisted above
+// this import block and can't close over a later `const`) -- tests that
+// need to assert on calls grab it directly, rather than each test
+// re-mocking the module.
+const { refreshSessionsMock } = vi.hoisted(() => ({ refreshSessionsMock: vi.fn() }))
+vi.mock('../context/ChatSessionsContext', () => ({ useChatSessions: () => ({ refresh: refreshSessionsMock }) }))
 
 afterEach(() => {
   vi.restoreAllMocks()
+  refreshSessionsMock.mockClear()
 })
 
 // Renders at a real, matched `/chat/:sessionId` route (mirrors how
@@ -514,6 +523,78 @@ describe('ChatPage editing a past question', () => {
     expect(screen.queryByText('The refund window is 30 days.', { exact: false })).not.toBeInTheDocument()
     expect(screen.queryByText('What is the warranty period?')).not.toBeInTheDocument()
     expect(screen.queryByText('The warranty is one year.', { exact: false })).not.toBeInTheDocument()
+  })
+
+  it('refreshes the sessions panel when the backend reports the edit retitled the session', async () => {
+    // `session_retitled` comes straight from the backend
+    // (chat/service.py::edit_message, which already knows whether the
+    // edited message was the session's true first message via
+    // `count_messages_before`) -- not inferred from local array position,
+    // which can't tell "index 0" apart from "index 0 of a page, with
+    // older history not yet loaded".
+    renderChatPage({ historyPage: HISTORY_TWO_TURNS })
+    await screen.findByText('What is the warranty period?')
+    vi.spyOn(chatClient, 'editMessage').mockResolvedValue({
+      message_id: 'assistant-msg-new',
+      user_message_id: 'user-msg-new',
+      segments: [{ text: 'The refund window is 60 days.', citations: [] }],
+      empty_reason: null,
+      followup_questions: [],
+      session_retitled: true,
+    })
+    const user = userEvent.setup()
+
+    await user.click(screen.getAllByRole('button', { name: 'Edit your message' })[0])
+    const textarea = screen.getByRole('textbox', { name: 'Edit your message' })
+    await user.clear(textarea)
+    await user.type(textarea, 'What is the refund window, exactly?{Enter}')
+
+    await waitFor(() => expect(refreshSessionsMock).toHaveBeenCalled())
+  })
+
+  it('does not refresh the sessions panel when the edit did not retitle the session', async () => {
+    renderChatPage({ historyPage: HISTORY_TWO_TURNS })
+    await screen.findByText('What is the warranty period?')
+    vi.spyOn(chatClient, 'editMessage').mockResolvedValue({
+      message_id: 'assistant-msg-new',
+      user_message_id: 'user-msg-new',
+      segments: [{ text: 'One year and a half.', citations: [] }],
+      empty_reason: null,
+      followup_questions: [],
+      session_retitled: false,
+    })
+    const user = userEvent.setup()
+
+    // The *second* (non-first) message -- editing it never touches the title.
+    await user.click(screen.getAllByRole('button', { name: 'Edit your message' })[1])
+    const textarea = screen.getByRole('textbox', { name: 'Edit your message' })
+    await user.clear(textarea)
+    await user.type(textarea, 'What is the warranty period, exactly?{Enter}')
+
+    await screen.findByText('One year and a half.', { exact: false })
+    expect(refreshSessionsMock).not.toHaveBeenCalled()
+  })
+
+  it('restores the whole thread when the edit fails', async () => {
+    // The optimistic truncation is a view of a delete the backend keeps
+    // uncommitted until the re-ask succeeds (chat/service.py::edit_message),
+    // so a failure must put the thread back rather than leave the user
+    // looking at a conversation that only appears destroyed.
+    renderChatPage({ historyPage: HISTORY_TWO_TURNS })
+    await screen.findByText('What is the warranty period?')
+    vi.spyOn(chatClient, 'editMessage').mockRejectedValue(new Error('Something went wrong.'))
+    const user = userEvent.setup()
+
+    await user.click(screen.getAllByRole('button', { name: 'Edit your message' })[0])
+    const textarea = screen.getByRole('textbox', { name: 'Edit your message' })
+    await user.clear(textarea)
+    await user.type(textarea, 'What is the refund window, exactly?{Enter}')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Something went wrong.')
+    expect(screen.getByText('What is the refund window?')).toBeInTheDocument()
+    expect(screen.getByText('The refund window is 30 days.', { exact: false })).toBeInTheDocument()
+    expect(screen.getByText('What is the warranty period?')).toBeInTheDocument()
+    expect(screen.queryByText('What is the refund window, exactly?')).not.toBeInTheDocument()
   })
 
   it('Cancel leaves the thread untouched and never calls the backend', async () => {
