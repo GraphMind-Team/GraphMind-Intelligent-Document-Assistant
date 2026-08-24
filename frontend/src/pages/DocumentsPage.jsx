@@ -35,6 +35,8 @@ const TYPE_FILTER_OPTIONS = [
   { value: 'pdf', key: 'pdf' },
   { value: 'markdown', key: 'markdown' },
   { value: 'html', key: 'html' },
+  { value: 'docx', key: 'docx' },
+  { value: 'pptx', key: 'pptx' },
 ]
 
 function byMostRecent(a, b) {

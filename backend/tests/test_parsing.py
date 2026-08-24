@@ -2,8 +2,30 @@
 that don't need the full upload/ingest flow to reproduce or pin down.
 """
 
+import io
+
+import pytest
+from docx import Document as DocxDocument
+from pptx import Presentation
+
 from app.documents import parsing
-from app.documents.parsing import parse_document
+from app.documents.parsing import UnparseableDocument, parse_document
+
+
+def _docx_bytes(build) -> bytes:
+    document = DocxDocument()
+    build(document)
+    buffer = io.BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+def _pptx_bytes(build) -> bytes:
+    presentation = Presentation()
+    build(presentation)
+    buffer = io.BytesIO()
+    presentation.save(buffer)
+    return buffer.getvalue()
 
 _MINIMAL_PDF_WITH_PREAMBLE = b"""%PDF-1.4
 1 0 obj<< /Type /Catalog /Pages 2 0 R /Outlines 6 0 R >>endobj
@@ -111,6 +133,72 @@ def test_markdown_heading_inside_a_code_fence_is_not_treated_as_a_chapter():
     chapters = {c.chapter for c in chunks}
     assert chapters == {"Real Heading", "Another Real Heading"}
     assert "install deps" not in chapters
+
+
+# ---------------------------------------------------------------------------
+# DOCX / PPTX.
+# ---------------------------------------------------------------------------
+
+
+def test_docx_headings_become_chapters():
+    def build(document):
+        document.add_paragraph("Intro before any heading.")
+        document.add_heading("Chapter One", level=1)
+        document.add_paragraph("Body of chapter one.")
+        document.add_heading("Chapter Two", level=2)
+        document.add_paragraph("Body of chapter two.")
+
+    chunks = parse_document("docx", _docx_bytes(build))
+
+    assert {c.chapter for c in chunks} == {"Full Document", "Chapter One", "Chapter Two"}
+    chapter_one_chunk = next(c for c in chunks if c.chapter == "Chapter One")
+    assert "Body of chapter one." in chapter_one_chunk.text
+    chapter_two_chunk = next(c for c in chunks if c.chapter == "Chapter Two")
+    assert "Body of chapter two." in chapter_two_chunk.text
+
+
+def test_docx_with_no_headings_has_single_full_document_chapter():
+    def build(document):
+        document.add_paragraph("Just a plain paragraph.")
+
+    chunks = parse_document("docx", _docx_bytes(build))
+
+    assert {c.chapter for c in chunks} == {"Full Document"}
+
+
+def test_docx_unparseable_bytes_raise():
+    with pytest.raises(UnparseableDocument):
+        parse_document("docx", b"not a real docx file")
+
+
+def test_pptx_slide_title_becomes_chapter_and_is_not_duplicated_into_body():
+    def build(presentation):
+        slide = presentation.slides.add_slide(presentation.slide_layouts[0])
+        slide.shapes.title.text = "Welcome Slide"
+        slide.placeholders[1].text = "Subtitle body text."
+
+    chunks = parse_document("pptx", _pptx_bytes(build))
+
+    assert {c.chapter for c in chunks} == {"Welcome Slide"}
+    assert any("Subtitle body text." in c.text for c in chunks)
+    assert not any("Welcome Slide" in c.text for c in chunks)
+
+
+def test_pptx_slide_without_title_gets_generated_chapter_name():
+    def build(presentation):
+        slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+        textbox = slide.shapes.add_textbox(0, 0, 100, 100)
+        textbox.text_frame.text = "Body text with no title placeholder."
+
+    chunks = parse_document("pptx", _pptx_bytes(build))
+
+    assert {c.chapter for c in chunks} == {"Slide 1"}
+    assert any("Body text with no title placeholder." in c.text for c in chunks)
+
+
+def test_pptx_unparseable_bytes_raise():
+    with pytest.raises(UnparseableDocument):
+        parse_document("pptx", b"not a real pptx file")
 
 
 # ---------------------------------------------------------------------------

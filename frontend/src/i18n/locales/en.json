@@ -183,7 +183,9 @@
       "all": "Filter: All types",
       "pdf": "PDF",
       "markdown": "Markdown",
-      "html": "HTML"
+      "html": "HTML",
+      "docx": "Word",
+      "pptx": "PowerPoint"
     },
     "search": {
       "label": "Search documents by name",

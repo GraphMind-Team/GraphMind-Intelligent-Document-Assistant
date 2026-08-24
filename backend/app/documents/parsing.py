@@ -18,6 +18,8 @@ from dataclasses import dataclass
 
 from bs4 import BeautifulSoup, NavigableString
 from bs4.element import PreformattedString
+from docx import Document as DocxDocument
+from pptx import Presentation
 from pypdf import PdfReader
 
 # ~250 words per chunk with a ~40-word overlap between consecutive chunks
@@ -104,6 +106,10 @@ def parse_document(file_type: str, content: bytes) -> list[ParsedChunk]:
         chapters = _parse_markdown(content)
     elif file_type == "html":
         chapters = _parse_html(content)
+    elif file_type == "docx":
+        chapters = _parse_docx(content)
+    elif file_type == "pptx":
+        chapters = _parse_pptx(content)
     else:
         raise UnparseableDocument(f"Unsupported file_type: {file_type!r}")
 
@@ -229,6 +235,87 @@ def _parse_html(content: bytes) -> list[tuple[str, str]]:
         chapters.append((current_title, current_parts))
 
     return [(title, " ".join(parts)) for title, parts in chapters]
+
+
+# --- DOCX -----------------------------------------------------------------
+
+# Word's built-in styles for section headings. A localized/renamed Word
+# install can produce different `style.name` strings, in which case a
+# document just falls back to reading as a single "Full Document" chapter
+# (the same degraded-but-not-broken outcome as a PDF with no outline) --
+# not treated as a parse failure.
+_DOCX_HEADING_STYLES = {"Title", "Heading 1", "Heading 2", "Heading 3"}
+
+
+def _parse_docx(content: bytes) -> list[tuple[str, str]]:
+    try:
+        document = DocxDocument(io.BytesIO(content))
+    except Exception as exc:
+        raise UnparseableDocument("Could not parse DOCX.") from exc
+
+    chapters: list[tuple[str, list[str]]] = []
+    current_title = _FULL_DOCUMENT_CHAPTER
+    current_parts: list[str] = []
+
+    for paragraph in document.paragraphs:
+        text = paragraph.text.strip()
+        if not text:
+            continue
+        style_name = paragraph.style.name if paragraph.style is not None else None
+        if style_name in _DOCX_HEADING_STYLES:
+            if current_parts:
+                chapters.append((current_title, current_parts))
+            current_title = text
+            current_parts = []
+        else:
+            current_parts.append(text)
+
+    if current_parts:
+        chapters.append((current_title, current_parts))
+
+    # Only `document.paragraphs` (top-level body text) is read -- text
+    # inside tables isn't visited, the same simplification the HTML parser
+    # doesn't need to make but the PDF parser effectively also has (tables
+    # extract as whatever pypdf's positional text happens to produce).
+    return [(title, "\n".join(parts)) for title, parts in chapters]
+
+
+# --- PPTX -----------------------------------------------------------------
+
+
+def _parse_pptx(content: bytes) -> list[tuple[str, str]]:
+    try:
+        presentation = Presentation(io.BytesIO(content))
+    except Exception as exc:
+        raise UnparseableDocument("Could not parse PPTX.") from exc
+
+    chapters: list[tuple[str, str]] = []
+    for index, slide in enumerate(presentation.slides, start=1):
+        title_shape = slide.shapes.title
+        title_text = (
+            title_shape.text_frame.text.strip()
+            if title_shape is not None and title_shape.has_text_frame
+            else ""
+        )
+
+        parts: list[str] = []
+        for shape in slide.shapes:
+            # Identified by placeholder idx, not `shape is title_shape`:
+            # `slide.shapes` builds a fresh wrapper object on every
+            # iteration, so an identity check against `title_shape` (built
+            # by a separate `.title` lookup above) would never match even
+            # for the same underlying slide element.
+            if shape.is_placeholder and shape.placeholder_format.idx == 0:
+                continue
+            if not shape.has_text_frame:
+                continue
+            text = shape.text_frame.text.strip()
+            if text:
+                parts.append(text)
+
+        chapters.append((title_text or f"Slide {index}", "\n".join(parts)))
+
+    return chapters
 
 
 # --- PDF ------------------------------------------------------------------

@@ -10,6 +10,8 @@ export const FILE_TYPE_LABELS = {
   pdf: 'PDF',
   markdown: 'Markdown',
   html: 'HTML',
+  docx: 'Word',
+  pptx: 'PowerPoint',
 }
 
 // Falls back to the raw stored value rather than hiding it: a `file_type`
@@ -27,6 +29,8 @@ const SHORT_FILE_TYPE_LABELS = {
   pdf: 'PDF',
   markdown: 'MD',
   html: 'HTML',
+  docx: 'DOCX',
+  pptx: 'PPTX',
 }
 
 export function formatFileTypeShort(fileType) {
