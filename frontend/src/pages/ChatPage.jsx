@@ -578,11 +578,17 @@ function ChatPageContent({ sessionId }) {
 
     try {
       const result = await editMessage(authFetch, sessionId, messageId, trimmed, selectedDocumentIds)
-      if (index === 0) {
-        // Editing the very first question re-derives the session's
-        // auto-title from the new text (chat/service.py::edit_message),
-        // so the panel would otherwise keep showing a question that no
-        // longer exists. Fire-and-forget, same as submitQuestion's.
+      if (result.session_retitled) {
+        // `session_retitled` -- not local `index === 0` -- because index
+        // is a position in whatever page of history happens to be loaded
+        // so far, not in the session's full history: with older pages
+        // not yet loaded (`hasMoreHistory`), the edited message can sit
+        // at local index 0 without being the session's actual first
+        // message, which would fire an unnecessary refetch, and
+        // conversely the true first message might not even be the one
+        // being edited. `chat/service.py::edit_message` already computed
+        // the real answer (`count_messages_before`) and reports it back
+        // here. Fire-and-forget, same as submitQuestion's.
         refreshSessions()
       }
       applyTurnResult(userMessage, result)

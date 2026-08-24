@@ -7,6 +7,7 @@ hand-writing `select(ChatSession).where(...)` -- mirrors
 """
 
 import uuid
+from typing import Final
 
 from sqlalchemy import delete, desc, func, select
 from sqlalchemy.orm import Session
@@ -14,6 +15,32 @@ from sqlalchemy.orm import Session
 from app.chat.repository import delete_messages_for_session
 from app.shared.data_access.tenancy import user_scoped_select
 from app.shared.models import ChatMessage, ChatSession
+
+# The one place auto-titling's truncation length is defined. Both
+# `derive_title` below and `chat/service.py::edit_message` (which must
+# recognize whether a session's *current* title still matches what
+# auto-titling would have produced from a question being replaced) key
+# off this same constant -- two independent `[:80]` literals could drift
+# apart silently (e.g. one gets bumped to 120 during a redesign and not
+# the other), which would make `edit_message`'s "was this an auto-title"
+# check simply stop matching, with no error, just a title that quietly
+# stops updating on edit.
+MAX_AUTO_TITLE_LENGTH: Final = 80
+
+
+def derive_title(question: str | None) -> str | None:
+    """A session's auto-title from one of its own questions -- `None` if
+    `question` is `None`/blank once stripped.
+
+    The one function that actually performs the truncation described in
+    `MAX_AUTO_TITLE_LENGTH`'s own comment; `touch_session` (live
+    auto-titling) and `chat/service.py::edit_message` (recognizing a
+    still-auto-titled session) both call this rather than each hardcoding
+    their own `[:MAX_AUTO_TITLE_LENGTH].strip()`.
+    """
+    if question is None:
+        return None
+    return question[:MAX_AUTO_TITLE_LENGTH].strip() or None
 
 
 def create_session(db: Session, session: ChatSession) -> ChatSession:
@@ -136,10 +163,11 @@ def delete_all_sessions_for_user(db: Session, user_id: uuid.UUID) -> int:
 def touch_session(db: Session, session: ChatSession, title: str | None = None) -> None:
     """Bumps `session.updated_at` to now, and -- only the first time,
     while `session.title` is still `None` -- sets `title` (multi-session
-    chat's auto-titling: `chat/service.py::_finish` passes the turn's own
-    question text here). A later call with `title` set never overwrites
-    an already-titled session, whether that title came from auto-titling
-    or a user's own rename (`chat/sessions_service.py::rename_session`).
+    chat's auto-titling: `chat/service.py::_finish` passes
+    `derive_title(question)` here, already truncated). A later call with
+    `title` set never overwrites an already-titled session, whether that
+    title came from auto-titling or a user's own rename
+    (`chat/sessions_service.py::rename_session`).
 
     Does not commit or flush -- the caller (`chat/service.py::_finish`)
     already flushes/commits its own two `ChatMessage` inserts in the same

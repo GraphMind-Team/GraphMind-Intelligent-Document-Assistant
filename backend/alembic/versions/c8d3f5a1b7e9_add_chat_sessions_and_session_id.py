@@ -76,12 +76,20 @@ def upgrade() -> None:
     for row in per_user_bounds:
         session_id = uuid.uuid4()
         # Titled the same way a live session is: from its own first
-        # question, truncated to 80 chars (`chat/service.py::_finish`
-        # passes exactly that slice to `touch_session`). Leaving it NULL
+        # question, truncated the same way `sessions_repository
+        # .derive_title` truncates a live auto-title. Leaving it NULL
         # would show every pre-migration conversation as "New chat" in
         # the sidebar *and* leave it eligible for auto-titling, so the
         # next question asked in an old conversation would silently
         # become its title.
+        #
+        # The `[:80]` below is a deliberate duplicate of `derive_title`'s
+        # own truncation, not a call to it: migrations in this project
+        # never import `app.*` (nothing else in this file does either),
+        # since a later refactor of that application code must not be
+        # able to silently change what an already-applied migration did.
+        # If `MAX_AUTO_TITLE_LENGTH` (`chat/sessions_repository.py`) ever
+        # changes, this literal is intentionally left as-is.
         first_question = connection.execute(
             sa.select(chat_messages.c.question)
             .where(chat_messages.c.user_id == row.user_id, chat_messages.c.role == 'user')

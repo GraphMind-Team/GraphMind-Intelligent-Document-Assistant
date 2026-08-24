@@ -350,6 +350,7 @@ def test_editing_the_first_question_retitles_the_session(client, db_session, mon
     )
 
     assert response.status_code == 200, response.text
+    assert response.json()["session_retitled"] is True
     db_session.expire_all()
     assert db_session.get(ChatSession, uuid.UUID(session_id)).title == "Edited question one?"
 
@@ -370,6 +371,7 @@ def test_editing_a_later_question_leaves_the_title_alone(client, db_session, mon
     )
 
     assert response.status_code == 200, response.text
+    assert response.json()["session_retitled"] is False
     db_session.expire_all()
     assert db_session.get(ChatSession, uuid.UUID(session_id)).title == "Question one?"
 
@@ -390,5 +392,10 @@ def test_editing_the_first_question_never_overwrites_a_users_own_rename(client, 
     )
 
     assert response.status_code == 200, response.text
+    # The title itself never changes (a user's rename outranks
+    # auto-titling), but `session_retitled` still reports what
+    # `edit_message` actually did -- it did NOT clear/reset the title --
+    # so the frontend correctly skips the refetch here too.
+    assert response.json()["session_retitled"] is False
     db_session.expire_all()
     assert db_session.get(ChatSession, uuid.UUID(session_id)).title == "Refund policy"

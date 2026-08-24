@@ -353,8 +353,11 @@ def _finish(
     #3): `sessions_repository.touch_session` bumps `session.updated_at`
     unconditionally and sets `session.title` from `question` only the
     first time, while it's still `None` -- see that function's own
-    docstring. Passing `question` itself (not a pre-truncated slice) here
-    keeps the 80-character truncation decision in one place.
+    docstring. Truncates via `sessions_repository.derive_title` rather
+    than a local `[:80].strip()` -- that's the one place the truncation
+    length is defined, which is also what lets `edit_message` below
+    recognize a still-auto-titled session without duplicating the same
+    literal.
 
     `repository.save_message` flushes but never commits -- `get_db_session`
     (shared/data_access) doesn't auto-commit, so this function commits once
@@ -381,7 +384,7 @@ def _finish(
             empty_reason=response.empty_reason,
         ),
     )
-    sessions_repository.touch_session(db, session, title=question[:80].strip() or None)
+    sessions_repository.touch_session(db, session, title=sessions_repository.derive_title(question))
     db.commit()
     response.message_id = assistant_message.id
     response.user_message_id = user_message.id
@@ -535,10 +538,10 @@ def edit_message(
     the session's auto-title still reads the old text, and
     `sessions_repository.touch_session` only titles while `title` is
     `None`. Clearing it here (only when nothing precedes the edited
-    message, and only while the title still matches what auto-titling
-    would have produced from the *old* question text -- a user's own
-    rename is never thrown away) lets `_finish` re-derive the title from
-    the edited question through that one existing code path.
+    message, and only while the title still matches
+    `sessions_repository.derive_title` of the *old* question text -- a
+    user's own rename is never thrown away) lets `_finish` re-derive the
+    title from the edited question through that one existing code path.
 
     404s -- not 403 -- on a foreign/nonexistent session id (via
     `sessions_service.get_session`, same as `ask_question`) or message id,
@@ -553,14 +556,17 @@ def edit_message(
         raise HTTPException(status_code=404, detail="Chat message not found.")
 
     was_first_message = repository.count_messages_before(db, current_user.id, session_id, message) == 0
-    was_auto_titled = session.title == ((message.question or "")[:80].strip() or None)
+    was_auto_titled = session.title == sessions_repository.derive_title(message.question)
+    clears_title = was_first_message and was_auto_titled
 
     repository.delete_messages_from(db, current_user.id, session_id, message)
-    if was_first_message and was_auto_titled:
+    if clears_title:
         session.title = None
 
     try:
-        return ask_question(db, current_user, session_id, question, document_ids)
+        response = ask_question(db, current_user, session_id, question, document_ids)
     except Exception:
         db.rollback()
         raise
+    response.session_retitled = clears_title
+    return response
