@@ -220,6 +220,74 @@ def test_generate_answer_drops_segment_with_blank_text(monkeypatch):
     assert result.segments == []
 
 
+def test_generate_answer_returns_the_models_followup_questions(monkeypatch):
+    content = json.dumps(
+        {
+            "segments": [{"text": "The refund window is 30 days.", "passage_numbers": [1]}],
+            "followup_questions": ["Who approved this policy?", "Does it apply to all products?"],
+        }
+    )
+    monkeypatch.setattr(llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content=content))
+
+    result = generate_answer("What is the refund window?", [_passage()])
+
+    assert result.followup_questions == ["Who approved this policy?", "Does it apply to all products?"]
+
+
+def test_generate_answer_missing_followup_questions_key_defaults_to_empty_list(monkeypatch):
+    monkeypatch.setattr(
+        llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content=_valid_content())
+    )
+
+    result = generate_answer("q", [_passage()])
+
+    assert result.followup_questions == []
+
+
+def test_generate_answer_drops_non_string_and_blank_followup_questions(monkeypatch, caplog):
+    content = json.dumps(
+        {
+            "segments": [{"text": "Cited claim.", "passage_numbers": [1]}],
+            "followup_questions": ["A real question?", "  ", 42, None],
+        }
+    )
+    monkeypatch.setattr(llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content=content))
+
+    result = generate_answer("q", [_passage()])
+
+    assert result.followup_questions == ["A real question?"]
+    assert "Dropping malformed follow-up question" in caplog.text
+
+
+def test_generate_answer_caps_followup_questions_even_if_the_model_returns_more(monkeypatch):
+    content = json.dumps(
+        {
+            "segments": [{"text": "Cited claim.", "passage_numbers": [1]}],
+            "followup_questions": ["Q1?", "Q2?", "Q3?", "Q4?", "Q5?"],
+        }
+    )
+    monkeypatch.setattr(llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content=content))
+
+    result = generate_answer("q", [_passage()])
+
+    assert result.followup_questions == ["Q1?", "Q2?", "Q3?"]
+
+
+def test_generate_answer_non_list_followup_questions_is_dropped_not_an_error(monkeypatch, caplog):
+    content = json.dumps(
+        {
+            "segments": [{"text": "Cited claim.", "passage_numbers": [1]}],
+            "followup_questions": "not a list",
+        }
+    )
+    monkeypatch.setattr(llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content=content))
+
+    result = generate_answer("q", [_passage()])
+
+    assert result.followup_questions == []
+    assert "Dropping non-list followup_questions" in caplog.text
+
+
 def test_generate_answer_retries_once_on_a_5xx_then_succeeds(monkeypatch):
     calls = []
 

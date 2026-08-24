@@ -545,6 +545,19 @@ def _parse_and_validate(content: str) -> ExtractionResult:
 # parse/validate helper) that a split isn't yet earning its keep.
 # ---------------------------------------------------------------------------
 
+# Suggested next-questions ("Ask more:" chips, ChatGPT-style) -- NOT to be
+# confused with `ChatHistoryTurn`'s own unrelated "follow-up question"
+# usage above (a *user's* next question in an ongoing conversation, fed
+# back in as history). This is the opposite direction: the model
+# proposing questions the user hasn't asked yet. Folded into the same
+# JSON response `generate_answer` already parses, rather than a second
+# LLM call, so a suggestion never costs this already-slow (see
+# DEFAULT_MODEL's own comment) synchronous path any extra latency.
+# `_parse_and_validate_answer` re-caps this at parse time -- never trust
+# the prompt's own "at most 3" alone, same reasoning as every other
+# prompt-vs-code-enforced constraint in this module.
+_MAX_FOLLOWUP_QUESTIONS = 3
+
 # {history} is Story 3.4's addition -- always the empty string on a fresh
 # conversation (see `_build_history_block` below), which keeps this
 # template's rendered output byte-identical to pre-3.4 in that case (the
@@ -555,14 +568,21 @@ _CHAT_SYSTEM_PROMPT_TEMPLATE = (
     "You answer a question using ONLY the numbered passages below. Respond "
     "with strict JSON only -- no prose, no markdown code fences -- matching "
     'exactly this shape: {{"segments": [{{"text": "...", "passage_numbers": '
-    '[1, 2]}}]}}. Each "text" is one claim-bearing sentence or clause of your '
-    "answer. Every segment's \"passage_numbers\" must list every passage (by "
-    "its number below) that supports that segment's claim -- never leave "
-    "this list empty for a claim-bearing segment. Use only information "
-    "present in the passages; do not invent facts. Write every \"text\" "
-    "value in the same language as the question below, regardless of what "
-    "language the passages themselves are written in. If the passages do not "
-    'support any answer at all, respond with {{"segments": []}}.\n\n{history}{passages}'
+    '[1, 2]}}], "followup_questions": ["...", "..."]}}. Each "text" is one '
+    "claim-bearing sentence or clause of your answer. Every segment's "
+    '"passage_numbers" must list every passage (by its number below) that '
+    "supports that segment's claim -- never leave this list empty for a "
+    "claim-bearing segment. Use only information present in the passages; "
+    "do not invent facts. Write every \"text\" value in the same language "
+    "as the question below, regardless of what language the passages "
+    "themselves are written in. If the passages do not support any answer "
+    'at all, respond with {{"segments": [], "followup_questions": []}}.\n\n'
+    '"followup_questions" is at most 3 short, natural follow-up questions '
+    "the user might reasonably ask next -- each one must be answerable "
+    "using ONLY the passages above (never a question the passages can't "
+    "support), must not just restate the current question, and must be "
+    "written in the same language as the question below. Use an empty "
+    "list if no such follow-up exists.\n\n{history}{passages}"
 )
 
 
@@ -693,6 +713,11 @@ class AnswerResult:
 
     segments: list[AnswerSegment] = field(default_factory=list)
     included_passages: list[WeaviateSearchResult] = field(default_factory=list)
+    # At most `_MAX_FOLLOWUP_QUESTIONS` model-suggested next questions --
+    # see that constant's own comment. Always `[]`, never `None`, whether
+    # the model suggested none or every candidate was dropped by
+    # `_parse_and_validate_answer`'s validation.
+    followup_questions: list[str] = field(default_factory=list)
 
 
 class ChatCompletionError(Exception):
@@ -836,8 +861,12 @@ def generate_answer(
     for attempt in range(1, _CHAT_MAX_ATTEMPTS + 1):
         try:
             content = _call_openrouter_for_chat(system_prompt, question)
-            segments = _parse_and_validate_answer(content, len(included_passages))
-            return AnswerResult(segments=segments, included_passages=included_passages)
+            segments, followup_questions = _parse_and_validate_answer(content, len(included_passages))
+            return AnswerResult(
+                segments=segments,
+                included_passages=included_passages,
+                followup_questions=followup_questions,
+            )
         except _RetryableChatError as exc:
             last_error = exc
             logger.warning(
@@ -932,7 +961,7 @@ def _call_openrouter_for_chat(system_prompt: str, question: str) -> str:
         ) from exc
 
 
-def _parse_and_validate_answer(content: str, passage_count: int) -> list[AnswerSegment]:
+def _parse_and_validate_answer(content: str, passage_count: int) -> tuple[list[AnswerSegment], list[str]]:
     """Parses the model's JSON string and enforces, in code, that every
     segment reaching the caller carries at least one valid citation --
     never trusting the prompt's own instruction alone to hold (mirrors
@@ -942,12 +971,18 @@ def _parse_and_validate_answer(content: str, passage_count: int) -> list[AnswerS
     dropped entirely -- an uncited claim-bearing sentence must never
     reach the frontend, since that's exactly the guarantee FR-9/AC6
     require. `[]` is a valid, non-error outcome (mirrors extraction's
-    "empty is not a failure"). Returns the segments directly rather than
-    wrapping them in `AnswerResult` -- this function never sees
-    `included_passages` (only `generate_answer`, its caller, has that),
-    so returning the wrapper type would leave that field permanently
-    empty here, only for the caller to immediately reconstruct a second,
-    correctly-populated `AnswerResult` around the same segments."""
+    "empty is not a failure"). Returns `(segments, followup_questions)`
+    directly rather than wrapping them in `AnswerResult` -- this function
+    never sees `included_passages` (only `generate_answer`, its caller,
+    has that), so returning the wrapper type would leave that field
+    permanently empty here, only for the caller to immediately
+    reconstruct a second, correctly-populated `AnswerResult` around the
+    same segments.
+
+    `followup_questions` gets the same "never trust the prompt alone"
+    treatment `_MAX_FOLLOWUP_QUESTIONS`'s own comment describes: each
+    entry must be a non-blank string, and the list is capped at
+    `_MAX_FOLLOWUP_QUESTIONS` even if the model returned more."""
     try:
         payload = json.loads(content)
     except json.JSONDecodeError as exc:
@@ -1002,4 +1037,17 @@ def _parse_and_validate_answer(content: str, passage_count: int) -> list[AnswerS
 
         segments.append(AnswerSegment(text=text.strip(), passage_numbers=valid_numbers))
 
-    return segments
+    raw_followups = payload.get("followup_questions", [])
+    followup_questions: list[str] = []
+    if isinstance(raw_followups, list):
+        for candidate in raw_followups:
+            if len(followup_questions) >= _MAX_FOLLOWUP_QUESTIONS:
+                break
+            if isinstance(candidate, str) and candidate.strip():
+                followup_questions.append(candidate.strip())
+            else:
+                logger.warning("Dropping malformed follow-up question: %r", candidate)
+    else:
+        logger.warning("Dropping non-list followup_questions: %r", raw_followups)
+
+    return segments, followup_questions

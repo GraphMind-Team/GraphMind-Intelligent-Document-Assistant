@@ -136,6 +136,49 @@ describe('ChatPage', () => {
     expect(chip.tagName).toBe('CITE')
   })
 
+  it('renders the model-suggested follow-up questions as clickable chips and sends one immediately on click', async () => {
+    const askSpy = vi.spyOn(chatClient, 'askQuestion').mockResolvedValueOnce({
+      ...ANSWER_RESULT,
+      followup_questions: ['Who else is connected to this project?', 'What is the renewal date?'],
+    })
+    const user = userEvent.setup()
+    renderChatPage()
+
+    await user.type(screen.getByLabelText(/ask a question/i), 'q{Enter}')
+
+    const followupChip = await screen.findByRole('button', { name: 'Who else is connected to this project?' })
+    expect(screen.getByRole('button', { name: 'What is the renewal date?' })).toBeInTheDocument()
+
+    askSpy.mockResolvedValueOnce({ ...ANSWER_RESULT, message_id: 'assistant-msg-2', followup_questions: [] })
+    await user.click(followupChip)
+
+    // Sent immediately -- same "click sends, doesn't just fill the input"
+    // behavior the empty-thread welcome's own sample-question chips use.
+    expect(askSpy).toHaveBeenLastCalledWith(
+      expect.anything(),
+      SESSION_ID,
+      'Who else is connected to this project?',
+      [],
+    )
+    // Two matches now: the still-visible chip on the first answer (a
+    // message's own follow-ups don't disappear once a later turn is
+    // asked) plus the new turn's own user bubble echoing the same text.
+    await waitFor(() =>
+      expect(screen.getAllByText('Who else is connected to this project?')).toHaveLength(2),
+    )
+  })
+
+  it('renders no follow-up section when the response has none', async () => {
+    vi.spyOn(chatClient, 'askQuestion').mockResolvedValue({ ...ANSWER_RESULT, followup_questions: [] })
+    const user = userEvent.setup()
+    renderChatPage()
+
+    await user.type(screen.getByLabelText(/ask a question/i), 'q{Enter}')
+
+    await screen.findByRole('button', { name: '1 source' })
+    expect(screen.queryByText('Ask more:')).not.toBeInTheDocument()
+  })
+
   it('renders a distinct service banner for a 503, never as an assistant message', async () => {
     const error = new Error('Answer generation is temporarily unavailable. Please try again.')
     error.isServiceError = true

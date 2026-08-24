@@ -302,6 +302,9 @@
       "thumbsUpActive": "Marked as a good answer",
       "thumbsDownActive": "Marked as a bad answer"
     },
+    "followup": {
+      "label": "Ask more:"
+    },
     "searchPanel": {
       "title": "Search in chat",
       "placeholder": "Search in chat…",

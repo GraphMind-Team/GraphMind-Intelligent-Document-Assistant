@@ -48,7 +48,7 @@ const NOTICE_KEYS = {
 // bubble -- every branch below attaches `ref` to its own root element for
 // that reason.
 const ChatMessage = forwardRef(function ChatMessage(
-  { message, highlight = '', isActiveMatch = false, authFetch },
+  { message, highlight = '', isActiveMatch = false, authFetch, onFollowupClick },
   ref,
 ) {
   const { t } = useTranslation()
@@ -186,6 +186,30 @@ const ChatMessage = forwardRef(function ChatMessage(
           answerText={answerText}
         />
       </div>
+      {/* Model-suggested next questions (ChatGPT-style "Ask more:" chips) --
+          only ever present on a message from a live turn's own AskResponse
+          (chat/service.py never persists these, see AskResponse
+          .followup_questions' own docstring), so a reloaded/older message
+          simply has none and this renders nothing. Clicking a chip sends it
+          immediately, the same "send, don't just fill the input" behavior
+          the empty-thread welcome's own sample-question chips use. */}
+      {message.followupQuestions?.length > 0 && (
+        <div className="flex flex-col items-start gap-1.5 px-1">
+          <p className="text-[11.5px] font-semibold text-text2">{t('chat.followup.label')}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {message.followupQuestions.map((question) => (
+              <button
+                key={question}
+                type="button"
+                onClick={() => onFollowupClick(question)}
+                className="rounded-full border border-border bg-surface2 px-3 py-1.5 text-[12.5px] text-text hover:border-accent hover:text-accent"
+              >
+                {question}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 })

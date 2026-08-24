@@ -506,7 +506,13 @@ function ChatPageContent({ sessionId }) {
       } else {
         setMessages((previous) => [
           ...previous,
-          { role: 'assistant', id: result.message_id, segments: result.segments, feedback: null },
+          {
+            role: 'assistant',
+            id: result.message_id,
+            segments: result.segments,
+            feedback: null,
+            followupQuestions: result.followup_questions ?? [],
+          },
         ])
         // Only a grounded answer earns the idea beat.
         triggerMascotBeat('idea')
@@ -675,6 +681,7 @@ function ChatPageContent({ sessionId }) {
                   highlight={chatSearchNeedle}
                   isActiveMatch={chatSearchNeedle !== '' && matchedIndices[activeMatchOrdinal] === index}
                   authFetch={authFetch}
+                  onFollowupClick={submitQuestion}
                 />
               ))}
               {isAsking && <ChatMessage message={{ role: 'thinking' }} />}

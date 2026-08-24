@@ -302,6 +302,9 @@
       "thumbsUpActive": "Отбелязан като добър отговор",
       "thumbsDownActive": "Отбелязан като лош отговор"
     },
+    "followup": {
+      "label": "Питай още:"
+    },
     "searchPanel": {
       "title": "Търсене в чата",
       "placeholder": "Търсене в чата…",

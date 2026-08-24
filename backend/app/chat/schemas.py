@@ -104,6 +104,15 @@ class AskResponse(BaseModel):
     #                     it is a designed, correct outcome, not an error
     #                     and not an empty answer.
     empty_reason: Literal["no_documents", "empty_scope", "no_answer", "refusal"] | None = None
+    # At most 3 model-suggested next questions (ChatGPT-style "Ask more:"
+    # chips) -- see `llm_client._MAX_FOLLOWUP_QUESTIONS`'s own comment.
+    # Always `[]` for every empty_reason outcome above, not just "no_answer"
+    # and "refusal" -- see `chat/service.py::ask_question`'s own comment on
+    # why a notice/refusal never gets a "what next" affordance. Not
+    # persisted (`ChatHistoryMessageResponse` has no equivalent field): a
+    # reloaded/older turn never shows suggestions again, only the turn just
+    # answered live -- the same ChatGPT convention this mirrors.
+    followup_questions: list[str] = Field(default_factory=list)
 
 
 class ChatHistoryMessageResponse(BaseModel):

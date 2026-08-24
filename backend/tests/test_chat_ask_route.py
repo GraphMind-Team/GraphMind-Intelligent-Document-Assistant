@@ -375,6 +375,59 @@ def test_ask_success_resolves_real_chapter_and_filename_citations(client, db_ses
     assert body["message_id"] == str(assistant_row.id)
 
 
+def test_ask_success_threads_the_models_followup_questions_into_the_response(client, monkeypatch):
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-chat-followups-1@example.com", password="password12345"
+    )
+    session_id = _create_session_id(client, token)
+    document = _upload(client, token, filename="Vendor_Agreement_2026.pdf")
+    passages = [_passage(document["id"], chapter="Chapter 4")]
+    monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: passages)
+    monkeypatch.setattr(
+        chat_service_module,
+        "generate_answer",
+        lambda *a, **k: AnswerResult(
+            segments=[AnswerSegment(text="The refund window is 30 days.", passage_numbers=[1])],
+            included_passages=passages,
+            followup_questions=["Who approved this policy?", "Does it apply to all products?"],
+        ),
+    )
+
+    response = client.post(
+        _ask_url(session_id), headers=_auth_headers(token), json={"question": "What is the refund window?"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["followup_questions"] == ["Who approved this policy?", "Does it apply to all products?"]
+
+
+def test_ask_no_answer_outcome_never_surfaces_followup_questions(client, monkeypatch):
+    """A "what next" affordance belongs only to a real answer -- even if
+    the model's own JSON response included follow-up questions alongside
+    an empty segments list, chat/service.py's no_answer branch must never
+    forward them (it constructs a fresh AskResponse, not the model's
+    AnswerResult, for this outcome)."""
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-chat-followups-2@example.com", password="password12345"
+    )
+    session_id = _create_session_id(client, token)
+    document = _upload(client, token)
+    monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: [_passage(document["id"])])
+    monkeypatch.setattr(
+        chat_service_module,
+        "generate_answer",
+        lambda *a, **k: AnswerResult(segments=[], followup_questions=["Should never appear?"]),
+    )
+
+    response = client.post(_ask_url(session_id), headers=_auth_headers(token), json={"question": "Unanswerable?"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["empty_reason"] == "no_answer"
+    assert body["followup_questions"] == []
+
+
 def test_ask_deduplicates_repeated_chapter_and_filename_citations(client, monkeypatch):
     """Two different chunks from the same chapter of the same document
     (routine at TOP_K_PASSAGES=8) -- or a model repeating a

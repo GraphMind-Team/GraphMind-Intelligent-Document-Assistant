@@ -282,10 +282,18 @@ def ask_question(
     if not segments:
         # The model returned segments: [] outright, or every segment lost
         # its citations above -- either way, a passages-were-found-but-
-        # nothing-answerable outcome, distinct from "no_documents".
+        # nothing-answerable outcome, distinct from "no_documents". No
+        # follow-up suggestions either: they're a "what next" affordance
+        # for a real answer, not for an empty-reason notice.
         return _finish(db, current_user, session, question, AskResponse(segments=[], empty_reason="no_answer"))
 
-    return _finish(db, current_user, session, question, AskResponse(segments=segments))
+    return _finish(
+        db,
+        current_user,
+        session,
+        question,
+        AskResponse(segments=segments, followup_questions=answer.followup_questions),
+    )
 
 
 def _pair_messages_into_turns(messages: list[ChatMessage]) -> list[ChatHistoryTurn]:
