@@ -329,7 +329,9 @@
       "filterLabel": "Filter documents in scope",
       "filterPlaceholder": "Search…",
       "selectAll": "Select all",
-      "notAvailableYet": "{{filename}} — not available yet ({{status}})"
+      "notAvailableYet": "{{filename}} — not available yet ({{status}})",
+      "selectAria": "Select {{filename}}",
+      "previewAria": "Preview {{filename}}"
     },
     "scopeChip": {
       "label_one": "Asking in {{count}} document",

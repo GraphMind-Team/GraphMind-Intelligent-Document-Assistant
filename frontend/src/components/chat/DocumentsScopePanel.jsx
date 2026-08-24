@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { listDocuments } from '../../api/documentsClient'
 import { useChatScope } from '../../context/ChatScopeContext'
 import StatusPill from '../StatusPill'
+import PreviewModal from '../PreviewModal'
 
 // Documents-in-scope panel (Story 3.1 built the static shell; Story 3.3
 // adds the interactivity FR-11 needs): per-document checkboxes, a
@@ -15,6 +17,12 @@ export default function DocumentsScopePanel({ authFetch, onDocumentsLoaded }) {
   const [documents, setDocuments] = useState([])
   const [error, setError] = useState(null)
   const [filterText, setFilterText] = useState('')
+  // The document currently open in the preview modal (`null` when closed)
+  // -- one shared field rather than a per-row boolean, since only one
+  // preview can be open at a time; holds the whole doc record (not just an
+  // id) so the modal has `filename`/`file_type` to render without a second
+  // lookup once this panel's own list has moved on.
+  const [previewDoc, setPreviewDoc] = useState(null)
   const { selectedDocumentIds, toggleDocument, selectAll, retainOnly } = useChatScope()
 
   useEffect(() => {
@@ -114,16 +122,32 @@ export default function DocumentsScopePanel({ authFetch, onDocumentsLoaded }) {
               className="flex items-center gap-2 rounded-xl border border-border bg-surface2 px-3 py-2.5 text-[12.5px]"
             >
               {isReady ? (
-                <label htmlFor={inputId} className="flex min-w-0 flex-1 items-center gap-2">
+                // No longer a single <label> wrapping both controls -- the
+                // filename is now its own click target (opens the preview
+                // modal, same as DocumentCard.jsx's filename button)
+                // instead of doubling as the checkbox's label, so the two
+                // actions (select for scope vs. preview content) don't
+                // fire off the same click. The checkbox's accessible name
+                // moves to an explicit `aria-label` since it no longer has
+                // a `<label>` to read it from.
+                <>
                   <input
                     id={inputId}
                     type="checkbox"
                     checked={selectedDocumentIds.includes(doc.id)}
                     onChange={() => toggleDocument(doc.id)}
+                    aria-label={t('chat.scopePanel.selectAria', { filename: doc.filename })}
                     className="shrink-0 cursor-pointer"
                   />
-                  <span className="min-w-0 flex-1 truncate">{doc.filename}</span>
-                </label>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewDoc(doc)}
+                    title={t('chat.scopePanel.previewAria', { filename: doc.filename })}
+                    className="min-w-0 flex-1 truncate text-left hover:text-primary hover:underline"
+                  >
+                    {doc.filename}
+                  </button>
+                </>
               ) : (
                 <div className="flex min-w-0 flex-1 items-center gap-2">
                   <input
@@ -162,6 +186,22 @@ export default function DocumentsScopePanel({ authFetch, onDocumentsLoaded }) {
           )
         })}
       </ul>
+
+      {/* Portalled to `document.body`, same reasoning as DocumentCard.jsx's
+          own PreviewModal usage: this panel sits inside ChatPage's grid,
+          and a `position: fixed` backdrop rendered inline would only be
+          reliable as long as nothing between here and the viewport root
+          ever gets a CSS transform. */}
+      {previewDoc &&
+        createPortal(
+          <PreviewModal
+            documentId={previewDoc.id}
+            filename={previewDoc.filename}
+            fileType={previewDoc.file_type}
+            onClose={() => setPreviewDoc(null)}
+          />,
+          document.body,
+        )}
     </aside>
   )
 }
