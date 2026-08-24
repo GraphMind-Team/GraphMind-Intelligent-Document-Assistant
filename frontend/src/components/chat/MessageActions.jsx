@@ -67,7 +67,7 @@ export default function MessageActions({ authFetch, messageId, initialFeedback, 
   }
 
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-1">
+    <div className="flex flex-wrap items-center gap-1">
       <button
         type="button"
         aria-label={isCopied ? t('chat.actions.copied') : t('chat.actions.copy')}

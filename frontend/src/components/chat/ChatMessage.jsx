@@ -162,16 +162,22 @@ const ChatMessage = forwardRef(function ChatMessage(
   // already gives this on the backend side.
   const answerText = message.segments.map((segment) => segment.text).join(' ')
 
+  // The bubble (bordered/filled) holds only the answer's own text; the
+  // sources pill + actions row sit below it as a separate row, outside
+  // the bubble's border/background -- the ChatGPT/Claude convention,
+  // rather than nested inside the bubble where they used to read as part
+  // of the answer's own content.
   return (
-    <div
-      ref={ref}
-      className={`anim-rise mr-auto max-w-[78%] self-start rounded-[20px_20px_20px_6px] border border-border bg-card-bg bg-[image:var(--grad-brand-soft)] px-4 py-3 text-[14px] leading-[1.6] text-text shadow-card${activeMatchClass}`}
-    >
-      <span className="sr-only">{t('chat.message.assistantPrefix')} </span>
-      {message.segments.map((segment, index) => (
-        <span key={index}>{highlightMatches(segment.text, highlight)} </span>
-      ))}
-      <div className="flex flex-wrap items-center gap-2">
+    <div ref={ref} className="anim-rise mr-auto flex max-w-[78%] flex-col items-start gap-1.5 self-start">
+      <div
+        className={`rounded-[20px_20px_20px_6px] border border-border bg-card-bg bg-[image:var(--grad-brand-soft)] px-4 py-3 text-[14px] leading-[1.6] text-text shadow-card${activeMatchClass}`}
+      >
+        <span className="sr-only">{t('chat.message.assistantPrefix')} </span>
+        {message.segments.map((segment, index) => (
+          <span key={index}>{highlightMatches(segment.text, highlight)} </span>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 px-1">
         <CitationSummary citations={citations} />
         <MessageActions
           authFetch={authFetch}
