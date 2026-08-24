@@ -117,10 +117,12 @@ def save_message(db: Session, message: ChatMessage) -> ChatMessage:
     return message
 
 
-def get_recent_turn_messages(db: Session, user_id: uuid.UUID, max_turns: int) -> list[ChatMessage]:
-    """Up to `max_turns` completed (user, assistant) row-pairs for this
-    account's single ongoing conversation (Story 3.4/FR-17), returned
-    oldest-first.
+def get_recent_turn_messages(
+    db: Session, user_id: uuid.UUID, session_id: uuid.UUID, max_turns: int
+) -> list[ChatMessage]:
+    """Up to `max_turns` completed (user, assistant) row-pairs for one of
+    this account's chat sessions (Story 3.4/FR-17; multi-session chat),
+    returned oldest-first.
 
     Fetches the newest `max_turns * 2` rows (a completed turn is always
     exactly one `role="user"` row followed by one `role="assistant"` row
@@ -130,12 +132,14 @@ def get_recent_turn_messages(db: Session, user_id: uuid.UUID, max_turns: int) ->
     own comment above) and reverses to chronological order --
     `chat/service.py` pairs them into `ChatHistoryTurn`s from there.
     `user_scoped_select` (AD-2), never a hand-written
-    `select(ChatMessage).where(...)`.
+    `select(ChatMessage).where(...)` -- narrowed further to `session_id`
+    so history never leaks across a user's other sessions.
     """
     if max_turns <= 0:
         return []
     stmt = (
         user_scoped_select(ChatMessage, user_id)
+        .where(ChatMessage.session_id == session_id)
         .order_by(desc(ChatMessage.created_at), desc(_TURN_ROLE_RANK), desc(ChatMessage.id))
         .limit(max_turns * 2)
     )
@@ -147,19 +151,21 @@ def get_recent_turn_messages(db: Session, user_id: uuid.UUID, max_turns: int) ->
 def list_messages_for_user(
     db: Session,
     user_id: uuid.UUID,
+    session_id: uuid.UUID,
     cursor: tuple[datetime, int, uuid.UUID] | None,
     limit: int,
 ) -> tuple[list[ChatMessage], bool]:
-    """A newest-first page of this account's conversation, at most `limit`
-    rows, optionally starting strictly after `cursor` (Story 3.4/AD-10).
+    """A newest-first page of one of this account's chat sessions, at
+    most `limit` rows, optionally starting strictly after `cursor`
+    (Story 3.4/AD-10; multi-session chat).
 
     `cursor` anchors on a `(created_at, turn_role_rank, id)` tuple rather
     than a raw offset (Design Notes): new messages only ever append at
-    the newest end of this account's single conversation, so a cursor
-    into older history never drifts even if new turns arrive
-    concurrently -- an offset-based page would, since inserting new rows
-    above an offset page shifts every row below it. `turn_role_rank`
-    (see `_TURN_ROLE_RANK`'s comment) breaks a turn's `created_at` tie
+    the newest end of a session's conversation, so a cursor into older
+    history never drifts even if new turns arrive concurrently -- an
+    offset-based page would, since inserting new rows above an offset
+    page shifts every row below it. `turn_role_rank` (see
+    `_TURN_ROLE_RANK`'s comment) breaks a turn's `created_at` tie
     correctly (its assistant row is "newer" than its own user row even
     though both share one timestamp); `id` is the final tiebreaker for
     the two rows sharing both a timestamp and a role, which shouldn't
@@ -169,8 +175,10 @@ def list_messages_for_user(
     `limit` to answer `has_more` without a second COUNT query; that extra
     row is trimmed back off before returning.
     """
-    stmt = user_scoped_select(ChatMessage, user_id).order_by(
-        desc(ChatMessage.created_at), desc(_TURN_ROLE_RANK), desc(ChatMessage.id)
+    stmt = (
+        user_scoped_select(ChatMessage, user_id)
+        .where(ChatMessage.session_id == session_id)
+        .order_by(desc(ChatMessage.created_at), desc(_TURN_ROLE_RANK), desc(ChatMessage.id))
     )
     if cursor is not None:
         cursor_created_at, cursor_role_rank, cursor_id = cursor
@@ -216,4 +224,26 @@ def delete_all_messages_for_user(db: Session, user_id: uuid.UUID) -> int:
     today, but it costs nothing extra to surface.
     """
     result = db.execute(delete(ChatMessage).where(ChatMessage.user_id == user_id))
+    return result.rowcount
+
+
+def delete_messages_for_session(db: Session, user_id: uuid.UUID, session_id: uuid.UUID) -> int:
+    """Bulk-deletes every `chat_messages` row belonging to one session,
+    scoped to its owner (multi-session chat's session-delete flow,
+    `chat/sessions_repository.py::delete_session_for_user`).
+
+    `chat_messages.session_id` is a `NOT NULL` FK into `chat_sessions.id`
+    with no `ON DELETE CASCADE` (this table's migration doesn't declare
+    one, matching `user_id`'s own no-cascade precedent above) -- deleting
+    a `chat_sessions` row before its messages are gone would fail with a
+    `ForeignKeyViolation`, so this must run first. Double-filtered on both
+    `session_id` and `user_id` defensively, though `session_id` alone
+    already uniquely identifies the session's rows once the caller has
+    confirmed ownership via `chat_sessions_repository.get_session_for_user`.
+
+    Does not commit -- the caller owns the transaction boundary.
+    """
+    result = db.execute(
+        delete(ChatMessage).where(ChatMessage.session_id == session_id, ChatMessage.user_id == user_id)
+    )
     return result.rowcount

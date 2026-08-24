@@ -1,12 +1,13 @@
-"""`GET /chat/history` tests (Story 3.4/FR-17/AD-10): auth requirement, the
-empty-account case, newest-first ordering, cursor pagination walking the
-full history down to `has_more: false`/`next_cursor: null`, an invalid
-cursor's 422, and cross-tenant isolation.
+"""`GET /chat/sessions/{session_id}/history` tests (Story 3.4/FR-17/AD-10;
+session-nested for multi-session chat): auth requirement, the empty-session
+case, newest-first ordering, cursor pagination walking the full history down
+to `has_more: false`/`next_cursor: null`, an invalid cursor's 422,
+cross-tenant/cross-session isolation, and session-ownership 404s.
 
 Messages are seeded directly via `db_session` (mirrors
 `test_chat_ask_route.py`'s own `_seed_turn` convention) rather than via
-real `/chat/ask` round-trips, so each turn gets an explicit, strictly
-increasing `created_at` -- sidesteps SQLite's whole-second
+real `/chat/sessions/{id}/ask` round-trips, so each turn gets an explicit,
+strictly increasing `created_at` -- sidesteps SQLite's whole-second
 `CURRENT_TIMESTAMP` resolution, which would otherwise tie every turn
 seeded within the same fast test run onto the same timestamp (see
 `app/chat/repository.py`'s `_TURN_ROLE_RANK` comment for the full
@@ -38,11 +39,22 @@ def _auth_headers(token):
     return {"Authorization": f"Bearer {token}"}
 
 
-def _seed_turn(db_session, user_id, *, question, answer_text, empty_reason=None, created_at):
-    db_session.add(ChatMessage(user_id=user_id, role="user", question=question, created_at=created_at))
+def _create_session_id(client, token):
+    response = client.post("/chat/sessions", headers=_auth_headers(token))
+    assert response.status_code == 201, response.text
+    return uuid.UUID(response.json()["id"])
+
+
+def _seed_turn(db_session, user_id, session_id, *, question, answer_text, empty_reason=None, created_at):
+    db_session.add(
+        ChatMessage(
+            user_id=user_id, session_id=session_id, role="user", question=question, created_at=created_at
+        )
+    )
     db_session.add(
         ChatMessage(
             user_id=user_id,
+            session_id=session_id,
             role="assistant",
             segments=[{"text": answer_text, "citations": []}] if answer_text else [],
             empty_reason=empty_reason,
@@ -53,16 +65,27 @@ def _seed_turn(db_session, user_id, *, question, answer_text, empty_reason=None,
 
 
 def test_history_requires_authentication(client):
-    response = client.get("/chat/history")
+    response = client.get(f"/chat/sessions/{uuid.uuid4()}/history")
     assert response.status_code == 401
 
 
-def test_history_new_account_returns_empty_messages_and_has_more_false(client):
+def test_history_unknown_session_returns_404(client):
+    token, _ = _register_and_login(
+        client, full_name="Maria", email="maria-history-404@example.com", password="password12345"
+    )
+
+    response = client.get(f"/chat/sessions/{uuid.uuid4()}/history", headers=_auth_headers(token))
+
+    assert response.status_code == 404
+
+
+def test_history_new_session_returns_empty_messages_and_has_more_false(client):
     token, _ = _register_and_login(
         client, full_name="Maria", email="maria-history-1@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
 
-    response = client.get("/chat/history", headers=_auth_headers(token))
+    response = client.get(f"/chat/sessions/{session_id}/history", headers=_auth_headers(token))
 
     assert response.status_code == 200
     body = response.json()
@@ -75,11 +98,14 @@ def test_history_returns_messages_newest_first(client, db_session):
     token, user_id = _register_and_login(
         client, full_name="Maria", email="maria-history-2@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    _seed_turn(db_session, user_id, question="Q1?", answer_text="A1.", created_at=base)
-    _seed_turn(db_session, user_id, question="Q2?", answer_text="A2.", created_at=base + timedelta(seconds=1))
+    _seed_turn(db_session, user_id, session_id, question="Q1?", answer_text="A1.", created_at=base)
+    _seed_turn(
+        db_session, user_id, session_id, question="Q2?", answer_text="A2.", created_at=base + timedelta(seconds=1)
+    )
 
-    response = client.get("/chat/history", headers=_auth_headers(token))
+    response = client.get(f"/chat/sessions/{session_id}/history", headers=_auth_headers(token))
 
     assert response.status_code == 200
     body = response.json()
@@ -99,11 +125,13 @@ def test_history_cursor_pagination_walks_the_full_thread_to_exhaustion(client, d
     token, user_id = _register_and_login(
         client, full_name="Maria", email="maria-history-3@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
     for i in range(5):
         _seed_turn(
             db_session,
             user_id,
+            session_id,
             question=f"Q{i}?",
             answer_text=f"A{i}.",
             created_at=base + timedelta(seconds=i),
@@ -117,7 +145,7 @@ def test_history_cursor_pagination_walks_the_full_thread_to_exhaustion(client, d
         params = {"limit": 3}
         if cursor:
             params["cursor"] = cursor
-        response = client.get("/chat/history", headers=_auth_headers(token), params=params)
+        response = client.get(f"/chat/sessions/{session_id}/history", headers=_auth_headers(token), params=params)
         assert response.status_code == 200
         body = response.json()
         seen_ids.extend(m["id"] for m in body["messages"])
@@ -139,9 +167,10 @@ def test_history_invalid_cursor_returns_422(client):
     token, _ = _register_and_login(
         client, full_name="Maria", email="maria-history-4@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
 
     response = client.get(
-        "/chat/history", headers=_auth_headers(token), params={"cursor": "not-a-real-cursor"}
+        f"/chat/sessions/{session_id}/history", headers=_auth_headers(token), params={"cursor": "not-a-real-cursor"}
     )
 
     assert response.status_code == 422
@@ -156,15 +185,17 @@ def test_history_empty_string_cursor_returns_422_not_the_newest_page(client, db_
     token, user_id = _register_and_login(
         client, full_name="Maria", email="maria-history-empty-cursor@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     _seed_turn(
         db_session,
         user_id,
+        session_id,
         question="Q?",
         answer_text="A.",
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
 
-    response = client.get("/chat/history", headers=_auth_headers(token), params={"cursor": ""})
+    response = client.get(f"/chat/sessions/{session_id}/history", headers=_auth_headers(token), params={"cursor": ""})
 
     assert response.status_code == 422
 
@@ -178,9 +209,12 @@ def test_history_cursor_with_out_of_range_role_rank_returns_422(client):
     token, _ = _register_and_login(
         client, full_name="Maria", email="maria-history-bad-role-rank@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     bad_cursor = f"2026-01-01T00:00:00+00:00|7|{uuid.uuid4()}"
 
-    response = client.get("/chat/history", headers=_auth_headers(token), params={"cursor": bad_cursor})
+    response = client.get(
+        f"/chat/sessions/{session_id}/history", headers=_auth_headers(token), params={"cursor": bad_cursor}
+    )
 
     assert response.status_code == 422
 
@@ -192,34 +226,44 @@ def test_history_cross_tenant_isolation(client, db_session):
     token_b, user_id_b = _register_and_login(
         client, full_name="Account B", email="account-b-history@example.com", password="password-account-b"
     )
+    session_id_a = _create_session_id(client, token_a)
+    session_id_b = _create_session_id(client, token_b)
     _seed_turn(
         db_session,
         user_id_a,
+        session_id_a,
         question="Account A's own question",
         answer_text="Account A's own answer.",
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
 
-    response_b = client.get("/chat/history", headers=_auth_headers(token_b))
-
+    # Account B's own session is empty either way, but the load-bearing
+    # assertion is the 404 below -- B can't even name A's session to read
+    # from it, let alone see A's messages through it.
+    response_b = client.get(f"/chat/sessions/{session_id_b}/history", headers=_auth_headers(token_b))
     assert response_b.status_code == 200
     assert response_b.json()["messages"] == []
+
+    cross_tenant_response = client.get(f"/chat/sessions/{session_id_a}/history", headers=_auth_headers(token_b))
+    assert cross_tenant_response.status_code == 404
 
 
 def test_history_persisted_refusal_renders_with_its_empty_reason(client, db_session):
     token, user_id = _register_and_login(
         client, full_name="Maria", email="maria-history-5@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     _seed_turn(
         db_session,
         user_id,
+        session_id,
         question="Something unrelated?",
         answer_text=None,
         empty_reason="refusal",
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
 
-    response = client.get("/chat/history", headers=_auth_headers(token))
+    response = client.get(f"/chat/sessions/{session_id}/history", headers=_auth_headers(token))
 
     assert response.status_code == 200
     assistant_message = response.json()["messages"][0]
@@ -241,14 +285,20 @@ def test_history_row_with_real_citations_round_trips_through_the_response(client
     token, user_id = _register_and_login(
         client, full_name="Maria", email="maria-history-citations@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     db_session.add(
         ChatMessage(
-            user_id=user_id, role="user", question="What is the refund window?", created_at=datetime(2026, 1, 1, tzinfo=timezone.utc)
+            user_id=user_id,
+            session_id=session_id,
+            role="user",
+            question="What is the refund window?",
+            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         )
     )
     db_session.add(
         ChatMessage(
             user_id=user_id,
+            session_id=session_id,
             role="assistant",
             segments=[
                 {
@@ -267,7 +317,7 @@ def test_history_row_with_real_citations_round_trips_through_the_response(client
     )
     db_session.commit()
 
-    response = client.get("/chat/history", headers=_auth_headers(token))
+    response = client.get(f"/chat/sessions/{session_id}/history", headers=_auth_headers(token))
 
     assert response.status_code == 200
     assistant_message = response.json()["messages"][0]
@@ -290,14 +340,20 @@ def test_history_respects_the_requested_limit(client, db_session):
     token, user_id = _register_and_login(
         client, full_name="Maria", email="maria-history-6@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
     for i in range(3):
         _seed_turn(
-            db_session, user_id, question=f"Q{i}?", answer_text=f"A{i}.", created_at=base + timedelta(seconds=i)
+            db_session,
+            user_id,
+            session_id,
+            question=f"Q{i}?",
+            answer_text=f"A{i}.",
+            created_at=base + timedelta(seconds=i),
         )
 
     # UX-DR29: initial load requests limit=3 (messages, not turns).
-    response = client.get("/chat/history", headers=_auth_headers(token), params={"limit": 3})
+    response = client.get(f"/chat/sessions/{session_id}/history", headers=_auth_headers(token), params={"limit": 3})
 
     assert response.status_code == 200
     body = response.json()
@@ -309,8 +365,9 @@ def test_history_rejects_limit_zero_with_422(client):
     token, _ = _register_and_login(
         client, full_name="Maria", email="maria-history-limit-zero@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
 
-    response = client.get("/chat/history", headers=_auth_headers(token), params={"limit": 0})
+    response = client.get(f"/chat/sessions/{session_id}/history", headers=_auth_headers(token), params={"limit": 0})
 
     assert response.status_code == 422
 
@@ -319,8 +376,9 @@ def test_history_rejects_limit_above_fifty_with_422(client):
     token, _ = _register_and_login(
         client, full_name="Maria", email="maria-history-limit-over@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
 
-    response = client.get("/chat/history", headers=_auth_headers(token), params={"limit": 51})
+    response = client.get(f"/chat/sessions/{session_id}/history", headers=_auth_headers(token), params={"limit": 51})
 
     assert response.status_code == 422
 
@@ -331,7 +389,44 @@ def test_history_accepts_limit_at_the_fifty_boundary(client):
     token, _ = _register_and_login(
         client, full_name="Maria", email="maria-history-limit-boundary@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
 
-    response = client.get("/chat/history", headers=_auth_headers(token), params={"limit": 50})
+    response = client.get(f"/chat/sessions/{session_id}/history", headers=_auth_headers(token), params={"limit": 50})
 
     assert response.status_code == 200
+
+
+def test_history_scoped_to_one_session_never_mixes_another_sessions_messages(client, db_session):
+    """Multi-session chat's core isolation guarantee: two sessions
+    belonging to the SAME account never bleed into each other's
+    history, even though both share one `user_id`."""
+    token, user_id = _register_and_login(
+        client, full_name="Maria", email="maria-history-multi-session@example.com", password="password12345"
+    )
+    session_id_1 = _create_session_id(client, token)
+    session_id_2 = _create_session_id(client, token)
+    _seed_turn(
+        db_session,
+        user_id,
+        session_id_1,
+        question="Session 1's question",
+        answer_text="Session 1's answer.",
+        created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+    _seed_turn(
+        db_session,
+        user_id,
+        session_id_2,
+        question="Session 2's question",
+        answer_text="Session 2's answer.",
+        created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+
+    response_1 = client.get(f"/chat/sessions/{session_id_1}/history", headers=_auth_headers(token))
+    response_2 = client.get(f"/chat/sessions/{session_id_2}/history", headers=_auth_headers(token))
+
+    assert response_1.status_code == 200 and response_2.status_code == 200
+    questions_1 = [m["question"] for m in response_1.json()["messages"] if m["role"] == "user"]
+    questions_2 = [m["question"] for m in response_2.json()["messages"] if m["role"] == "user"]
+    assert questions_1 == ["Session 1's question"]
+    assert questions_2 == ["Session 2's question"]

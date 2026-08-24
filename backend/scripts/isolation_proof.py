@@ -22,7 +22,7 @@ Covers, per the spec's Boundaries:
   - Route enumeration: every registered `APIRoute` outside the documented
     public allowlist must carry `get_current_user` in its dependency tree.
   - Cross-tenant blocked access: `auth/me` (get/patch/theme/password),
-    `documents` (list/get/delete), `chat/ask`, `kg/graph`.
+    `documents` (list/get/delete), `chat/sessions/{id}/ask`, `kg/graph`.
   - Bidirectional answer/graph blending: each account's fixture carries a
     unique token plus a same-named entity (`Meridian Fulcrum Holdings`) --
     stresses Neo4j's `user_id`-scoped entity merge specifically, since
@@ -172,9 +172,11 @@ PUBLIC_ALLOWLIST_PATHS = frozenset(
 # using that wrapper would make `_iter_effective_routes` silently degrade
 # to yielding routes as-is, which could shrink `covered_routes` down to
 # almost nothing (just `/health`) without raising anything. This is the
-# known-route-count floor (today's real 11: auth/me GET+PATCH+DELETE,
-# auth/theme PATCH, auth/me/password POST, documents GET+POST,
-# documents/{id} GET+DELETE, chat/ask POST, kg/graph GET) that `_run()`
+# known-route-count floor (a loose lower bound, not a pinned exact count --
+# auth/me GET+PATCH+DELETE, auth/theme PATCH, auth/me/password POST,
+# documents GET+POST, documents/{id} GET+DELETE, chat/sessions CRUD +
+# chat/sessions/{id}/ask + chat/sessions/{id}/history, kg/graph GET, plus
+# others added since this comment was last pinned) that `_run()`
 # asserts against right after building `covered_routes` -- a silently
 # near-empty check set must abort loudly, never print a misleadingly clean
 # "0 leaks found" (review finding).
@@ -795,9 +797,22 @@ def _check_documents_delete_cross_tenant_blocked(
 def _check_chat_ask_no_leak(
     client: TestClient, name: str, headers: dict, *, own_token: str, other_token: str, other_filename: str
 ) -> CheckResult:
-    response = client.post("/chat/ask", json={"question": _ASK_QUESTION}, headers=headers)
+    # Multi-session chat: `/chat/ask` is now nested under a session id
+    # (`POST /chat/sessions/{session_id}/ask`) -- a session belonging to
+    # this same caller must be created first, exactly as a real client
+    # would, before this check's actual leak probe below.
+    session_response = client.post("/chat/sessions", headers=headers)
+    if session_response.status_code != 201:
+        return _fail(
+            name, f"POST /chat/sessions returned {session_response.status_code}: {session_response.text[:300]}"
+        )
+    session_id = session_response.json()["id"]
+
+    response = client.post(f"/chat/sessions/{session_id}/ask", json={"question": _ASK_QUESTION}, headers=headers)
     if response.status_code != 200:
-        return _fail(name, f"POST /chat/ask returned {response.status_code}: {response.text[:300]}")
+        return _fail(
+            name, f"POST /chat/sessions/{session_id}/ask returned {response.status_code}: {response.text[:300]}"
+        )
     blob = response.text
     leaks = []
     if other_token in blob:

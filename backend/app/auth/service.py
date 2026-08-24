@@ -23,6 +23,7 @@ from fastapi import HTTPException
 from app.auth import repository
 from app.auth.schemas import ChangePasswordRequest, RegisterRequest, UpdateProfileRequest
 from app.chat import repository as chat_repository
+from app.chat import sessions_repository as chat_sessions_repository
 from app.documents import repository as documents_repository
 from app.folders import repository as folders_repository
 from app.shared.data_access.session import get_session_factory
@@ -274,11 +275,15 @@ def delete_account(db: Session, current_user: User) -> None:
     (Story 5.3): every owned `documents` row, every owned `chat_messages`
     row (Story 3.4 -- `chat_messages.user_id` is a `NOT NULL` FK with no
     `ON DELETE CASCADE`, so skipping this step fails the `users` delete
-    below with a `ForeignKeyViolation`), every owned `folders` row
-    (folder-grouping feature -- `Folder.user_id` is the identical kind of
-    FK, for the identical reason; `documents.folder_id` itself needs no
-    separate cleanup here, since it's already gone along with the
-    `documents` rows above), then the `users` row itself, plus
+    below with a `ForeignKeyViolation`), every owned `chat_sessions` row
+    (multi-session chat -- `ChatSession.user_id` is the identical kind of
+    FK, for the identical reason; must run *after* the `chat_messages`
+    delete above, since `chat_messages.session_id` is itself a `NOT NULL`
+    FK into `chat_sessions.id` with no cascade either), every owned
+    `folders` row (folder-grouping feature -- `Folder.user_id` is the
+    identical kind of FK, for the identical reason; `documents.folder_id`
+    itself needs no separate cleanup here, since it's already gone along
+    with the `documents` rows above), then the `users` row itself, plus
     their Weaviate passages and Neo4j entities/relationships. Mirrors
     `documents/service.py::delete_document`'s fixed delete order --
     Weaviate first, then Neo4j, then Postgres, one commit -- widened from
@@ -308,6 +313,7 @@ def delete_account(db: Session, current_user: User) -> None:
     delete_entities_for_user(user_id_str)
     documents_repository.delete_all_documents_for_user(db, current_user.id)
     chat_repository.delete_all_messages_for_user(db, current_user.id)
+    chat_sessions_repository.delete_all_sessions_for_user(db, current_user.id)
     folders_repository.delete_all_folders_for_user(db, current_user.id)
     repository.delete_user(db, current_user.id)
     db.commit()
