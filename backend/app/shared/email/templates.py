@@ -36,16 +36,17 @@ Three rules the layout below keeps that are easy to break by accident:
     color underneath. Never put text on a gradient without a `bgcolor` that
     keeps it legible on its own.
 
-  * **Every text element gets an explicit `line-height`, and the `<head>`
-    carries a `text-size-adjust: 100%` reset.** Without the reset, mobile
-    webviews (the Gmail Android/iOS app above all) auto-boost font sizes on
-    a narrow screen as a readability heuristic -- and boost different
-    elements by different ratios. A `<td>` whose line-height was left to
-    its default, or was set to a value that only matched the *original*
-    font-size, ends up with lines packed tighter than the now-larger text,
-    which is what "the words cover each other" on a phone actually is: not
-    misplaced elements, boosted text overflowing a line-height that no
-    longer fits it.
+  * **Every text-bearing element carries `text-size-adjust: none` inline,
+    not just a `<style>` block reset.** iOS/WebKit's mobile text-autosizing
+    algorithm doesn't just resize text -- it re-measures and re-flows line
+    content to decide *how much* to resize, and that internal computation
+    is what corrupted whitespace between words in a real send (see
+    `_NOZOOM`'s own docstring below for why `none`, not `100%`, is the
+    value that actually stops it, and why it has to be inline on each
+    element rather than only inherited from `<body>`). Widening every
+    line-height ratio (also still done throughout this file) guards the
+    same family of bug from the other direction: real slack survives even
+    a client that reflows text some other way this file didn't anticipate.
 
 The visual language (gradient hero, soft-tinted icon tiles, 01/02/03 step
 numerals, white pill CTA on brand) is lifted from the marketing page in
@@ -80,6 +81,37 @@ _FONT = (
 _FONT_DISPLAY = (
     "'Space Grotesk',Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
 )
+
+# Prepended to every text-bearing `style="..."` in this file. A real Gmail
+# iOS send showed adjacent words fused with no space between them -- e.g.
+# "Вашите" + "документи" -> "Вашитедокументи" -- inconsistently, in the
+# *same* message, and not always self-correcting on reopen. Neither of
+# those symptoms fits a CSS bug in this file (the text is one static
+# Python string per element, with a normal literal space, and the raw MIME
+# source Gmail itself stored -- confirmed by inspecting a "Show original"
+# export -- has the same literal space). What's left is the reader's own
+# client doing something to the text after it's already correct.
+#
+# The prior fix (`<style>body,table,td,a{text-size-adjust:100%}`, still
+# below) only clamps iOS/WebKit's automatic text-inflation algorithm's
+# *output* to 1:1 -- the algorithm, which re-measures and re-flows text to
+# decide how much to inflate it, keeps running. `none` is the value that
+# takes it out of the loop entirely (confirmed against MDN's own text-size-
+# adjust reference), which is the more complete fix if that inflation
+# pass's internal line-measurement is what's corrupting inter-word spacing
+# for Cyrillic runs specifically -- consistent with it happening on some
+# elements and not others in the same message, and with it not always
+# resolving itself.
+#
+# It's inline on every element, not only the `<body>` tag, for two
+# independent reasons that both point the same direction: Gmail's app does
+# its own HTML sanitization pass and is known to strip `<style>` blocks
+# entirely in some paths, and even where a `<style>` block survives,
+# `text-size-adjust` inheriting correctly through several layers of nested
+# `<table>`/`<td>` is not something to rely on. An inline declaration on
+# the element that actually holds the text needs neither the `<style>`
+# block nor inheritance to reach it.
+_NOZOOM = "-webkit-text-size-adjust:none; -ms-text-size-adjust:none; text-size-adjust:none; "
 
 # The three "what you get" rows and the three "how it works" steps, mirroring
 # LandingPage.jsx's own FEATURES/STEPS arrays. The glyphs are single unicode
@@ -131,7 +163,7 @@ def _logo_lockup() -> str:
 <td width="36" height="36" bgcolor="{_BRAND}" style="width:36px; height:36px; border-radius:11px; background-color:{_BRAND}; background-image:{_BRAND_GRADIENT}; text-align:center; vertical-align:middle;">
 <div style="width:12px; height:12px; margin:0 auto; border:2px solid #FFFFFF; border-radius:50%; font-size:0; line-height:0;">&nbsp;</div>
 </td>
-<td valign="middle" style="padding-left:10px; font-family:{_FONT_DISPLAY}; font-size:19px; line-height:28px; font-weight:700; letter-spacing:-0.01em; color:{_INK};">GraphMind</td>
+<td valign="middle" style="{_NOZOOM}padding-left:10px; font-family:{_FONT_DISPLAY}; font-size:19px; line-height:28px; font-weight:700; letter-spacing:-0.01em; color:{_INK};">GraphMind</td>
 </tr>
 </table>"""
 
@@ -144,7 +176,7 @@ def _button(*, href: str, label: str) -> str:
     return f"""<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center">
 <tr>
 <td align="center" bgcolor="#FFFFFF" style="border-radius:999px; background-color:#FFFFFF;">
-<a href="{href}" target="_blank" style="display:inline-block; padding:14px 32px; font-family:{_FONT}; font-size:15px; line-height:22px; font-weight:700; color:{_PRIMARY}; text-decoration:none; border-radius:999px;">{_e(label)}</a>
+<a href="{href}" target="_blank" style="{_NOZOOM}display:inline-block; padding:14px 32px; font-family:{_FONT}; font-size:15px; line-height:22px; font-weight:700; color:{_PRIMARY}; text-decoration:none; border-radius:999px;">{_e(label)}</a>
 </td>
 </tr>
 </table>"""
@@ -152,7 +184,7 @@ def _button(*, href: str, label: str) -> str:
 
 def _section_title(text: str) -> str:
     return (
-        f'<p style="margin:0 0 20px; font-family:{_FONT_DISPLAY}; font-size:19px; '
+        f'<p style="{_NOZOOM}margin:0 0 20px; font-family:{_FONT_DISPLAY}; font-size:19px; '
         f'line-height:28px; font-weight:700; letter-spacing:-0.01em; color:{_INK};">{_e(text)}</p>'
     )
 
@@ -167,12 +199,12 @@ def _feature_row(*, glyph: str, title: str, body: str, is_last: bool) -> str:
 <tr>
 <td width="44" valign="top" style="width:44px;">
 <table role="presentation" cellpadding="0" cellspacing="0" border="0">
-<tr><td width="44" height="44" align="center" valign="middle" bgcolor="{_TILE_BG}" style="width:44px; height:44px; border-radius:12px; background-color:{_TILE_BG}; font-family:{_FONT}; font-size:19px; line-height:44px; color:{_PRIMARY};">{glyph}</td></tr>
+<tr><td width="44" height="44" align="center" valign="middle" bgcolor="{_TILE_BG}" style="{_NOZOOM}width:44px; height:44px; border-radius:12px; background-color:{_TILE_BG}; font-family:{_FONT}; font-size:19px; line-height:44px; color:{_PRIMARY};">{glyph}</td></tr>
 </table>
 </td>
 <td valign="top" style="padding-left:14px;">
-<p style="margin:0 0 4px; font-family:{_FONT_DISPLAY}; font-size:15px; line-height:23px; font-weight:700; color:{_INK};">{_e(title)}</p>
-<p style="margin:0; font-family:{_FONT}; font-size:14px; line-height:22px; color:{_INK_SOFT};">{_e(body)}</p>
+<p style="{_NOZOOM}margin:0 0 4px; font-family:{_FONT_DISPLAY}; font-size:15px; line-height:23px; font-weight:700; color:{_INK};">{_e(title)}</p>
+<p style="{_NOZOOM}margin:0; font-family:{_FONT}; font-size:14px; line-height:22px; color:{_INK_SOFT};">{_e(body)}</p>
 </td>
 </tr>
 </table>
@@ -187,10 +219,10 @@ def _step_row(*, numeral: str, title: str, body: str, is_last: bool) -> str:
     return f"""<tr><td colspan="2" style="padding:0;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
 <tr>
-<td width="44" valign="top" style="width:44px; font-family:{_FONT_DISPLAY}; font-size:20px; font-weight:700; line-height:29px; color:{_BRAND};">{numeral}</td>
+<td width="44" valign="top" style="{_NOZOOM}width:44px; font-family:{_FONT_DISPLAY}; font-size:20px; font-weight:700; line-height:29px; color:{_BRAND};">{numeral}</td>
 <td valign="top" style="padding-left:14px;">
-<p style="margin:0 0 4px; font-family:{_FONT_DISPLAY}; font-size:15px; line-height:23px; font-weight:700; color:{_INK};">{_e(title)}</p>
-<p style="margin:0; font-family:{_FONT}; font-size:14px; line-height:22px; color:{_INK_SOFT};">{_e(body)}</p>
+<p style="{_NOZOOM}margin:0 0 4px; font-family:{_FONT_DISPLAY}; font-size:15px; line-height:23px; font-weight:700; color:{_INK};">{_e(title)}</p>
+<p style="{_NOZOOM}margin:0; font-family:{_FONT}; font-size:14px; line-height:22px; color:{_INK_SOFT};">{_e(body)}</p>
 </td>
 </tr>
 </table>
@@ -244,17 +276,18 @@ def verification_email_html(
 <meta name="format-detection" content="telephone=no, date=no, address=no, email=no" />
 <title></title>
 <style type="text/css">
-  /* The actual fix for "text overlaps itself on a phone": stop the
-     Gmail/iOS mail app from auto-boosting font sizes past the fixed
-     line-heights set throughout this file. Every other rule here is the
-     standard companion reset (Outlook table spacing, image scaling) --
-     see the module docstring's third rule. */
-  body, table, td, a {{ -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; text-size-adjust: 100%; }}
+  /* `none`, not a percentage -- see `_NOZOOM`'s docstring for why a
+     percentage still leaves WebKit's text-autosizing computation running.
+     Belt-and-braces with the inline `_NOZOOM` declaration on every
+     text-bearing element below: this covers any client that keeps the
+     `<style>` block and inherits it correctly, that inline declaration
+     covers the ones that don't. */
+  body, table, td, a {{ -webkit-text-size-adjust: none; -ms-text-size-adjust: none; text-size-adjust: none; }}
   table, td {{ mso-table-lspace: 0pt; mso-table-rspace: 0pt; }}
   img {{ -ms-interpolation-mode: bicubic; }}
 </style>
 </head>
-<body style="margin:0; padding:0; width:100%; background-color:{_PAGE_BG}; -webkit-text-size-adjust:100%; text-size-adjust:100%;">
+<body style="margin:0; padding:0; width:100%; background-color:{_PAGE_BG}; -webkit-text-size-adjust:none; text-size-adjust:none;">
 
 <!-- Preheader: hidden in the email itself, but it is what most inbox list
      views print next to the subject. Without one, clients quote whatever
@@ -287,11 +320,11 @@ def verification_email_html(
 
 <img src="{_e(robot_src)}" width="150" height="150" alt="" style="display:block; width:150px; height:150px; border:0; outline:none; margin:0 auto 22px;" />
 
-<p style="margin:0 0 12px; font-family:{_FONT}; font-size:11px; line-height:20px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:#D8F1FF;">{_e(c["eyebrow"])}</p>
+<p style="{_NOZOOM}margin:0 0 12px; font-family:{_FONT}; font-size:11px; line-height:20px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:#D8F1FF;">{_e(c["eyebrow"])}</p>
 
-<h1 style="margin:0 0 14px; font-family:{_FONT_DISPLAY}; font-size:30px; line-height:44px; font-weight:700; letter-spacing:-0.02em; color:#FFFFFF;">{_e(c["hero_title"])}</h1>
+<h1 style="{_NOZOOM}margin:0 0 14px; font-family:{_FONT_DISPLAY}; font-size:30px; line-height:44px; font-weight:700; letter-spacing:-0.02em; color:#FFFFFF;">{_e(c["hero_title"])}</h1>
 
-<p style="margin:0 0 28px; font-family:{_FONT}; font-size:15px; line-height:24px; color:#E4F5FF;">{_e(c["hero_body"])}</p>
+<p style="{_NOZOOM}margin:0 0 28px; font-family:{_FONT}; font-size:15px; line-height:24px; color:#E4F5FF;">{_e(c["hero_body"])}</p>
 
 {_button(href=url, label=c["button"])}
 
@@ -307,8 +340,8 @@ def verification_email_html(
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
 
 <tr><td colspan="2">
-<p style="margin:0 0 12px; font-family:{_FONT_DISPLAY}; font-size:17px; line-height:26px; font-weight:700; color:{_INK};">{_e(c["greeting"])}</p>
-<p style="margin:0; font-family:{_FONT}; font-size:15px; line-height:24px; color:{_INK_SOFT};">{_e(c["intro"])}</p>
+<p style="{_NOZOOM}margin:0 0 12px; font-family:{_FONT_DISPLAY}; font-size:17px; line-height:26px; font-weight:700; color:{_INK};">{_e(c["greeting"])}</p>
+<p style="{_NOZOOM}margin:0; font-family:{_FONT}; font-size:15px; line-height:24px; color:{_INK_SOFT};">{_e(c["intro"])}</p>
 </td></tr>
 
 {_divider()}
@@ -326,9 +359,9 @@ def verification_email_html(
 <!-- Fine print: the raw link for readers whose client mangles the button,
      then expiry and the "ignore this" line. -->
 <tr><td colspan="2">
-<p style="margin:0 0 8px; font-family:{_FONT}; font-size:13px; line-height:20px; color:{_MUTED};">{_e(c["fallback_intro"])}</p>
-<p style="margin:0 0 16px; font-family:{_FONT}; font-size:13px; line-height:20px; word-break:break-all;"><a href="{url}" target="_blank" style="color:{_PRIMARY}; text-decoration:underline;">{url}</a></p>
-<p style="margin:0; font-family:{_FONT}; font-size:13px; line-height:20px; color:{_MUTED};">{_e(c["expiry"])} {_e(c["ignore"])}</p>
+<p style="{_NOZOOM}margin:0 0 8px; font-family:{_FONT}; font-size:13px; line-height:20px; color:{_MUTED};">{_e(c["fallback_intro"])}</p>
+<p style="{_NOZOOM}margin:0 0 16px; font-family:{_FONT}; font-size:13px; line-height:20px; word-break:break-all;"><a href="{url}" target="_blank" style="color:{_PRIMARY}; text-decoration:underline;">{url}</a></p>
+<p style="{_NOZOOM}margin:0; font-family:{_FONT}; font-size:13px; line-height:20px; color:{_MUTED};">{_e(c["expiry"])} {_e(c["ignore"])}</p>
 </td></tr>
 
 </table>
@@ -341,8 +374,8 @@ def verification_email_html(
 <!-- ============ Footer ============ -->
 <tr>
 <td align="center" style="padding:28px 20px 0;">
-<p style="margin:0 0 6px; font-family:{_FONT_DISPLAY}; font-size:14px; line-height:20px; font-weight:700; color:{_INK_SOFT};">{_e(c["footer_tagline"])}</p>
-<p style="margin:0; font-family:{_FONT}; font-size:12px; line-height:18px; color:{_MUTED};">{_e(c["footer_copyright"])}</p>
+<p style="{_NOZOOM}margin:0 0 6px; font-family:{_FONT_DISPLAY}; font-size:14px; line-height:20px; font-weight:700; color:{_INK_SOFT};">{_e(c["footer_tagline"])}</p>
+<p style="{_NOZOOM}margin:0; font-family:{_FONT}; font-size:12px; line-height:18px; color:{_MUTED};">{_e(c["footer_copyright"])}</p>
 </td>
 </tr>
 

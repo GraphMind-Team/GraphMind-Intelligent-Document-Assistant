@@ -139,14 +139,15 @@ def test_button_survives_wrapping_to_two_lines():
     assert line_height > font_size, "two wrapped lines would touch or overlap"
 
 
-def test_head_resets_text_size_adjust():
-    """Regression: on a phone, the Gmail/iOS mail app auto-boosts font sizes
-    as a readability heuristic, boosting different elements by different
-    ratios -- a `<td>` whose line-height was authored for the original size
-    ends up with lines packed tighter than the now-larger text, which reads
-    as "the words cover each other". `text-size-adjust: 100%` turns the
-    heuristic off; it has to be in a `<style>` block AND inline on `<body>`,
-    since some mobile webviews honor one but strip the other."""
+def test_head_resets_text_size_adjust_to_none():
+    """`none`, not a percentage -- a real Gmail iOS send showed adjacent
+    words fused together with no space ("Вашите" + "документи"), and a
+    `100%` reset (this test's original assertion) didn't fix it: per MDN,
+    a percentage value still leaves the browser's text-autosizing
+    algorithm running, only clamping its output ratio, whereas `none`
+    disables the algorithm outright. `none` in the `<style>` block AND
+    inline on `<body>`, since some mobile webviews honor one but strip
+    the other."""
     html = verification_email_html(
         verify_url=VERIFY_URL,
         robot_src="https://app.example.com/email-robot.png",
@@ -154,10 +155,37 @@ def test_head_resets_text_size_adjust():
     )
 
     style_block = re.search(r"<style[^>]*>(.*?)</style>", html, re.S)
-    assert style_block and "text-size-adjust: 100%" in style_block.group(1)
+    assert style_block and "text-size-adjust: none" in style_block.group(1)
+    assert "100%" not in style_block.group(1)
 
     body_tag = re.search(r"<body[^>]*>", html).group(0)
-    assert "text-size-adjust:100%" in body_tag
+    assert "text-size-adjust:none" in body_tag
+
+
+def test_every_text_bearing_element_disables_size_adjust_inline():
+    """Regression, same real Gmail iOS send as the test above: the
+    `<style>`-block-only reset wasn't enough, because Gmail's app is known
+    to strip `<style>` blocks in some paths, and `text-size-adjust`
+    inheriting correctly through several layers of nested email tables
+    isn't reliable either. Every element that actually carries visible
+    text needs its own inline declaration -- inheriting from `<body>`
+    isn't good enough. Spacer cells (`&nbsp;`-only, `font-size:0`) are the
+    one deliberate exception: nothing there for the algorithm to mismeasure."""
+    html = verification_email_html(
+        verify_url=VERIFY_URL,
+        robot_src="https://app.example.com/email-robot.png",
+        copy={key: f"copy-{key}" for key in REQUIRED_COPY_KEYS},
+    )
+
+    missing = []
+    for match in re.finditer(r'<(?:td|p|h1|a)\b[^>]*style="([^"]*)"', html):
+        style = match.group(1)
+        if "font-size:0" in style:
+            continue  # spacer cell -- no text to mismeasure
+        if ("font-size" in style or "font-family" in style) and "text-size-adjust:none" not in style:
+            missing.append(style[:60])
+
+    assert missing == []
 
 
 def test_container_is_not_a_fixed_width_table():
