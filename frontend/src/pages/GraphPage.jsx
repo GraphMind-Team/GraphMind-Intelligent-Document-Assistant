@@ -34,11 +34,11 @@ import GraphScopePanel from '../components/graph/GraphScopePanel'
 function StatTile({ label, value, hint }) {
   return (
     <div
-      className="rounded-xl px-5 py-3"
+      className="rounded-xl px-5 py-3 text-center"
       style={{ backgroundColor: 'var(--graph-card-bg)', border: '1px solid var(--graph-card-border)' }}
     >
       <p
-        className="font-display text-2xl font-bold leading-none"
+        className="font-display text-2xl font-medium leading-none"
         style={{ color: 'var(--graph-ink)' }}
       >
         {value}
