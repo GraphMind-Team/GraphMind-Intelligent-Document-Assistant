@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useChatSessions } from '../context/ChatSessionsContext'
 
@@ -13,6 +13,7 @@ import { useChatSessions } from '../context/ChatSessionsContext'
 // creates one instead of rendering an empty/dead-end page.
 export default function ChatIndexRedirect() {
   const { t } = useTranslation()
+  const location = useLocation()
   const { sessions, isLoading, error, createSession } = useChatSessions()
   // Guards the create-on-empty call to exactly one attempt per mount --
   // `createSession` itself triggers a navigate away once it resolves, but
@@ -29,7 +30,12 @@ export default function ChatIndexRedirect() {
   }, [isLoading, error, sessions.length])
 
   if (!isLoading && sessions.length > 0) {
-    return <Navigate to={`/chat/${sessions[0].id}`} replace />
+    // Forward whatever navigation state got us to `/chat` in the first
+    // place (e.g. DocumentDetailPage/DocumentCard/DocumentReadyToasts'
+    // `{ presetDocumentId }`) -- `<Navigate>` doesn't carry it along on
+    // its own, and without this the redirect silently drops it, landing
+    // on the session with no document scope applied.
+    return <Navigate to={`/chat/${sessions[0].id}`} state={location.state} replace />
   }
 
   return (
