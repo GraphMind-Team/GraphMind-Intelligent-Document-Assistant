@@ -312,6 +312,13 @@
       "label_one": "Du fragst in {{count}} Dokument",
       "label_other": "Du fragst in {{count}} Dokumenten",
       "clearAria": "Stattdessen in allen Dokumenten fragen"
+    },
+    "sessionsPanel": {
+      "title": "Chats",
+      "newChat": "Neuer Chat",
+      "newChatComingSoon": "Neue Chats starten kommt bald",
+      "currentChat": "Aktueller Chat",
+      "note": "Weitere Chats folgen bald."
     }
   },
   "graph": {

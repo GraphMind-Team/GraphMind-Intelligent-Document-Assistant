@@ -8,6 +8,7 @@ import ChatMessage from '../components/chat/ChatMessage'
 import RobotMascot, { RobotFigure } from '../components/chat/RobotMascot'
 import DocumentsScopePanel from '../components/chat/DocumentsScopePanel'
 import ChatSearchPanel from '../components/chat/ChatSearchPanel'
+import ChatSessionsPanel from '../components/chat/ChatSessionsPanel'
 import { useSlowRequestHint } from '../hooks/useSlowRequestHint'
 
 // UX-DR29/Story 3.4: one page size for both the initial load and every
@@ -64,14 +65,15 @@ function messageSearchText(message) {
   return ''
 }
 
-// Chat page (Story 3.1): a two-column grid -- flexible chat window (1fr) +
-// fixed 260px documents-in-scope panel, 20px gutter (UX-DR9). Collapses to
-// a single column below 900px so the fixed-width columns (this page's
-// panel plus Shell's 220px sidebar) can't force horizontal scroll/clipping
-// at 200% browser zoom on a typical laptop viewport (AC2, WCAG 1.4.4,
-// UX-DR28) -- the scope panel already sits second in DOM order, so no CSS
-// `order`/`row-reverse` is needed to make it flow below the chat column
-// (mirrors Shell.jsx's own UX-DR18 convention).
+// Chat page (Story 3.1): a three-column grid -- fixed 260px chats panel +
+// flexible chat window (1fr) + fixed 260px documents-in-scope panel, 20px
+// gutter (UX-DR9). Collapses to a single column below 900px so the
+// fixed-width columns (this page's two panels plus Shell's 220px sidebar)
+// can't force horizontal scroll/clipping at 200% browser zoom on a typical
+// laptop viewport (AC2, WCAG 1.4.4, UX-DR28) -- both side panels keep DOM
+// order == visual order (no CSS `order`/`row-reverse`), mirroring Shell.jsx's
+// own UX-DR18 convention: the chats panel sits first in DOM so it stacks
+// above the chat column, the documents panel sits last so it stacks below.
 //
 // Split into this thin wrapper + ChatPageContent (Story 3.3) because
 // ChatPageContent needs `useChatScope()`, which reads the context this
@@ -513,7 +515,9 @@ function ChatPageContent() {
         <h1 className="text-page-title text-text">{t('chat.title')}</h1>
       </header>
 
-      <div className="grid grid-cols-[1fr_260px] gap-[20px] max-[900px]:grid-cols-1">
+      <div className="grid grid-cols-[260px_1fr_260px] gap-[20px] max-[900px]:grid-cols-1">
+        <ChatSessionsPanel />
+
         <div
           className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-card-bg shadow-card"
           style={{ minHeight: '520px', height: 'calc(100vh - 140px)' }}

@@ -312,6 +312,13 @@
       "label_one": "Asking in {{count}} document",
       "label_other": "Asking in {{count}} documents",
       "clearAria": "Ask across all documents instead"
+    },
+    "sessionsPanel": {
+      "title": "Chats",
+      "newChat": "New chat",
+      "newChatComingSoon": "Starting new chats is coming soon",
+      "currentChat": "Current chat",
+      "note": "More chats coming soon."
     }
   },
   "graph": {
