@@ -1,6 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import CitationChip from './CitationChip'
+
+// Widest the panel is ever allowed to render -- mirrors the `max-w-[320px]`
+// this panel has always carried; kept as a constant here too since the
+// portal's own viewport-clamping math (below) needs the same number the
+// className sets, not a second, independently-tuned guess.
+const PANEL_MAX_WIDTH = 320
+// Space kept clear between the panel and the viewport edge it's closest
+// to, purely so a clamped panel never touches the edge pixel-for-pixel.
+const VIEWPORT_MARGIN = 8
 
 // One "sources" pill per assistant message -- replaces the old
 // one-chip-per-citation inline layout, which put a chip after every
@@ -14,11 +24,42 @@ import CitationChip from './CitationChip'
 // panel itself holds only static `<cite>` chips, not actionable items
 // (jump-to-source is still out of scope, same as CitationChip's own
 // contract), so it's a plain labelled group rather than a `role="menu"`.
+//
+// The open panel is portalled to `document.body`, not rendered inline
+// here -- the sources pill sits in the actions row *below* the answer
+// bubble (ChatMessage.jsx's own "actions live outside the bubble"
+// layout), and that row's ancestor message wrapper carries `anim-rise`,
+// whose entrance animation keeps a live `transform` on the element for
+// its duration. Per the CSS stacking-context spec, an active `transform`
+// forms a new stacking context -- so this panel's own `z-index: 10`
+// only ever wins *inside* its own message's stacking context; a *later*
+// message's bubble, animating in below it, forms its own competing
+// context and paints on top regardless, covering an still-open panel
+// from an earlier message (verified by hand: the panel's ancestor chain
+// showed exactly this). A portal escapes every ancestor's stacking
+// context entirely, the same reason `DocumentCard.jsx`'s own modals are
+// portalled (see that file's comment) -- `position: fixed` coordinates
+// computed from the toggle button's own `getBoundingClientRect()`
+// replace the old `absolute left-0 top-full` positioning that relied on
+// being a normal-flow descendant of that button.
 export default function CitationSummary({ citations }) {
   const { t } = useTranslation()
   const [isOpen, setIsOpen] = useState(false)
+  const [position, setPosition] = useState(null)
   const buttonRef = useRef(null)
   const panelRef = useRef(null)
+
+  // Computed fresh every time the panel opens (button position can shift
+  // between opens -- new messages appended above/below, a window resize,
+  // etc.) -- `useLayoutEffect`, not `useEffect`, so the panel never
+  // paints for even one frame at a stale/default position.
+  useLayoutEffect(() => {
+    if (!isOpen) return
+    const rect = buttonRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const left = Math.min(rect.left, window.innerWidth - PANEL_MAX_WIDTH - VIEWPORT_MARGIN)
+    setPosition({ top: rect.bottom + 4, left: Math.max(VIEWPORT_MARGIN, left) })
+  }, [isOpen])
 
   // Outside-click needs a document-level listener -- there's no local
   // event for "a click landed outside this element". Scoped to only run
@@ -33,8 +74,24 @@ export default function CitationSummary({ citations }) {
       setIsOpen(false)
     }
 
+    // Scrolling the message thread while the panel is open would leave
+    // a portalled, `position: fixed` panel visually detached from the
+    // button it belongs to (it doesn't scroll with the thread anymore,
+    // unlike before the portal) -- closing on any scroll is simpler and
+    // less surprising than repositioning it mid-scroll. `capture: true`
+    // catches the scroll regardless of which ancestor is the actual
+    // scrolling element (the chat thread's own `overflow-y-auto`
+    // container, not `window`).
+    function handleScroll() {
+      setIsOpen(false)
+    }
+
     document.addEventListener('mousedown', handlePointerDown)
-    return () => document.removeEventListener('mousedown', handlePointerDown)
+    document.addEventListener('scroll', handleScroll, true)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('scroll', handleScroll, true)
+    }
   }, [isOpen])
 
   function handleKeyDown(event) {
@@ -72,22 +129,27 @@ export default function CitationSummary({ citations }) {
         {t('chat.sources.toggleLabel', { count: citations.length })}
       </button>
 
-      {isOpen && (
-        <div
-          ref={panelRef}
-          role="group"
-          aria-label={t('chat.sources.panelAria')}
-          className="absolute left-0 top-full z-10 mt-1 min-w-[220px] max-w-[320px] rounded-lg border border-border bg-card-bg py-2 shadow-modal"
-        >
-          <ul className="m-0 list-none space-y-1.5 p-0 px-3">
-            {citations.map((citation, index) => (
-              <li key={index}>
-                <CitationChip chapter={citation.chapter} documentFilename={citation.documentFilename} />
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {isOpen &&
+        position &&
+        createPortal(
+          <div
+            ref={panelRef}
+            role="group"
+            aria-label={t('chat.sources.panelAria')}
+            onKeyDown={handleKeyDown}
+            style={{ top: position.top, left: position.left, maxWidth: PANEL_MAX_WIDTH }}
+            className="fixed z-50 min-w-[220px] rounded-lg border border-border bg-card-bg py-2 text-[13.5px] shadow-modal"
+          >
+            <ul className="m-0 list-none space-y-1.5 p-0 px-3">
+              {citations.map((citation, index) => (
+                <li key={index}>
+                  <CitationChip chapter={citation.chapter} documentFilename={citation.documentFilename} />
+                </li>
+              ))}
+            </ul>
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }
