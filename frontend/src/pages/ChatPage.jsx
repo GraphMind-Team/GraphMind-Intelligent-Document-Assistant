@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
+import { useChatSessions } from '../context/ChatSessionsContext'
 import { ChatScopeProvider, useChatScope } from '../context/ChatScopeContext'
 import { askQuestion, getChatHistory } from '../api/chatClient'
 import ChatMessage from '../components/chat/ChatMessage'
@@ -107,6 +108,7 @@ export default function ChatPage() {
 function ChatPageContent({ sessionId }) {
   const { t } = useTranslation()
   const { authFetch } = useAuth()
+  const { refresh: refreshSessions } = useChatSessions()
   const { selectedDocumentIds, selectAll } = useChatScope()
   // DocumentDetailPage's "Ask about this document" link arrives here with
   // `{ presetDocumentId }` in navigation state -- picked up once below,
@@ -451,8 +453,20 @@ function ChatPageContent({ sessionId }) {
 
   async function handleSubmit(event) {
     event.preventDefault()
-    const trimmed = question.trim()
+    await submitQuestion(question)
+  }
+
+  async function submitQuestion(text) {
+    const trimmed = text.trim()
     if (!trimmed || isAsking) return
+
+    // Session titling (chat/service.py::_persist_turn) sets the backend
+    // session's title from the first question it ever sees, then never
+    // again -- so the sessions list only needs a refetch to pick up the
+    // new title on that first turn. `messages.length === 0` here (before
+    // this turn's own optimistic append below) is exactly that "first
+    // turn" signal.
+    const isFirstTurn = messages.length === 0
 
     // A newly-asked question is exactly the "genuinely new incoming
     // answer" case the live region is reserved for -- re-enable it here,
@@ -469,6 +483,11 @@ function ChatPageContent({ sessionId }) {
 
     try {
       const result = await askQuestion(authFetch, sessionId, trimmed, selectedDocumentIds)
+      if (isFirstTurn) {
+        // Fire-and-forget: the sessions panel's title lagging by a beat
+        // is fine, but blocking this turn's own answer on it is not.
+        refreshSessions()
+      }
       if (result.empty_reason === 'refusal') {
         // FR-10/UX-DR15: a designed refusal, not an empty-state notice --
         // its own message role so ChatMessage renders a real bubble,
@@ -628,7 +647,7 @@ function ChatPageContent({ sessionId }) {
                               <button
                                 key={sample}
                                 type="button"
-                                onClick={() => setQuestion(sample)}
+                                onClick={() => submitQuestion(sample)}
                                 className="rounded-full border border-border bg-surface2 px-3.5 py-1.5 text-[12.5px] text-text hover:border-accent hover:text-accent"
                               >
                                 {sample}

@@ -21,6 +21,10 @@ vi.mock('../components/chat/DocumentsScopePanel', () => ({ default: ScopePanelSt
 vi.mock('../components/chat/ChatSessionsPanel', () => ({
   default: () => <div>sessions panel stub</div>,
 }))
+// ChatPage itself now also calls useChatSessions() directly (to refresh
+// the sessions list once the first turn's auto-title lands) -- same
+// "no ChatSessionsProvider ancestor here" reason as the panel mock above.
+vi.mock('../context/ChatSessionsContext', () => ({ useChatSessions: () => ({ refresh: vi.fn() }) }))
 
 // A `function` declaration, not a `const` arrow -- fully hoisted, so it's
 // safe to reference from the (also-hoisted) `vi.mock` factory above despite
