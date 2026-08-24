@@ -82,6 +82,27 @@ def test_hero_keeps_a_solid_background_color_behind_its_gradient():
     assert 'bgcolor="#0EA5E9"' in hero
 
 
+def test_head_resets_text_size_adjust():
+    """Regression: on a phone, the Gmail/iOS mail app auto-boosts font sizes
+    as a readability heuristic, boosting different elements by different
+    ratios -- a `<td>` whose line-height was authored for the original size
+    ends up with lines packed tighter than the now-larger text, which reads
+    as "the words cover each other". `text-size-adjust: 100%` turns the
+    heuristic off; it has to be in a `<style>` block AND inline on `<body>`,
+    since some mobile webviews honor one but strip the other."""
+    html = verification_email_html(
+        verify_url=VERIFY_URL,
+        robot_src="https://app.example.com/email-robot.png",
+        copy={key: f"copy-{key}" for key in REQUIRED_COPY_KEYS},
+    )
+
+    style_block = re.search(r"<style[^>]*>(.*?)</style>", html, re.S)
+    assert style_block and "text-size-adjust: 100%" in style_block.group(1)
+
+    body_tag = re.search(r"<body[^>]*>", html).group(0)
+    assert "text-size-adjust:100%" in body_tag
+
+
 def test_container_is_not_a_fixed_width_table():
     """Regression: a `width="600"` attribute beats `max-width:100%` in real
     table layout, so the message kept its 600px on a 390px phone and forced
