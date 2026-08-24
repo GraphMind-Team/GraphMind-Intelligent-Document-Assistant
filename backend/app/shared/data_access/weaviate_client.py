@@ -502,3 +502,83 @@ def search_passages(
         )
         for obj in response.objects
     ]
+
+
+# Story 3.5 (document-overview chat intent): a generous cap on how many
+# passages `fetch_passages_for_documents` will ever pull for one overview
+# request. Not tuned against a real large-document benchmark -- like
+# `PASSAGE_BATCH_SIZE` above, a conservative, documented default. Sits
+# well above what `_OVERVIEW_MAX_PROMPT_CHARS` (shared/llm_client) could
+# ever fit in the prompt anyway; the char budget there is what actually
+# bounds the block sent to the model, so this only bounds how much data
+# leaves Weaviate before that trim happens.
+OVERVIEW_FETCH_LIMIT = 300
+
+
+def fetch_passages_for_documents(
+    document_ids: list[str], user_id: str, limit: int = OVERVIEW_FETCH_LIMIT
+) -> list[WeaviateSearchResult]:
+    """Every passage belonging to `document_ids` (server-side tenancy-
+    filtered to `user_id`, same AD-2/FR-2 guarantee `search_passages`
+    enforces), ordered `(document_id, chunk_index)` -- reading order
+    within each document, not relevance order.
+
+    This is a *retrieval*, not a *search*: `fetch_objects`, not
+    `near_text` -- no query embedding is computed, and nothing here is
+    scored against anything. That is deliberate. The document-overview
+    chat intent this function exists for ("summarize this document",
+    "outline it") needs the document's own content, not the handful of
+    chunks that happen to sit nearest some embedded query text -- and
+    critically, it must never produce a `distance`, since `chat/service.py`
+    only ever applies `RELEVANCE_THRESHOLD` to results that carry one.
+    Every `WeaviateSearchResult` this returns has `distance=None` for
+    exactly that reason -- not because Weaviate failed to compute one, but
+    because none was asked for, so the refusal short-circuit's `not
+    passages or not any(p.distance is not None and ...)` check on the
+    caller's side can never accidentally fire against an overview result.
+
+    `document_ids` must be non-empty -- unlike `search_passages`, where an
+    empty scope means "search everything", an unscoped document-wide
+    fetch has no equivalent "everything" here without either loading a
+    user's entire library into one prompt or silently guessing which
+    documents they meant; resolving "no explicit scope" to a concrete
+    document set (e.g. every Ready document) is `chat/service.py`'s job,
+    using data this module doesn't have (`Document.status`).
+
+    Weaviate's `fetch_objects` does not sort server-side (no `near_text`,
+    no `Sort` requested), and paginates internally, so the returned object
+    order is not guaranteed reading order on its own even within one
+    document, let alone across several requested at once -- hence the
+    explicit sort below rather than trusting whatever order the response
+    already came back in.
+    """
+    if not document_ids:
+        raise ValueError("fetch_passages_for_documents requires a non-empty document_ids list")
+
+    filters = Filter.by_property("user_id").equal(user_id) & Filter.by_property(
+        "document_id"
+    ).contains_any(document_ids)
+
+    def _query():
+        client = get_weaviate_client()
+        _ensure_passage_collection(client)
+        return client.collections.get(PASSAGE_COLLECTION).query.fetch_objects(
+            filters=filters,
+            limit=limit,
+        )
+
+    response = _with_reconnect(_query)
+
+    results = [
+        WeaviateSearchResult(
+            chunk_id=obj.properties["chunk_id"],
+            document_id=obj.properties["document_id"],
+            chapter=obj.properties["chapter"],
+            chunk_index=obj.properties["chunk_index"],
+            text=obj.properties["text"],
+            distance=None,
+        )
+        for obj in response.objects
+    ]
+    results.sort(key=lambda r: (r.document_id, r.chunk_index))
+    return results

@@ -102,6 +102,31 @@ describe('ChatPage', () => {
     expect(chip.tagName).toBe('CITE')
   })
 
+  it('renders a prose segment (Story 3.5) as plain text with no citation chip, alongside a grounded one', async () => {
+    vi.spyOn(chatClient, 'askQuestion').mockResolvedValue({
+      segments: [
+        { text: "Sure, here's what I found:", citations: [], kind: 'prose' },
+        {
+          text: "TechCorp's refund window is 30 days.",
+          citations: [
+            { chapter: 'Chapter 4', document_filename: 'Vendor_Agreement_2026.pdf', chunk_indexes: [0] },
+          ],
+          kind: 'grounded',
+        },
+      ],
+      empty_reason: null,
+    })
+    const user = userEvent.setup()
+    renderChatPage()
+
+    await user.type(screen.getByLabelText(/ask a question/i), 'What is the refund window?{Enter}')
+
+    expect(await screen.findByText("Sure, here's what I found:", { exact: false })).toBeInTheDocument()
+    const chips = await screen.findAllByText('Ch. Chapter 4, Vendor_Agreement_2026.pdf')
+    // Exactly one chip -- the prose segment contributed none of its own.
+    expect(chips).toHaveLength(1)
+  })
+
   it('renders a distinct service banner for a 503, never as an assistant message', async () => {
     const error = new Error('Answer generation is temporarily unavailable. Please try again.')
     error.isServiceError = true

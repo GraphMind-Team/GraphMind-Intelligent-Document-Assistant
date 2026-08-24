@@ -26,7 +26,7 @@ Every response is traceable to a specific passage in a specific document. When r
 - Document ingestion (PDF, Markdown, HTML) with a visible ingestion status (Uploaded → Extracting → Graphing → Ready → Failed) and drag-and-drop upload
 - Content-hash deduplication to avoid reprocessing unchanged documents
 - A unified per-user knowledge graph, combining entities and relationships extracted across all of a user's documents
-- Chat Q&A with structured citations, explicit refusal below an evidence threshold, and document scoping (ask across all documents or a chosen subset)
+- Chat Q&A with structured citations, explicit refusal below an evidence threshold, and document scoping (ask across all documents or a chosen subset). A question-routing step classifies each question into a greeting, a whole-document summary/outline, or a specific factual question, and answers each accordingly — a short conversational reply may accompany an answer, but every factual claim still carries a citation
 - Document library: list, inspect, and delete documents
 - Read-only knowledge graph visualization
 - Per-user authentication and server-side tenancy isolation across every data store

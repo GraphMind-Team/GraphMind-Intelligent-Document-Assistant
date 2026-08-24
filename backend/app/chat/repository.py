@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import and_, case, delete, desc, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.shared.data_access.tenancy import user_scoped_select
@@ -105,6 +105,42 @@ def get_filenames_for_documents(
     stmt = user_scoped_select(Document, user_id).where(Document.id.in_(parsed_ids))
     rows = db.execute(stmt).scalars().all()
     return {str(row.id): row.filename for row in rows}
+
+
+def get_overview_documents(
+    db: Session, user_id: uuid.UUID, document_ids: list[uuid.UUID]
+) -> list[Document]:
+    """Documents in scope for a `document_overview` chat answer (this
+    story's addition), scoped to this account via `user_scoped_select`
+    (AD-2) same as every other read in this module.
+
+    `document_ids` non-empty (Story 3.3's own scope semantics, reused
+    here): exactly those documents, regardless of status -- `chat/
+    service.py` is the one that decides what an explicitly-scoped
+    not-yet-Ready document means for this intent (today: its
+    `chapter_breakdown` is simply `None`, so it contributes no outline,
+    the same "Pending, never a fabricated 0" rule `Document.
+    chapter_breakdown`'s own docstring states).
+
+    `document_ids` empty: every `Ready` document this account owns --
+    the same "no explicit scope means everything" default `search_
+    passages`/`AskRequest.document_ids` already establish for the
+    factual path, narrowed to `Ready` here because a `chapter_breakdown`
+    only ever exists on a `Ready` row in the first place (see `Document`'s
+    own docstring), so including a not-yet-`Ready` row in the unscoped
+    case would only ever add a document that outlines as empty.
+
+    `Document.content` is deferred -- this function is read for
+    `filename`/`chapter_breakdown` only, mirroring `list_documents_for_
+    user`'s own reasoning against pulling the raw upload bytes for a
+    card-grid-shaped read.
+    """
+    stmt = user_scoped_select(Document, user_id).options(defer(Document.content))
+    if document_ids:
+        stmt = stmt.where(Document.id.in_(document_ids))
+    else:
+        stmt = stmt.where(Document.status == "Ready")
+    return list(db.execute(stmt).scalars().all())
 
 
 def save_message(db: Session, message: ChatMessage) -> ChatMessage:

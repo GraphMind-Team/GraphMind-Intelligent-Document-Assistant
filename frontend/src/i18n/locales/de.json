@@ -260,18 +260,19 @@
     "title": "Chat",
     "eyebrow": "Frage deine Bibliothek",
     "askLabel": "Stelle eine Frage zu deinen Dokumenten",
-    "askPlaceholder": "Stelle eine Frage zu deinen Dokumenten…",
+    "askPlaceholder": "Frage, fasse zusammen oder skizziere deine Dokumente…",
     "ask": "Fragen",
     "welcome": {
       "noDocumentsTitle": "Lade ein Dokument hoch, um zu starten",
       "noDocumentsBody": "GraphMind antwortet nur auf Basis deiner hochgeladenen Dokumente. Füge eine PDF-, Markdown- oder HTML-Datei hinzu und komm dann zurück, um Fragen zu stellen.",
       "noDocumentsCta": "Zu den Dokumenten",
       "readyTitle": "Stelle deine erste Frage",
-      "readyBody": "Frag etwas zu deinen Dokumenten. Jede Antwort enthält einen Verweis auf die Fundstelle.",
+      "readyBody": "Frag etwas zu deinen Dokumenten oder bitte um eine Zusammenfassung oder Gliederung. Jede Aussage enthält einen Verweis auf die Fundstelle.",
       "tryLabel": "Frag zum Beispiel:",
       "sample1": "Worum geht es in diesem Dokument?",
       "sample2": "Fasse die wichtigsten Punkte zusammen.",
-      "sample3": "Wer oder was wird am häufigsten erwähnt?"
+      "sample3": "Wer oder was wird am häufigsten erwähnt?",
+      "sample4": "Skizziere die Struktur dieses Dokuments."
     },
     "jumpToLatest": "Zu den neuesten Nachrichten springen",
     "loadingEarlier": "Frühere Nachrichten werden geladen…",

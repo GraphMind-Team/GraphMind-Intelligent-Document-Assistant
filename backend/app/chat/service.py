@@ -1,9 +1,10 @@
-"""Chat module business logic (Story 3.1).
+"""Chat module business logic (Story 3.1; intent routing added Story 3.5).
 
-Orchestrates the grounded-answer flow: embed -> search -> (degenerate
-zero-passage case) -> generate -> resolve citations -> assemble. Any data
-access here goes through `app.shared.data_access` / `app.chat.repository`
-rather than talking to Postgres/Weaviate/Neo4j directly (AD-2).
+Orchestrates the grounded-answer flow: route -> (embed -> search) or
+(fetch document structure) -> (degenerate zero-passage case) -> generate
+-> resolve citations -> assemble. Any data access here goes through
+`app.shared.data_access` / `app.chat.repository` rather than talking to
+Postgres/Weaviate/Neo4j directly (AD-2).
 """
 
 import logging
@@ -21,16 +22,23 @@ from app.chat.schemas import (
     ChatHistoryResponse,
     CitationResponse,
 )
-from app.shared.data_access.weaviate_client import TOP_K_PASSAGES, search_passages
+from app.shared.data_access.weaviate_client import (
+    TOP_K_PASSAGES,
+    fetch_passages_for_documents,
+    search_passages,
+)
 from app.shared.llm_client import (
     HISTORY_MAX_TURNS,
     RELEVANCE_THRESHOLD,
+    AnswerResult,
     ChatCompletionError,
     ChatHistoryTurn,
+    QuestionPlan,
     bound_chat_history,
     generate_answer,
+    resolve_question,
 )
-from app.shared.models import ChatMessage, User
+from app.shared.models import ChatMessage, Document, User
 
 logger = logging.getLogger(__name__)
 
@@ -49,92 +57,92 @@ def ask_question(
     document_ids: list[uuid.UUID],
     *,
     use_history: bool = True,
+    use_router: bool = True,
 ) -> AskResponse:
-    """Embed -> search -> (degenerate zero-passage case) -> generate ->
-    resolve -> assemble.
+    """Route -> (embed -> search) or (fetch document structure) ->
+    (degenerate zero-passage case) -> generate -> resolve -> assemble.
 
     `question` arrives already validated non-blank/length-bounded by
     `AskRequest` (chat/schemas.py) -- no manual check here. `document_ids`
     (Story 3.3/FR-11) arrives as whatever the client sent, unvalidated for
-    ownership -- `search_passages`'s own `user_id` filter is what keeps a
-    foreign/stale id from ever widening retrieval, so no extra check is
-    needed here.
+    ownership -- `search_passages`/`fetch_passages_for_documents`'s own
+    `user_id` filter is what keeps a foreign/stale id from ever widening
+    retrieval, so no extra check is needed here.
 
-    The exact 503 point: only the `except ChatCompletionError` branch
-    below. Nothing else in this function ever raises 503 -- the
-    zero-passages branch returns 200 with `empty_reason="no_documents"`,
-    the refusal branch returns 200 with `empty_reason="refusal"`, neither
-    is ever an exception. This is the precise separation AC12 requires:
-    the zero-passages path, the refusal path, and the LLM-wrapper-failure
-    path never share a status code or a branch (AD-3/AD-6) -- exactly one
-    of the three can produce a given response, by construction of the
-    branch order itself, not by an extra check.
-
-    The refusal short-circuit (Story 3.2, FR-10/OD-2): if no retrieved
-    passage's `.distance` clears `RELEVANCE_THRESHOLD`
-    (`shared/llm_client`), this returns before `generate_answer` is ever
-    called -- no generation call is made at all, per AD-6. History or not,
-    that check still runs first (Story 3.4's own Boundaries) -- it never
-    looks at the history window at all.
-
-    History threading (Story 3.4/FR-17): before retrieval, this fetches
-    the bounded recent-turn window (`HISTORY_MAX_TURNS`/`HISTORY_MAX_CHARS`,
+    History threading (Story 3.4/FR-17): before routing, this fetches the
+    bounded recent-turn window (`HISTORY_MAX_TURNS`/`HISTORY_MAX_CHARS`,
     `shared/llm_client`) from this account's own persisted `ChatMessage`
-    rows and folds it into two places -- the retrieval query text (prior
-    *questions* only, per the Boundaries' "keeps the embedding focused on
-    topical/entity words" reasoning) and `generate_answer`'s `history`
-    param (full Q+A, citations stripped). An empty window (a fresh
-    conversation) makes both of those identical to the pre-3.4 call
-    shape -- `search_passages(question, ...)` and `generate_answer(question,
-    passages)` unchanged -- rather than merely behaviorally equivalent.
-    Retrieval's `document_ids` scope is never touched by history: this
-    turn's own `document_ids` argument is the only thing that ever
-    widens/narrows what `search_passages` searches, exactly as before
-    Story 3.4, even if an earlier turn in the same conversation used a
-    different scope.
+    rows. An empty window (a fresh conversation) makes `history=[]`,
+    identical to the pre-3.4 call shape.
 
-    `use_history=False` opts a caller out of the *read* half of that
-    threading entirely: no window is fetched, and the retrieval/generation
-    calls are the exact pre-3.4 shapes. It exists for one caller --
-    `scripts/eval_harness.py`, Epic 6's measurement instrument (FR-13),
-    which runs a 15-20 question set sequentially through this function
-    against a single QA account. With history on, question N's retrieval
-    embedding becomes the previous three questions newline-joined ahead of
-    its own -- four unrelated questions spanning different fixture
-    documents, embedded as one vector -- so SM-1/SM-2/SM-C1
-    would no longer measure what OD-3's 92.9% baseline measured, and
-    persisted rows surviving between runs would make consecutive runs
-    non-comparable to each other on top of that. The harness measures
-    single-question retrieval, which is what OD-2's `RELEVANCE_THRESHOLD`
-    was itself calibrated against; it is not the instrument for OD-8's
-    window size. Default `True` -- every real request path keeps history.
-    The *write* half is deliberately not gated: `_finish` still persists,
-    so the "every path except 503 persists" invariant below holds for
-    every caller without exception (the harness's own rows simply go
-    unread, accumulating on the QA account the same way its ingested
-    fixture documents already do -- see that script's own
-    known-limitation note).
+    Intent routing (Story 3.5): `resolve_question` classifies `question`
+    (given `history`, for reference resolution) into one of three
+    branches, and never raises -- a routing failure degrades to the
+    `factual` branch with the bare original question, exactly pre-3.5
+    behaviour, so a `resolve_question` outage is never a new way for
+    `/chat/ask` to fail.
 
-    Persistence (Story 3.4/AD-10): every return point below except the
+      - `"greeting"`: no retrieval, no threshold check, no generation
+        call -- the router's own canned `reply` is rendered directly as
+        a single `kind="prose"` segment.
+      - `"document_overview"`: `_answer_document_overview` reads the
+        scoped document(s) whole (`fetch_passages_for_documents`) rather
+        than searching for a top-K nearest match; `RELEVANCE_THRESHOLD`
+        never applies to this branch (see that function's own docstring
+        for why).
+      - `"factual"`: `_answer_factual`, the pre-3.5 flow -- unchanged
+        except retrieval now embeds the router's `search_query` (a
+        standalone rewrite of `question` with references resolved, e.g.
+        "what about its budget?" -> "What is Project Aurora's budget?")
+        instead of the old join of the last `HISTORY_MAX_TURNS` raw
+        questions ahead of the current one. That join diluted the
+        retrieval embedding with whatever unrelated questions preceded
+        it in conversation, routinely pushing an otherwise-answerable
+        follow-up's distance back above `RELEVANCE_THRESHOLD`; a
+        self-contained rewrite embeds on the actual topic instead.
+        `search_query == question` whenever the router found nothing to
+        rewrite or was skipped (`use_router=False`), which keeps this
+        identical to pre-3.5 behaviour in that case.
+
+    `use_history=False` opts a caller out of the read half of history
+    threading entirely: no window is fetched, and `history=[]` is passed
+    to `resolve_question`/`generate_answer` exactly as it always was.
+    `use_router=False` opts out of the routing call itself -- `resolve_
+    question` is never invoked, and every question is answered by
+    `_answer_factual` with `search_query=question` (no rewrite). Both
+    exist for one caller -- `scripts/eval_harness.py`, Epic 6's
+    measurement instrument (FR-13), which runs a 15-20 question set
+    sequentially through this function against a single QA account. With
+    history/routing on, question N's retrieval embedding would depend on
+    prior questions and on a classification call this instrument was
+    never calibrated against -- SM-1/SM-2/SM-C1 would no longer measure
+    what OD-3's baseline measured. The harness measures single-question
+    retrieval through the exact pre-3.4/pre-3.5 code path; it is not the
+    instrument for OD-8's window size or the router's classification
+    quality. Both default `True` -- every real request path keeps history
+    and routing.
+
+    Persistence (Story 3.4/AD-10): every return point below except a
     `ChatCompletionError` -> 503 path goes through `_finish`, which
     persists this turn's question and the resulting assistant message
-    (whatever it is -- a real answer, a refusal, or an empty-reason
-    notice) as two `ChatMessage` rows. The 503 path is the one documented
-    exception (this function's own I/O matrix): a generation failure is
-    never persisted as a message and never rendered as an answer, so a
-    retried question doesn't leave a phantom failed turn in the
-    conversation history a reload would show.
+    (whatever it is -- a real answer, a refusal, an empty-reason notice,
+    or a greeting reply) as two `ChatMessage` rows. The 503 path is the
+    one documented exception (this function's own I/O matrix): a
+    generation failure is never persisted as a message and never rendered
+    as an answer, so a retried question doesn't leave a phantom failed
+    turn in the conversation history a reload would show.
 
     Capacity note: this is a sync `def` route, so FastAPI runs it in
     Starlette's anyio threadpool (a fixed-size worker pool, not the async
-    event loop) -- `generate_answer`'s retry backoff (`time.sleep`,
-    `shared/llm_client`) blocks whichever worker is running this request
-    for the full ~45s/attempt, up to ~120s worst case on a retry, with
-    that worker doing nothing else meanwhile. Fine at demo scale; under
-    real concurrent load the threadpool's worker count becomes a hard
-    ceiling on simultaneous in-flight chat questions, not just a latency
-    number -- worth knowing before this is mistaken for a scaling bug
-    found the hard way rather than a known, documented limit.
+    event loop) -- `resolve_question`'s own call (never retried, capped at
+    `_ROUTER_TIMEOUT_SECONDS`) plus `generate_answer`'s retry backoff
+    (`time.sleep`, `shared/llm_client`) can together block whichever
+    worker is running this request well past `generate_answer`'s own
+    ~45-120s range, with that worker doing nothing else meanwhile. Fine at
+    demo scale; under real concurrent load the threadpool's worker count
+    becomes a hard ceiling on simultaneous in-flight chat questions, not
+    just a latency number -- worth knowing before this is mistaken for a
+    scaling bug found the hard way rather than a known, documented limit.
     """
     if use_history:
         history = bound_chat_history(
@@ -148,19 +156,50 @@ def ask_question(
         # happens to be persisted on its account.
         history = []
 
-    if history:
-        # Design Notes: prior questions only, newest last, then the
-        # current question -- keeps the embedding on-topic rather than
-        # diluted with prior answer prose. Deliberately NOT built when
-        # `history` is empty (see below) so a fresh conversation's
-        # retrieval query is the exact pre-3.4 bare `question`, not
-        # merely an empty join that happens to look the same.
-        query_text = "\n".join(turn.question for turn in history) + "\n" + question
+    if use_router:
+        plan = resolve_question(question, history)
     else:
-        query_text = question
+        # The router's own round-trip is skipped too, same reasoning as
+        # `use_history=False` above -- an opted-out caller gets the bare
+        # pre-3.5 factual flow, not a routing call it asked not to make.
+        plan = QuestionPlan(intent="factual", search_query=question, reply=None)
+
     scoped_ids = [str(document_id) for document_id in document_ids]
+
+    if plan.intent == "greeting":
+        # No retrieval, no threshold, no generation call -- `resolve_
+        # question` already validated `plan.reply` is non-blank whenever
+        # `intent == "greeting"` (its own contract), so this is always
+        # safe to render directly.
+        segments = [AnswerSegmentResponse(text=plan.reply, citations=[], kind="prose")]
+        return _finish(db, current_user, question, AskResponse(segments=segments))
+
+    if plan.intent == "document_overview":
+        return _answer_document_overview(db, current_user, question, document_ids, scoped_ids, history)
+
+    return _answer_factual(db, current_user, question, plan.search_query, scoped_ids, history)
+
+
+def _answer_factual(
+    db: Session,
+    current_user: User,
+    question: str,
+    search_query: str,
+    scoped_ids: list[str],
+    history: list[ChatHistoryTurn],
+) -> AskResponse:
+    """The `"factual"` branch (Story 3.1/3.2/3.3, `search_query` rewrite
+    added Story 3.5): embed -> search -> refusal short-circuit -> generate
+    -> resolve.
+
+    `search_query` is the retrieval embedding text (Story 3.5's router
+    rewrite, or the bare `question` when the router had nothing to
+    resolve or was skipped); `question` itself is what `generate_answer`
+    is called with (so the answer's phrasing/language matches what the
+    user actually typed, not the rewritten form) and what gets persisted.
+    """
     passages = search_passages(
-        query_text, str(current_user.id), limit=TOP_K_PASSAGES, document_ids=scoped_ids or None
+        search_query, str(current_user.id), limit=TOP_K_PASSAGES, document_ids=scoped_ids or None
     )
 
     if not passages:
@@ -200,28 +239,131 @@ def ask_question(
             detail="Answer generation is temporarily unavailable. Please try again.",
         ) from exc
 
-    # From `answer.included_passages`, not the full `passages` retrieval --
-    # same reasoning as `passages_by_number` below: the budget-trimmed list
-    # actually sent to the model is the source of truth for what this
-    # answer can cite, so filename resolution shouldn't look up documents
-    # that were never in play. Harmless either way today (a superset only
-    # adds unused entries to `filenames`), but keeping the two aligned means
-    # a future change to `_select_passages_within_budget` can't quietly
-    # make them diverge.
+    return _resolve_generated_answer(db, current_user, question, answer)
+
+
+def _answer_document_overview(
+    db: Session,
+    current_user: User,
+    question: str,
+    document_ids: list[uuid.UUID],
+    scoped_ids: list[str],
+    history: list[ChatHistoryTurn],
+) -> AskResponse:
+    """The `"document_overview"` branch (Story 3.5): a request for a
+    summary, outline, or "what is this document about" answer, built from
+    the scoped document(s)' full content and chapter structure rather
+    than `search_passages`'s top-K nearest-match result.
+
+    `RELEVANCE_THRESHOLD` never applies here: `fetch_passages_for_
+    documents` is a retrieval, not a search (see that function's own
+    docstring), so its results never carry a `distance` for the refusal
+    check to apply to. A summary/outline request is either answerable
+    from the document's own content or it isn't -- not a question that
+    can fail to be "relevant enough" to itself the way a free-text search
+    query can be to a nearest-match result.
+
+    Document selection mirrors `_answer_factual`'s own scoping: an
+    explicit `document_ids` scope means exactly those documents
+    (`repository.get_overview_documents`), an empty scope means every
+    `Ready` document this account owns.
+    """
+    documents = repository.get_overview_documents(db, current_user.id, document_ids)
+    if not documents:
+        # Same degenerate split as `_answer_factual`'s own -- an empty
+        # library vs. an explicitly-scoped selection that resolved to
+        # nothing (e.g. a stale/foreign id, since `get_overview_documents`
+        # is itself tenancy-scoped).
+        reason = "empty_scope" if scoped_ids else "no_documents"
+        return _finish(db, current_user, question, AskResponse(segments=[], empty_reason=reason))
+
+    structure_text = _build_document_structure_text(documents)
+    passages = fetch_passages_for_documents(
+        [str(document.id) for document in documents], str(current_user.id)
+    )
+    if not passages:
+        # The document(s) exist and are in scope, but Weaviate has no
+        # passages for them (e.g. an explicitly-scoped not-yet-Ready
+        # document, or an index/Postgres desync) -- distinct from "no
+        # documents in scope" above; the library/selection isn't empty,
+        # there's simply no source content to summarize. Matches the
+        # existing "found something, nothing answerable" shape
+        # `no_answer` already covers for the factual path.
+        return _finish(db, current_user, question, AskResponse(segments=[], empty_reason="no_answer"))
+
+    try:
+        answer = generate_answer(
+            question, passages, history=history, mode="overview", document_structure=structure_text
+        )
+    except ChatCompletionError as exc:
+        logger.warning("Chat generation failed: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail="Answer generation is temporarily unavailable. Please try again.",
+        ) from exc
+
+    return _resolve_generated_answer(db, current_user, question, answer)
+
+
+def _build_document_structure_text(documents: list[Document]) -> str:
+    """`documents` (Story 3.5's `document_overview` intent) -> a plain-
+    text outline block: for each document, its filename followed by its
+    `chapter_breakdown` (chapter name -> passage count) as indented
+    lines. A document whose `chapter_breakdown` is still `None` (not yet
+    `Ready` -- reachable only when the caller explicitly scoped to it,
+    per `repository.get_overview_documents`'s own docstring) contributes
+    its filename with no chapter lines, never a fabricated outline (same
+    "Pending, never a fabricated 0" rule `Document.chapter_breakdown`'s
+    own docstring states).
+
+    This is Postgres-derived text handed to `llm_client.generate_answer`
+    as an opaque `document_structure` string -- `shared/llm_client` never
+    queries Postgres itself (AD-2/AD-6), so building this string is this
+    module's job, not that package's.
+    """
+    lines: list[str] = []
+    for document in documents:
+        lines.append(f"{document.filename}:")
+        if document.chapter_breakdown:
+            for chapter, count in document.chapter_breakdown.items():
+                lines.append(f"  - {chapter}: {count} passages")
+    return "\n".join(lines)
+
+
+def _resolve_generated_answer(
+    db: Session, current_user: User, question: str, answer: AnswerResult
+) -> AskResponse:
+    """`generate_answer`'s structured result -> the persisted, citation-
+    resolved `AskResponse` -- shared by `_answer_factual` and `_answer_
+    document_overview`, since both call `generate_answer` and both need
+    identical citation-resolution/no_answer treatment afterward.
+
+    `kind="prose"` segments (Story 3.5) pass through as plain text with
+    `citations=[]`, never dropped for lacking citations the way a
+    `kind="grounded"` segment is below -- a prose segment carries no
+    claim, so FR-9/AC6's citation guarantee was never a promise it made.
+    Whether the answer as a whole actually said anything is checked
+    afterward: `if not any(seg.citations for seg in segments)` -- an
+    answer built entirely of prose (or of nothing at all) falls to
+    `no_answer`, the same outcome an empty `answer.segments` always did,
+    so prose can accompany a grounded answer but never substitute for one
+    at these two intents (`ask_question`'s `"greeting"` branch is the one
+    place unaccompanied prose is a valid, complete answer -- and it never
+    reaches this function, since it never calls `generate_answer`).
+    """
     document_ids = {p.document_id for p in answer.included_passages}
     filenames = repository.get_filenames_for_documents(db, current_user.id, document_ids)
     # 1-based, matches generate_answer's prompt numbering -- built from
-    # `answer.included_passages` (the actual, budget-trimmed list the
-    # prompt was built from), never the full `passages` retrieval
-    # returned. Using the full list would only happen to work today
-    # because _select_passages_within_budget drops exclusively from the
-    # tail; keying off included_passages instead means citation
-    # resolution can't silently desync from generate_answer's own
-    # selection, whatever it becomes.
+    # `answer.included_passages` (the actual, budget-trimmed/sampled list
+    # the prompt was built from), never a separate full retrieval list.
     passages_by_number = {i + 1: p for i, p in enumerate(answer.included_passages)}
 
     segments: list[AnswerSegmentResponse] = []
     for seg in answer.segments:
+        if seg.kind == "prose":
+            segments.append(AnswerSegmentResponse(text=seg.text, citations=[], kind="prose"))
+            continue
+
         # (chapter, document_filename) -> the chunk indexes that supported
         # this segment under that pair. Two different chunks from the same
         # chapter of the same document (routine at TOP_K_PASSAGES=8, or a
@@ -267,12 +409,13 @@ def ask_question(
             # uncited claim -- same AC6 guarantee llm_client's own
             # validation already enforces at the passage-number level.
             continue
-        segments.append(AnswerSegmentResponse(text=seg.text, citations=citations))
+        segments.append(AnswerSegmentResponse(text=seg.text, citations=citations, kind="grounded"))
 
-    if not segments:
-        # The model returned segments: [] outright, or every segment lost
-        # its citations above -- either way, a passages-were-found-but-
-        # nothing-answerable outcome, distinct from "no_documents".
+    if not any(seg.citations for seg in segments):
+        # The model returned segments: [] outright, every segment lost its
+        # citations above, or the surviving segments are entirely prose --
+        # either way, a passages-were-found-but-nothing-answerable
+        # outcome, distinct from "no_documents"/"empty_scope".
         return _finish(db, current_user, question, AskResponse(segments=[], empty_reason="no_answer"))
 
     return _finish(db, current_user, question, AskResponse(segments=segments))
