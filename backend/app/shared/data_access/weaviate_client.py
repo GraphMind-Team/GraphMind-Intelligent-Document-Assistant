@@ -24,7 +24,7 @@ import weaviate
 from weaviate.classes.config import Configure, DataType, Property
 from weaviate.classes.data import DataObject
 from weaviate.classes.init import Auth
-from weaviate.classes.query import Filter, MetadataQuery
+from weaviate.classes.query import Filter, MetadataQuery, Sort
 from weaviate.client import WeaviateClient
 
 from app.shared.data_access.shapes import WeaviatePassage, WeaviateSearchResult
@@ -502,3 +502,118 @@ def search_passages(
         )
         for obj in response.objects
     ]
+
+
+# Story 3.5 (document-overview chat intent): how many passages
+# `fetch_passages_for_documents` pulls *per document*, not per request.
+# Per-document deliberately: `fetch_objects` makes no ordering promise and
+# paginates internally, so one shared cap spread over several documents
+# can legally come back as N chunks of the first documents and nothing at
+# all from the last ones -- an overview that silently omits part of the
+# very library it claims to summarize. A per-document budget makes each
+# requested document contribute its own passages or none for a reason
+# (it genuinely has none), never because another document used up the
+# allowance. The per-request ceiling is therefore this times
+# `chat/repository.py`'s own `MAX_OVERVIEW_DOCUMENTS`, not unbounded.
+#
+# Not tuned against a real large-document benchmark -- like
+# `PASSAGE_BATCH_SIZE` above, a conservative, documented default. Sits well
+# above what `_OVERVIEW_MAX_PROMPT_CHARS` (shared/llm_client) could ever
+# fit in the prompt anyway; the char budget there is what actually bounds
+# the block sent to the model, so this only bounds how much data leaves
+# Weaviate before that trim happens.
+OVERVIEW_FETCH_LIMIT_PER_DOCUMENT = 300
+
+
+def fetch_passages_for_documents(
+    document_ids: list[str],
+    user_id: str,
+    limit_per_document: int = OVERVIEW_FETCH_LIMIT_PER_DOCUMENT,
+) -> list[WeaviateSearchResult]:
+    """Every passage belonging to `document_ids` (server-side tenancy-
+    filtered to `user_id`, same AD-2/FR-2 guarantee `search_passages`
+    enforces), ordered `(document_id, chunk_index)` -- reading order
+    within each document, not relevance order.
+
+    This is a *retrieval*, not a *search*: `fetch_objects`, not
+    `near_text` -- no query embedding is computed, and nothing here is
+    scored against anything. That is deliberate. The document-overview
+    chat intent this function exists for ("summarize this document",
+    "outline it") needs the document's own content, not the handful of
+    chunks that happen to sit nearest some embedded query text -- and
+    critically, it must never produce a `distance`, since `chat/service.py`
+    only ever applies `RELEVANCE_THRESHOLD` to results that carry one.
+    Every `WeaviateSearchResult` this returns has `distance=None` for
+    exactly that reason -- not because Weaviate failed to compute one, but
+    because none was asked for, so the refusal short-circuit's `not
+    passages or not any(p.distance is not None and ...)` check on the
+    caller's side can never accidentally fire against an overview result.
+
+    One query per requested document, each with its own
+    `limit_per_document` and a server-side `chunk_index` sort, rather than
+    one `contains_any` query over all of them under a single shared cap.
+    Both parts matter and neither is incidental: the per-document split is
+    what keeps a multi-document request from spending the whole cap on its
+    first document(s) and returning nothing from the rest (see
+    `OVERVIEW_FETCH_LIMIT_PER_DOCUMENT`'s own comment), and the sort is
+    what makes hitting that cap on a very long document mean "its first
+    `limit_per_document` chunks in reading order" instead of "an arbitrary
+    subset of it" -- a truncation the caller can reason about rather than
+    one that silently reshuffles which parts of a document an overview
+    was built from between two identical requests. `chat/service.py` caps
+    the document count (`chat/repository.py`'s `MAX_OVERVIEW_DOCUMENTS`), so this loop is a
+    handful of queries at most, never a fan-out over a whole library.
+
+    `document_ids` must be non-empty -- unlike `search_passages`, where an
+    empty scope means "search everything", an unscoped document-wide
+    fetch has no equivalent "everything" here without either loading a
+    user's entire library into one prompt or silently guessing which
+    documents they meant; resolving "no explicit scope" to a concrete
+    document set (e.g. every Ready document) is `chat/service.py`'s job,
+    using data this module doesn't have (`Document.status`).
+
+    The final client-side sort is what makes the returned order a promise
+    of this function rather than of the loop above: the per-document
+    queries already come back sorted, but concatenating them would leave
+    document order tied to the caller's `document_ids` order, and the
+    caller's contract is `(document_id, chunk_index)`.
+    """
+    if not document_ids:
+        raise ValueError("fetch_passages_for_documents requires a non-empty document_ids list")
+
+    results: list[WeaviateSearchResult] = []
+    for document_id in document_ids:
+        filters = Filter.by_property("user_id").equal(user_id) & Filter.by_property(
+            "document_id"
+        ).equal(document_id)
+
+        # `filters` bound as a default argument, not captured by closure --
+        # the loop rebinds it every iteration, and `_with_reconnect` may
+        # call `_query` a second time after a reconnect, so a late-bound
+        # closure would be a live bug the day this loop grows a `continue`
+        # between the two calls.
+        def _query(filters=filters):
+            client = get_weaviate_client()
+            _ensure_passage_collection(client)
+            return client.collections.get(PASSAGE_COLLECTION).query.fetch_objects(
+                filters=filters,
+                limit=limit_per_document,
+                sort=Sort.by_property("chunk_index"),
+            )
+
+        response = _with_reconnect(_query)
+
+        results.extend(
+            WeaviateSearchResult(
+                chunk_id=obj.properties["chunk_id"],
+                document_id=obj.properties["document_id"],
+                chapter=obj.properties["chapter"],
+                chunk_index=obj.properties["chunk_index"],
+                text=obj.properties["text"],
+                distance=None,
+            )
+            for obj in response.objects
+        )
+
+    results.sort(key=lambda r: (r.document_id, r.chunk_index))
+    return results

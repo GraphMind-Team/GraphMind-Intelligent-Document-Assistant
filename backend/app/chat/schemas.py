@@ -62,6 +62,14 @@ class CitationResponse(BaseModel):
 class AnswerSegmentResponse(BaseModel):
     text: str
     citations: list[CitationResponse]
+    # Story 3.5: "grounded" (default, pre-3.5 meaning -- every citation in
+    # `citations` backs a claim in `text`) or "prose" (a conversational
+    # aside -- a greeting, a short framing sentence -- with no claim and so
+    # always an empty `citations`). Defaults to "grounded" so an
+    # already-persisted `chat_messages` row (written before this field
+    # existed) reads back with its original meaning intact, matching
+    # `llm_client.AnswerSegment.kind`'s own default for the same reason.
+    kind: Literal["grounded", "prose"] = "grounded"
 
 
 class AskResponse(BaseModel):

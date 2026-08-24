@@ -13,6 +13,7 @@ are exercised with injected fakes for the same reason (mirrors
 this codebase).
 """
 
+import inspect
 import json
 import pathlib
 import time
@@ -23,6 +24,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.chat.schemas import AnswerSegmentResponse, AskResponse
+from app.chat.service import ask_question
 from app.shared.data_access.weaviate_client import TOP_K_PASSAGES
 from app.shared.llm_client import RELEVANCE_THRESHOLD
 from app.shared.models import Document
@@ -225,11 +227,12 @@ def test_run_question_treats_a_503_as_a_run_error_not_a_refusal():
     }
     document_ids_by_filename = {"fixture.md": document_id}
 
-    def _raising_ask_fn(db, user, question_text, document_ids, *, use_history=True):
+    def _raising_ask_fn(db, user, chat_session_id, question_text, document_ids, *, use_history=True, use_router=True):
         raise HTTPException(status_code=503, detail="Answer generation is temporarily unavailable.")
 
     result = _run_question(
         db=None, user=None, question=question, document_ids_by_filename=document_ids_by_filename,
+        chat_session_id=uuid.uuid4(),
         ask_fn=_raising_ask_fn,
     )
 
@@ -250,11 +253,12 @@ def test_run_question_treats_a_non_503_http_exception_as_a_run_error_too():
     }
     document_ids_by_filename = {"fixture.md": document_id}
 
-    def _raising_ask_fn(db, user, question_text, document_ids, *, use_history=True):
+    def _raising_ask_fn(db, user, chat_session_id, question_text, document_ids, *, use_history=True, use_router=True):
         raise HTTPException(status_code=404, detail="not found")
 
     result = _run_question(
         db=None, user=None, question=question, document_ids_by_filename=document_ids_by_filename,
+        chat_session_id=uuid.uuid4(),
         ask_fn=_raising_ask_fn,
     )
 
@@ -277,11 +281,12 @@ def test_run_question_treats_any_other_exception_as_a_run_error_and_does_not_rai
     }
     document_ids_by_filename = {"fixture.md": document_id}
 
-    def _raising_ask_fn(db, user, question_text, document_ids, *, use_history=True):
+    def _raising_ask_fn(db, user, chat_session_id, question_text, document_ids, *, use_history=True, use_router=True):
         raise ConnectionError("Weaviate unreachable")
 
     result = _run_question(
         db=None, user=None, question=question, document_ids_by_filename=document_ids_by_filename,
+        chat_session_id=uuid.uuid4(),
         ask_fn=_raising_ask_fn,
     )
 
@@ -330,12 +335,13 @@ def test_run_question_scores_a_correct_answerable_response_end_to_end():
     }
     document_ids_by_filename = {"fixture.md": document_id}
 
-    def _fake_ask(db, user, question_text, document_ids, *, use_history=True):
+    def _fake_ask(db, user, chat_session_id, question_text, document_ids, *, use_history=True, use_router=True):
         assert document_ids == [document_id]
         return AskResponse(segments=[AnswerSegmentResponse(text="$184,000.", citations=[])])
 
     result = _run_question(
         db=None, user=None, question=question, document_ids_by_filename=document_ids_by_filename,
+        chat_session_id=uuid.uuid4(),
         ask_fn=_fake_ask,
     )
 
@@ -361,12 +367,13 @@ def test_run_question_scopes_to_the_whole_fixture_corpus_not_just_the_supporting
     document_ids_by_filename = {"supporting.md": supporting_id, "other.md": other_id}
     seen: list = []
 
-    def _fake_ask(db, user, question_text, document_ids, *, use_history=True):
+    def _fake_ask(db, user, chat_session_id, question_text, document_ids, *, use_history=True, use_router=True):
         seen.append(document_ids)
         return AskResponse(segments=[AnswerSegmentResponse(text="$184,000.", citations=[])])
 
     _run_question(
         db=None, user=None, question=question, document_ids_by_filename=document_ids_by_filename,
+        chat_session_id=uuid.uuid4(),
         ask_fn=_fake_ask,
     )
 
@@ -388,7 +395,10 @@ def test_run_question_aborts_with_a_clear_error_when_a_fixture_reference_is_unkn
     }
 
     with pytest.raises(EvalHarnessError, match="does-not-exist.md"):
-        _run_question(db=None, user=None, question=question, document_ids_by_filename={})
+        _run_question(
+            db=None, user=None, question=question, document_ids_by_filename={},
+            chat_session_id=uuid.uuid4(),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -717,15 +727,18 @@ def test_print_report_reports_zero_sm2_violations_when_none_occurred(capsys):
     assert "SM-2 violations: 0" in out
 
 
-def test_run_question_asks_with_history_disabled():
-    """Regression guard (Story 3.4): this harness runs its whole question
-    set sequentially through one QA account, so `ask_question`'s default
-    conversational-memory threading would fold the previous three
-    unrelated questions into every question's retrieval embedding and
-    generation prompt -- silently changing what SM-1/SM-2/SM-C1 measure
-    relative to OD-3's baseline, and making consecutive runs
-    non-comparable once rows persist between them. `_run_question` must
-    always opt out explicitly."""
+def test_run_question_asks_with_history_and_routing_disabled():
+    """Regression guard (Story 3.4, extended Story 3.5): this harness runs
+    its whole question set sequentially through one QA account, so
+    `ask_question`'s default conversational-memory threading would fold
+    the previous three unrelated questions into every question's
+    retrieval embedding and generation prompt, and its default intent
+    routing would classify/rewrite each question through a call this
+    harness's fixture questions were never calibrated against -- either
+    one silently changing what SM-1/SM-2/SM-C1 measure relative to OD-3's
+    baseline, and making consecutive runs non-comparable once rows
+    persist between them. `_run_question` must always opt out of both
+    explicitly."""
     document_id = uuid.uuid4()
     question = {
         "id": "f1",
@@ -737,8 +750,9 @@ def test_run_question_asks_with_history_disabled():
     }
     seen: dict = {}
 
-    def _capturing_ask_fn(db, user, question_text, document_ids, *, use_history=True):
+    def _capturing_ask_fn(db, user, chat_session_id, question_text, document_ids, *, use_history=True, use_router=True):
         seen["use_history"] = use_history
+        seen["use_router"] = use_router
         return AskResponse(segments=[AnswerSegmentResponse(text="$184,000.", citations=[])])
 
     result = _run_question(
@@ -746,8 +760,57 @@ def test_run_question_asks_with_history_disabled():
         user=None,
         question=question,
         document_ids_by_filename={"fixture.md": document_id},
+        chat_session_id=uuid.uuid4(),
         ask_fn=_capturing_ask_fn,
     )
 
     assert seen["use_history"] is False
+    assert seen["use_router"] is False
     assert result.status == "correct"
+
+
+def test_run_question_call_matches_the_real_ask_question_signature():
+    """Regression guard: every other `_run_question` test injects a fake
+    `ask_fn`, so none of them would notice `_run_question` calling the
+    *real* `ask_question` with the wrong arguments.
+
+    That gap was not hypothetical -- when multi-session chat added a
+    required `session_id` parameter to `ask_question`, this harness kept
+    calling it without one. Nothing failed: the injected fakes happily
+    accepted the old shape, and the mismatch was only reachable in a live
+    run, where it would have raised `TypeError` on the very first
+    question after a full (slow, LLM-backed) fixture ingestion.
+
+    Binds the harness's actual call shape against the real function's
+    signature via `inspect.Signature.bind` -- argument compatibility only,
+    no live DB/Weaviate/OpenRouter call, so this stays a unit test.
+    """
+    captured: dict = {}
+
+    def _capturing_ask_fn(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return AskResponse(segments=[AnswerSegmentResponse(text="answer", citations=[])])
+
+    document_id = uuid.uuid4()
+    _run_question(
+        db=None,
+        user=None,
+        question={
+            "id": "q-sig",
+            "category": "factual",
+            "question": "does not matter",
+            "document_filenames": ["fixture.md"],
+            "must_contain": [],
+            "match": "all",
+        },
+        document_ids_by_filename={"fixture.md": document_id},
+        chat_session_id=uuid.uuid4(),
+        ask_fn=_capturing_ask_fn,
+    )
+
+    # Raises TypeError if the harness's call shape no longer fits the
+    # real `ask_question` -- a missing/renamed/reordered parameter.
+    bound = inspect.signature(ask_question).bind(*captured["args"], **captured["kwargs"])
+    assert bound.arguments["use_history"] is False
+    assert bound.arguments["use_router"] is False

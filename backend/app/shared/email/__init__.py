@@ -72,7 +72,9 @@ def _sender_address() -> str:
     return os.environ.get("SMTP_FROM", "").strip() or os.environ.get("SMTP_USERNAME", "").strip()
 
 
-def _send_via_brevo(*, api_key: str, to: str, subject: str, body: str) -> None:
+def _send_via_brevo(
+    *, api_key: str, to: str, subject: str, body: str, html_body: str | None = None
+) -> None:
     """Sends through Brevo's HTTP API.
 
     Raises on failure, like the SMTP path -- `send_email`'s contract is
@@ -89,15 +91,22 @@ def _send_via_brevo(*, api_key: str, to: str, subject: str, body: str) -> None:
             "one is required for the message's From address."
         )
 
+    payload = {
+        "sender": {"email": from_addr},
+        "to": [{"email": to}],
+        "subject": subject,
+        "textContent": body,
+    }
+    if html_body:
+        # `htmlContent` is what Brevo actually renders when both are
+        # present -- `textContent` stays too, as the plain-text part
+        # clients fall back to when they can't (or won't) render HTML.
+        payload["htmlContent"] = html_body
+
     response = httpx.post(
         _BREVO_URL,
         headers={"api-key": api_key, "content-type": "application/json"},
-        json={
-            "sender": {"email": from_addr},
-            "to": [{"email": to}],
-            "subject": subject,
-            "textContent": body,
-        },
+        json=payload,
         timeout=_HTTP_TIMEOUT_SECONDS,
     )
     if response.status_code >= 400:
@@ -109,9 +118,14 @@ def _send_via_brevo(*, api_key: str, to: str, subject: str, body: str) -> None:
         )
 
 
-def send_email(*, to: str, subject: str, body: str) -> None:
+def send_email(*, to: str, subject: str, body: str, html_body: str | None = None) -> None:
     """Sends a plain-text email, or -- if no transport is configured --
     logs it to the console instead.
+
+    `html_body`, when given, is sent alongside `body` as the rich
+    alternative part (both transports keep the plain-text part too --
+    it's what a client that can't or won't render HTML falls back to,
+    and what the console fallback below still logs).
 
     Transport is chosen by environment, most-specific first:
 
@@ -142,7 +156,7 @@ def send_email(*, to: str, subject: str, body: str) -> None:
     """
     brevo_key = os.environ.get("BREVO_API_KEY", "").strip()
     if brevo_key:
-        _send_via_brevo(api_key=brevo_key, to=to, subject=subject, body=body)
+        _send_via_brevo(api_key=brevo_key, to=to, subject=subject, body=body, html_body=html_body)
         return
 
     host = os.environ.get("SMTP_HOST", "").strip()
@@ -182,6 +196,12 @@ def send_email(*, to: str, subject: str, body: str) -> None:
     message["From"] = from_addr
     message["To"] = to
     message.set_content(body)
+    if html_body:
+        # `add_alternative` (not a second `set_content`) is what turns this
+        # into a proper multipart/alternative message -- the plain-text
+        # part set above stays as the fallback a client picks when it
+        # can't, or won't, render the HTML one.
+        message.add_alternative(html_body, subtype="html")
 
     with smtplib.SMTP(host, _smtp_port(), timeout=_SMTP_TIMEOUT_SECONDS) as smtp:
         if _smtp_starttls():

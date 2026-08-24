@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import ChatIndexRedirect from './ChatIndexRedirect'
 import { useChatSessions } from '../context/ChatSessionsContext'
@@ -10,12 +10,21 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function renderPage() {
+// Probe standing in for ChatPage at the redirect's target route -- reports
+// whatever `location.state` it actually received, so these tests can tell
+// a forwarded state apart from a dropped one without depending on
+// ChatPage's own (much heavier) rendering.
+function LocationStateProbe() {
+  const { state } = useLocation()
+  return <div>Landed with state: {JSON.stringify(state ?? null)}</div>
+}
+
+function renderAtChatIndex(initialState) {
   return render(
-    <MemoryRouter initialEntries={['/chat']}>
+    <MemoryRouter initialEntries={[{ pathname: '/chat', state: initialState }]}>
       <Routes>
         <Route path="/chat" element={<ChatIndexRedirect />} />
-        <Route path="/chat/:sessionId" element={<p>landed on a session</p>} />
+        <Route path="/chat/:sessionId" element={<LocationStateProbe />} />
       </Routes>
     </MemoryRouter>,
   )
@@ -26,7 +35,7 @@ describe('ChatIndexRedirect', () => {
     const createSession = vi.fn().mockResolvedValue({ id: 'new-session' })
     useChatSessions.mockReturnValue({ sessions: [], isLoading: false, error: null, createSession })
 
-    renderPage()
+    renderAtChatIndex(undefined)
 
     await waitFor(() => expect(createSession).toHaveBeenCalled())
   })
@@ -40,7 +49,7 @@ describe('ChatIndexRedirect', () => {
     const createSession = vi.fn().mockRejectedValue(new Error('Could not start a new chat.'))
     useChatSessions.mockReturnValue({ sessions: [], isLoading: false, error: null, createSession })
 
-    renderPage()
+    renderAtChatIndex(undefined)
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not start a new chat.')
   })
@@ -54,9 +63,35 @@ describe('ChatIndexRedirect', () => {
       createSession,
     })
 
-    renderPage()
+    renderAtChatIndex(undefined)
 
-    expect(await screen.findByText('landed on a session')).toBeInTheDocument()
+    expect(await screen.findByText(/Landed with state/)).toBeInTheDocument()
     expect(createSession).not.toHaveBeenCalled()
+  })
+
+  it('forwards the incoming location state (e.g. presetDocumentId) to the session it redirects to', async () => {
+    useChatSessions.mockReturnValue({
+      sessions: [{ id: 'session-1' }],
+      isLoading: false,
+      error: null,
+      createSession: vi.fn(),
+    })
+
+    renderAtChatIndex({ presetDocumentId: 'doc-9' })
+
+    expect(await screen.findByText('Landed with state: {"presetDocumentId":"doc-9"}')).toBeInTheDocument()
+  })
+
+  it('redirects with no state when none was passed in', async () => {
+    useChatSessions.mockReturnValue({
+      sessions: [{ id: 'session-1' }],
+      isLoading: false,
+      error: null,
+      createSession: vi.fn(),
+    })
+
+    renderAtChatIndex(undefined)
+
+    expect(await screen.findByText('Landed with state: null')).toBeInTheDocument()
   })
 })

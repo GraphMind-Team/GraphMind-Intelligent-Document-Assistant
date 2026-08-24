@@ -189,6 +189,38 @@ describe('ChatPage', () => {
     expect(screen.queryByText('Ask more:')).not.toBeInTheDocument()
   })
 
+  it('renders a prose segment (Story 3.5) as plain text with no citation chip, alongside a grounded one', async () => {
+    vi.spyOn(chatClient, 'askQuestion').mockResolvedValue({
+      segments: [
+        { text: "Sure, here's what I found:", citations: [], kind: 'prose' },
+        {
+          text: "TechCorp's refund window is 30 days.",
+          citations: [
+            { chapter: 'Chapter 4', document_filename: 'Vendor_Agreement_2026.pdf', chunk_indexes: [0] },
+          ],
+          kind: 'grounded',
+        },
+      ],
+      empty_reason: null,
+      followup_questions: [],
+    })
+    const user = userEvent.setup()
+    renderChatPage()
+
+    await user.type(screen.getByLabelText(/ask a question/i), 'What is the refund window?{Enter}')
+
+    expect(await screen.findByText("Sure, here's what I found:", { exact: false })).toBeInTheDocument()
+
+    // The prose segment contributed no citation of its own, so the whole
+    // answer has exactly one source -- the grounded segment's. Citations
+    // live behind the sources popover (main's own "move sources outside
+    // the answer bubble" change), so the count is readable from the pill
+    // itself before the popover is even opened.
+    await user.click(await screen.findByRole('button', { name: '1 source' }))
+    const chips = await screen.findAllByText('Ch. Chapter 4, Vendor_Agreement_2026.pdf')
+    expect(chips).toHaveLength(1)
+  })
+
   it('renders a distinct service banner for a 503, never as an assistant message', async () => {
     const error = new Error('Answer generation is temporarily unavailable. Please try again.')
     error.isServiceError = true

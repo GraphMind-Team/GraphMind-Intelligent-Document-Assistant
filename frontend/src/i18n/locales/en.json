@@ -260,18 +260,19 @@
     "title": "Chat",
     "eyebrow": "Ask your library",
     "askLabel": "Ask a question about your documents",
-    "askPlaceholder": "Ask a question about your documents…",
+    "askPlaceholder": "Ask, summarize, or outline your documents…",
     "ask": "Ask",
     "welcome": {
       "noDocumentsTitle": "Add a document to get started",
       "noDocumentsBody": "GraphMind answers using only what you upload. Add a PDF, Markdown or HTML file, then come back and ask.",
       "noDocumentsCta": "Go to Documents",
       "readyTitle": "Ask your first question",
-      "readyBody": "Ask about anything in your documents. Every answer comes with a citation back to where it was found.",
+      "readyBody": "Ask about anything in your documents, or ask for a summary or outline. Every claim comes with a citation back to where it was found.",
       "tryLabel": "Try asking:",
       "sample1": "What is this document about?",
       "sample2": "Summarize the key points.",
-      "sample3": "Who or what is mentioned most often?"
+      "sample3": "Who or what is mentioned most often?",
+      "sample4": "Outline this document's structure."
     },
     "jumpToLatest": "Jump to latest messages",
     "loadingEarlier": "Loading earlier messages…",
@@ -328,7 +329,9 @@
       "filterLabel": "Filter documents in scope",
       "filterPlaceholder": "Search…",
       "selectAll": "Select all",
-      "notAvailableYet": "{{filename}} — not available yet ({{status}})"
+      "notAvailableYet": "{{filename}} — not available yet ({{status}})",
+      "selectAria": "Select {{filename}}",
+      "previewAria": "Preview {{filename}}"
     },
     "scopeChip": {
       "label_one": "Asking in {{count}} document",

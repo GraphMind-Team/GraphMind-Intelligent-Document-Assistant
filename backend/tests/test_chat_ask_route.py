@@ -29,10 +29,39 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock
 
+import pytest
+
 from app.chat import service as chat_service_module
 from app.shared.data_access.shapes import WeaviateSearchResult
-from app.shared.llm_client import RELEVANCE_THRESHOLD, AnswerResult, AnswerSegment, ChatCompletionError
+from app.shared.llm_client import (
+    RELEVANCE_THRESHOLD,
+    AnswerResult,
+    AnswerSegment,
+    ChatCompletionError,
+    QuestionPlan,
+)
 from app.shared.models import ChatMessage
+
+
+@pytest.fixture(autouse=True)
+def _no_real_router_calls(monkeypatch):
+    """Story 3.5: `ask_question` now calls `resolve_question` on every
+    question by default (`use_router=True`), which -- left un-mocked --
+    would make a real `httpx.post` to OpenRouter using whatever real
+    `OPENROUTER_API_KEY` `backend/.env` provides (loaded by `app.main`'s
+    own `load_dotenv()` at import time, same as `test_chat_generation.py`'s
+    own `_openrouter_api_key` fixture has to guard against). Unsetting the
+    key here means `resolve_question` hits its own documented, real
+    fallback path (`_call_openrouter_for_router` raises immediately for a
+    missing key, before any network call) rather than skipping the
+    router's code entirely -- every pre-3.5 test in this file keeps
+    getting `QuestionPlan(intent="factual", search_query=question,
+    reply=None)`, exactly its old, router-less behaviour, without a
+    single existing test needing to mock `resolve_question` itself.
+    Tests that care about routing (greeting/document_overview branches,
+    or the router's rewrite feeding retrieval) mock `resolve_question`
+    directly instead."""
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
 
 def _register_and_login(client, *, full_name, email, password):
@@ -861,6 +890,7 @@ def test_ask_persists_user_and_assistant_messages_on_success(client, db_session,
             "citations": [
                 {"chapter": "Chapter 4", "document_filename": "Vendor_Agreement_2026.pdf", "chunk_indexes": [0]}
             ],
+            "kind": "grounded",
         }
     ]
 
@@ -967,9 +997,18 @@ def test_ask_fresh_conversation_calls_generate_answer_with_falsy_history(client,
     assert not kwargs["history"]
 
 
-def test_ask_threads_prior_question_into_retrieval_query_text(client, db_session, monkeypatch):
-    """Design Notes: retrieval query text = prior questions only, joined,
-    then the current question -- never prior answer prose."""
+def test_ask_retrieves_with_the_routers_rewritten_search_query(client, db_session, monkeypatch):
+    """Story 3.5: retrieval embeds `resolve_question`'s `search_query`
+    (a standalone rewrite with references resolved), not a join of raw
+    prior questions -- replacing the pre-3.5 behaviour where `chat/
+    service.py` itself concatenated the last `HISTORY_MAX_TURNS` raw
+    questions ahead of the current one. That join diluted the embedding
+    with whatever unrelated questions preceded it; a self-contained
+    rewrite (produced by `resolve_question`, tested at the `llm_client`
+    level in `test_chat_generation.py`) embeds on the actual topic
+    instead. `chat/service.py`'s own job is only to use whatever
+    `search_query` it's handed -- proven here with `resolve_question`
+    mocked directly, independent of the real rewrite logic."""
     token = _register_and_login(
         client, full_name="Maria", email="maria-chat-history-3@example.com", password="password12345"
     )
@@ -990,17 +1029,22 @@ def test_ask_threads_prior_question_into_retrieval_query_text(client, db_session
         return []
 
     monkeypatch.setattr(chat_service_module, "search_passages", _capturing_search)
+    monkeypatch.setattr(
+        chat_service_module,
+        "resolve_question",
+        lambda question, history: QuestionPlan(
+            intent="factual",
+            search_query="What is TechCorp's refund window?",
+            reply=None,
+        ),
+    )
 
     response = client.post(
         _ask_url(session_id), headers=_auth_headers(token), json={"question": "What about its refund window?"}
     )
 
     assert response.status_code == 200
-    assert captured["texts"] == ["Who is the vendor?\nWhat about its refund window?"]
-    # Never the prior answer text -- that would dilute the embedding with
-    # answer prose instead of topical/entity words (the Boundaries' own
-    # reasoning).
-    assert "TechCorp" not in captured["texts"][0]
+    assert captured["texts"] == ["What is TechCorp's refund window?"]
 
 
 def test_ask_threads_full_prior_turn_into_generate_answer_history(client, db_session, monkeypatch):
@@ -1135,8 +1179,14 @@ def test_ask_scope_change_with_multiple_prior_turns_still_respects_current_scope
     actual multi-turn window in play (2 prior turns, within
     HISTORY_MAX_TURNS=3) -- scope narrows to document B on turn 3, but
     the history window itself (built from turns scoped to document A)
-    must still thread through unaffected, since history supplies
-    conversational context only and is never itself scope-filtered."""
+    must still reach `resolve_question` unaffected, since history
+    supplies conversational/reference-resolution context only and is
+    never itself scope-filtered. (Story 3.5: the window used to thread
+    directly into `search_passages`'s own query text, built by `chat/
+    service.py`; it now threads into `resolve_question` instead, which is
+    what `chat/service.py`'s `search_query` argument to `search_passages`
+    ultimately comes from -- see `test_ask_retrieves_with_the_routers_
+    rewritten_search_query` for that half.)"""
     token = _register_and_login(
         client, full_name="Maria", email="maria-chat-history-multi-scope@example.com", password="password12345"
     )
@@ -1166,11 +1216,15 @@ def test_ask_scope_change_with_multiple_prior_turns_still_respects_current_scope
     captured = {}
 
     def _fake_search_passages(query_text, user_id_arg, **kwargs):
-        captured["query_text"] = query_text
         captured["document_ids"] = kwargs.get("document_ids")
         return []
 
+    def _fake_resolve_question(question, history):
+        captured["history_questions"] = [turn.question for turn in history]
+        return QuestionPlan(intent="factual", search_query=question, reply=None)
+
     monkeypatch.setattr(chat_service_module, "search_passages", _fake_search_passages)
+    monkeypatch.setattr(chat_service_module, "resolve_question", _fake_resolve_question)
 
     response = client.post(
         _ask_url(session_id),
@@ -1183,13 +1237,13 @@ def test_ask_scope_change_with_multiple_prior_turns_still_respects_current_scope
     # case -- two prior turns in the window don't change that.
     assert captured["document_ids"] == [document_b["id"]]
     # But the history window itself (built from turns scoped to document
-    # A) still threads through unaffected -- both prior questions appear
-    # in the retrieval query text, proving scope-narrowing on this turn
-    # didn't also silently drop the multi-turn history window.
-    query_text = captured["query_text"]
-    assert "What does document A say about pricing?" in query_text
-    assert "What about delivery?" in query_text
-    assert "What about warranty?" in query_text
+    # A) still reaches resolve_question unaffected -- both prior questions
+    # are present, proving scope-narrowing on this turn didn't also
+    # silently drop the multi-turn history window before it gets there.
+    assert captured["history_questions"] == [
+        "What does document A say about pricing?",
+        "What about delivery?",
+    ]
 
 
 def test_ask_does_not_thread_another_sessions_history(client, db_session, monkeypatch):
@@ -1315,3 +1369,278 @@ def test_ask_still_persists_the_turn_when_use_history_is_false(client, db_sessio
     assert [r.role for r in rows] == ["user", "assistant"]
     assert rows[0].question == "Any documents?"
     assert rows[1].empty_reason == "no_documents"
+
+
+# ---------------------------------------------------------------------------
+# Story 3.5: intent routing -- greeting / document_overview / prose+grounded.
+# ---------------------------------------------------------------------------
+
+
+def test_ask_greeting_intent_skips_retrieval_and_generation(client, monkeypatch):
+    """A "greeting" plan renders `reply` directly as a `kind="prose"`
+    segment -- no `search_passages`/`fetch_passages_for_documents`/
+    `generate_answer` call at all."""
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-chat-greeting-1@example.com", password="password12345"
+    )
+    search_passages_mock = Mock()
+    fetch_mock = Mock()
+    generate_answer_mock = Mock()
+    monkeypatch.setattr(chat_service_module, "search_passages", search_passages_mock)
+    monkeypatch.setattr(chat_service_module, "fetch_passages_for_documents", fetch_mock)
+    monkeypatch.setattr(chat_service_module, "generate_answer", generate_answer_mock)
+    monkeypatch.setattr(
+        chat_service_module,
+        "resolve_question",
+        lambda question, history: QuestionPlan(
+            intent="greeting", search_query=question, reply="Hi! How can I help?"
+        ),
+    )
+
+    response = client.post(_ask_url(_create_session_id(client, token)), headers=_auth_headers(token), json={"question": "hello"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["empty_reason"] is None
+    assert body["segments"] == [{"text": "Hi! How can I help?", "citations": [], "kind": "prose"}]
+    search_passages_mock.assert_not_called()
+    fetch_mock.assert_not_called()
+    generate_answer_mock.assert_not_called()
+
+
+def test_ask_greeting_intent_persists_the_turn(client, db_session, monkeypatch):
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-chat-greeting-2@example.com", password="password12345"
+    )
+    monkeypatch.setattr(
+        chat_service_module,
+        "resolve_question",
+        lambda question, history: QuestionPlan(
+            intent="greeting", search_query=question, reply="Hi! How can I help?"
+        ),
+    )
+
+    response = client.post(_ask_url(_create_session_id(client, token)), headers=_auth_headers(token), json={"question": "hello"})
+
+    assert response.status_code == 200
+    rows = db_session.query(ChatMessage).order_by(ChatMessage.role.desc()).all()
+    assert [r.role for r in rows] == ["user", "assistant"]
+    assert rows[0].question == "hello"
+    assert rows[1].segments == [{"text": "Hi! How can I help?", "citations": [], "kind": "prose"}]
+
+
+def test_ask_document_overview_intent_reads_the_whole_document(client, monkeypatch):
+    """The `RELEVANCE_THRESHOLD` refusal never applies to this branch --
+    `fetch_passages_for_documents` results carry `distance=None`, and the
+    fake `generate_answer` below returns a real answer regardless, which
+    is only reachable if `_answer_document_overview` never runs the
+    factual path's threshold check at all."""
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-chat-overview-1@example.com", password="password12345"
+    )
+    document = _upload(client, token, filename="report.pdf")
+    overview_passages = [_passage(document["id"], chapter="Introduction", chunk_index=0, distance=None)]
+
+    search_passages_mock = Mock()
+    fetch_mock = Mock(return_value=overview_passages)
+    generate_answer_mock = Mock(
+        return_value=AnswerResult(
+            segments=[
+                AnswerSegment(text="The report covers three topics.", passage_numbers=[1], kind="grounded")
+            ],
+            included_passages=overview_passages,
+        )
+    )
+    monkeypatch.setattr(chat_service_module, "search_passages", search_passages_mock)
+    monkeypatch.setattr(chat_service_module, "fetch_passages_for_documents", fetch_mock)
+    monkeypatch.setattr(chat_service_module, "generate_answer", generate_answer_mock)
+    monkeypatch.setattr(
+        chat_service_module,
+        "resolve_question",
+        lambda question, history: QuestionPlan(
+            intent="document_overview", search_query=question, reply=None
+        ),
+    )
+
+    response = client.post(
+        _ask_url(_create_session_id(client, token)),
+        headers=_auth_headers(token),
+        json={"question": "Summarize this document.", "document_ids": [document["id"]]},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["empty_reason"] is None
+    assert body["segments"][0]["text"] == "The report covers three topics."
+    search_passages_mock.assert_not_called()
+    fetch_mock.assert_called_once()
+    generate_answer_mock.assert_called_once()
+    _, kwargs = generate_answer_mock.call_args
+    assert kwargs["mode"] == "overview"
+    assert "report.pdf" in kwargs["document_structure"]
+
+
+def test_ask_document_overview_with_no_documents_in_scope_returns_no_documents(client, monkeypatch):
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-chat-overview-2@example.com", password="password12345"
+    )
+    fetch_mock = Mock()
+    monkeypatch.setattr(chat_service_module, "fetch_passages_for_documents", fetch_mock)
+    monkeypatch.setattr(
+        chat_service_module,
+        "resolve_question",
+        lambda question, history: QuestionPlan(
+            intent="document_overview", search_query=question, reply=None
+        ),
+    )
+
+    response = client.post(
+        _ask_url(_create_session_id(client, token)), headers=_auth_headers(token), json={"question": "Summarize my documents."}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["empty_reason"] == "no_documents"
+    assert body["segments"] == []
+    fetch_mock.assert_not_called()
+
+
+def test_ask_document_overview_scoped_to_a_foreign_document_returns_empty_scope(client, monkeypatch):
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-chat-overview-3@example.com", password="password12345"
+    )
+    _upload(client, token)  # library is non-empty
+    fetch_mock = Mock()
+    monkeypatch.setattr(chat_service_module, "fetch_passages_for_documents", fetch_mock)
+    monkeypatch.setattr(
+        chat_service_module,
+        "resolve_question",
+        lambda question, history: QuestionPlan(
+            intent="document_overview", search_query=question, reply=None
+        ),
+    )
+
+    response = client.post(
+        _ask_url(_create_session_id(client, token)),
+        headers=_auth_headers(token),
+        json={"question": "Summarize.", "document_ids": [str(uuid.uuid4())]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["empty_reason"] == "empty_scope"
+    fetch_mock.assert_not_called()
+
+
+def test_ask_document_overview_with_no_indexed_passages_returns_no_answer(client, monkeypatch):
+    """The document is real and in scope, but Weaviate has nothing for it
+    -- distinct from "no documents in scope"; the selection isn't empty,
+    there's simply no source content to summarize."""
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-chat-overview-4@example.com", password="password12345"
+    )
+    document = _upload(client, token)
+    monkeypatch.setattr(chat_service_module, "fetch_passages_for_documents", lambda *a, **k: [])
+    generate_answer_mock = Mock()
+    monkeypatch.setattr(chat_service_module, "generate_answer", generate_answer_mock)
+    monkeypatch.setattr(
+        chat_service_module,
+        "resolve_question",
+        lambda question, history: QuestionPlan(
+            intent="document_overview", search_query=question, reply=None
+        ),
+    )
+
+    response = client.post(
+        _ask_url(_create_session_id(client, token)),
+        headers=_auth_headers(token),
+        json={"question": "Summarize.", "document_ids": [document["id"]]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["empty_reason"] == "no_answer"
+    generate_answer_mock.assert_not_called()
+
+
+def test_build_document_structure_text_includes_chapter_breakdown_and_handles_none():
+    """A document with `chapter_breakdown` renders its chapters; a document
+    still `None` (not yet `Ready`) contributes only its filename -- never
+    a fabricated outline."""
+    from types import SimpleNamespace
+
+    documents = [
+        SimpleNamespace(filename="report.pdf", chapter_breakdown={"Introduction": 3, "Conclusion": 2}),
+        SimpleNamespace(filename="notes.pdf", chapter_breakdown=None),
+    ]
+
+    text = chat_service_module._build_document_structure_text(documents)
+
+    assert "report.pdf:" in text
+    assert "Introduction: 3 passages" in text
+    assert "Conclusion: 2 passages" in text
+    assert "notes.pdf:" in text
+    notes_section = text.split("notes.pdf:")[1]
+    assert "passages" not in notes_section
+
+
+def test_ask_factual_answer_made_entirely_of_prose_is_treated_as_no_answer(client, monkeypatch):
+    """Story 3.5's boundary: prose may accompany a grounded answer, never
+    substitute for one -- an answer with segments but zero grounded
+    claims among them must render as `no_answer`, the same outcome an
+    empty `answer.segments` always did."""
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-chat-prose-only@example.com", password="password12345"
+    )
+    document = _upload(client, token)
+    passages = [_passage(document["id"])]
+    monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: passages)
+    monkeypatch.setattr(
+        chat_service_module,
+        "generate_answer",
+        lambda *a, **k: AnswerResult(
+            segments=[
+                AnswerSegment(text="I couldn't find a specific answer.", passage_numbers=[], kind="prose")
+            ],
+            included_passages=passages,
+        ),
+    )
+
+    response = client.post(
+        _ask_url(_create_session_id(client, token)), headers=_auth_headers(token), json={"question": "A question?"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["empty_reason"] == "no_answer"
+    assert body["segments"] == []
+
+
+def test_ask_answer_with_prose_lead_in_and_grounded_claim_renders_both(client, monkeypatch):
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-chat-prose-mixed@example.com", password="password12345"
+    )
+    document = _upload(client, token, filename="Vendor_Agreement.pdf")
+    passages = [_passage(document["id"], chapter="Chapter 4")]
+    monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: passages)
+    monkeypatch.setattr(
+        chat_service_module,
+        "generate_answer",
+        lambda *a, **k: AnswerResult(
+            segments=[
+                AnswerSegment(text="Sure, here's what I found:", passage_numbers=[], kind="prose"),
+                AnswerSegment(text="The refund window is 30 days.", passage_numbers=[1], kind="grounded"),
+            ],
+            included_passages=passages,
+        ),
+    )
+
+    response = client.post(
+        _ask_url(_create_session_id(client, token)), headers=_auth_headers(token), json={"question": "What is the refund window?"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["empty_reason"] is None
+    assert len(body["segments"]) == 2
+    assert body["segments"][0] == {"text": "Sure, here's what I found:", "citations": [], "kind": "prose"}
+    assert body["segments"][1]["kind"] == "grounded"
+    assert body["segments"][1]["citations"][0]["document_filename"] == "Vendor_Agreement.pdf"

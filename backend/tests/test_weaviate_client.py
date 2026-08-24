@@ -21,6 +21,7 @@ from app.shared.data_access.weaviate_client import (
     delete_passages_for_document,
     delete_passages_for_user,
     ensure_ready,
+    fetch_passages_for_documents,
     get_weaviate_client,
     search_passages,
     write_passages,
@@ -639,3 +640,145 @@ def test_a_non_connection_error_is_not_retried(monkeypatch):
         search_passages("q", "user-1")
 
     collection.query.near_text.assert_called_once()
+
+
+def test_fetch_passages_for_documents_filters_on_user_id_and_document_id(monkeypatch):
+    """Story 3.5's document-overview intent: a `fetch_objects` retrieval
+    (not `near_text`) per requested document, still tenancy-scoped to
+    `user_id` (AD-2/FR-2) AND narrowed to that one document -- an `equal`
+    filter, not `contains_any`, since each call now targets exactly one
+    document (see the per-document split's own docstring for why: a
+    shared cap across a `contains_any` over several documents could
+    starve the later ones)."""
+    fake_client, fake_collection = _fake_client(exists=True)
+    fake_collection.query.fetch_objects.return_value = MagicMock(
+        objects=[_fake_weaviate_object("chunk-0", distance=0.4)]
+    )
+    monkeypatch.setattr(
+        "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: fake_client
+    )
+
+    results = fetch_passages_for_documents(["doc-1"], "user-1")
+
+    fake_collection.query.fetch_objects.assert_called_once()
+    call_kwargs = fake_collection.query.fetch_objects.call_args.kwargs
+    filters = call_kwargs["filters"]
+    assert filters.filters[0].target == "user_id"
+    assert filters.filters[0].value == "user-1"
+    assert filters.filters[1].target == "document_id"
+    assert filters.filters[1].value == "doc-1"
+    assert filters.filters[1].operator == Filter.by_property("document_id").equal("x").operator
+    # No `near_text` call at all -- this is a retrieval, not a search, so
+    # there is nothing to embed and nothing scored.
+    fake_collection.query.near_text.assert_not_called()
+    assert len(results) == 1
+
+
+def test_fetch_passages_for_documents_queries_once_per_document(monkeypatch):
+    """The per-document-cap fix (Story 3.5 follow-up): a shared cap over
+    one `contains_any` query across several documents could legally
+    return N chunks from the first document(s) and nothing at all from
+    the rest, since `fetch_objects` makes no cross-document fairness
+    guarantee. One `fetch_objects` call per document, each under its own
+    `limit_per_document`, is what keeps every requested document
+    contributing its own passages regardless of how many others were
+    requested alongside it."""
+    fake_client, fake_collection = _fake_client(exists=True)
+    fake_collection.query.fetch_objects.side_effect = [
+        MagicMock(objects=[_fake_weaviate_object("chunk-a0", document_id="doc-a", chunk_index=0)]),
+        MagicMock(objects=[_fake_weaviate_object("chunk-b0", document_id="doc-b", chunk_index=0)]),
+    ]
+    monkeypatch.setattr(
+        "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: fake_client
+    )
+
+    results = fetch_passages_for_documents(["doc-a", "doc-b"], "user-1", limit_per_document=1)
+
+    assert fake_collection.query.fetch_objects.call_count == 2
+    calls = fake_collection.query.fetch_objects.call_args_list
+    assert calls[0].kwargs["filters"].filters[1].value == "doc-a"
+    assert calls[0].kwargs["limit"] == 1
+    assert calls[1].kwargs["filters"].filters[1].value == "doc-b"
+    assert calls[1].kwargs["limit"] == 1
+    assert {r.chunk_id for r in results} == {"chunk-a0", "chunk-b0"}
+
+
+def test_fetch_passages_for_documents_results_never_carry_a_distance(monkeypatch):
+    """The refusal short-circuit (`chat/service.py`) only ever applies
+    `RELEVANCE_THRESHOLD` to a result that carries a `distance` -- a
+    `fetch_objects` retrieval must never accidentally produce one, or an
+    overview answer could silently trip a check that was never meant to
+    apply to it. The fake object below is built with `distance=0.9` (an
+    off-topic-looking value) specifically so a bug that forwarded
+    `obj.metadata.distance` here -- instead of hardcoding `None` -- would
+    make this assertion fail rather than pass by coincidence."""
+    fake_client, fake_collection = _fake_client(exists=True)
+    fake_collection.query.fetch_objects.return_value = MagicMock(
+        objects=[_fake_weaviate_object("chunk-0", distance=0.9)]
+    )
+    monkeypatch.setattr(
+        "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: fake_client
+    )
+
+    results = fetch_passages_for_documents(["doc-1"], "user-1")
+
+    assert results[0].distance is None
+
+
+def test_fetch_passages_for_documents_sorts_by_document_id_then_chunk_index(monkeypatch):
+    """`fetch_objects` makes no ordering guarantee within a single
+    document's response, and each requested document is now its own
+    query -- the function must still sort client-side across all of them
+    (`sort=Sort.by_property("chunk_index")` narrows within one call, but
+    the final `.sort()` below is what makes `(document_id, chunk_index)`
+    the returned order regardless of `document_ids` request order or
+    per-call response order), so a document-overview prompt reads its
+    passages in the document's own reading order."""
+    fake_client, fake_collection = _fake_client(exists=True)
+    fake_collection.query.fetch_objects.side_effect = [
+        # doc-b requested first, deliberately out of chunk_index order in
+        # its own response too -- if the per-call `sort=` kwarg or the
+        # final client-side sort were dropped, this would surface as a
+        # wrong result order rather than passing by coincidence.
+        MagicMock(
+            objects=[
+                _fake_weaviate_object("chunk-b2", document_id="doc-b", chunk_index=2),
+                _fake_weaviate_object("chunk-b0", document_id="doc-b", chunk_index=0),
+            ]
+        ),
+        MagicMock(
+            objects=[
+                _fake_weaviate_object("chunk-a1", document_id="doc-a", chunk_index=1),
+                _fake_weaviate_object("chunk-a0", document_id="doc-a", chunk_index=0),
+            ]
+        ),
+    ]
+    monkeypatch.setattr(
+        "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: fake_client
+    )
+
+    results = fetch_passages_for_documents(["doc-b", "doc-a"], "user-1")
+
+    assert [r.chunk_id for r in results] == ["chunk-a0", "chunk-a1", "chunk-b0", "chunk-b2"]
+
+
+def test_fetch_passages_for_documents_creates_collection_when_missing(monkeypatch):
+    fake_client, fake_collection = _fake_client(exists=False)
+    fake_collection.query.fetch_objects.return_value = MagicMock(objects=[])
+    monkeypatch.setattr(
+        "app.shared.data_access.weaviate_client.get_weaviate_client", lambda: fake_client
+    )
+
+    fetch_passages_for_documents(["doc-1"], "user-1")
+
+    fake_client.collections.create.assert_called_once()
+
+
+def test_fetch_passages_for_documents_raises_on_empty_document_ids():
+    """Unlike `search_passages` (where an empty `document_ids` means
+    "search everything"), this function has no such "everything" concept
+    -- resolving "no explicit scope" to a concrete document set is
+    `chat/service.py`'s job (`repository.get_overview_documents`), using
+    Postgres data this module doesn't have."""
+    with pytest.raises(ValueError):
+        fetch_passages_for_documents([], "user-1")

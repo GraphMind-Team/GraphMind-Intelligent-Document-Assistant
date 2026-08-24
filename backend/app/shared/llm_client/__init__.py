@@ -26,6 +26,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
+from typing import Literal
 
 import httpx
 
@@ -115,6 +116,26 @@ _MAX_RETRY_DELAY_SECONDS = 30.0
 _CHAT_TIMEOUT_SECONDS = 45.0
 _CHAT_MAX_ATTEMPTS = 2
 _CHAT_RETRY_DELAY_SECONDS = 3.0
+
+# Timeout for the document-overview generation call ("summarize this
+# document", "outline it") -- Story 3.5. Reuses `_CHAT_MAX_ATTEMPTS`/
+# `_CHAT_RETRY_DELAY_SECONDS`'s retry shape (still a synchronous,
+# user-waiting call), but a longer timeout: this mode's prompt can carry
+# up to `_OVERVIEW_MAX_PROMPT_CHARS` of passage text, close to double
+# `_MAX_PROMPT_CHARS`'s own chat budget, and `_CHAT_TIMEOUT_SECONDS` was
+# measured against the smaller one.
+_OVERVIEW_TIMEOUT_SECONDS = 75.0
+
+# Timeout for `resolve_question`'s intent-classification/query-rewrite
+# call (Story 3.5) -- deliberately its own, much tighter budget, and
+# deliberately never retried (no `_ROUTER_MAX_ATTEMPTS` counterpart to
+# `_CHAT_MAX_ATTEMPTS`). This call sits in front of every real answer;
+# `resolve_question` degrades to its `factual` fallback on ANY failure
+# (see that function's own docstring) rather than spending a retry's
+# worth of latency chasing a classification that was never load-bearing
+# to begin with -- the worst case of skipping it entirely is today's
+# pre-router behavior, not a broken request.
+_ROUTER_TIMEOUT_SECONDS = 15.0
 
 # OD-2 (Story 3.2, FR-10/AD-6): the relevance-score cutoff below which
 # `chat/service.py` refuses instead of calling `generate_answer` at all.
@@ -233,6 +254,17 @@ HISTORY_MAX_CHARS = 2000
 # value already measured safe under this same free model's context limit
 # for a similarly-sized block of concatenated document text.
 _MAX_PROMPT_CHARS = 12000
+
+# Passage-block budget for the document-overview intent (Story 3.5) --
+# deliberately larger than `_MAX_PROMPT_CHARS`: an overview's whole point
+# is coverage across a document rather than a handful of nearest-match
+# chunks, so it can afford (and needs) more passage text per prompt.
+# Nearly double, not unbounded -- still has to fit inside the free-tier
+# model's context window alongside `_OVERVIEW_SYSTEM_PROMPT_TEMPLATE`'s
+# own instructions and the document-structure block. Entirely separate
+# budget from `_MAX_PROMPT_CHARS`: the two intents never share a prompt,
+# so there's no risk of one silently eating the other's allowance.
+_OVERVIEW_MAX_PROMPT_CHARS = 20000
 
 _SYSTEM_PROMPT = (
     "You extract entities and relationships from a document's text for a "
@@ -564,25 +596,80 @@ _MAX_FOLLOWUP_QUESTIONS = 3
 # Boundaries' "a fresh conversation with zero prior turns behaves
 # identically to today's stateless flow" requirement, satisfied structurally
 # here rather than by a separate code path).
+#
+# `"kind"` (Story 3.5): every segment now carries one of "grounded" (a
+# claim-bearing sentence, cited as before) or "prose" (a short framing
+# sentence with no claim of its own -- a greeting-adjacent lead-in, never
+# a substitute for citing the actual answer). This is what lets the chat
+# read as an assistant that can say something conversational alongside a
+# grounded answer, without weakening FR-9/AC6: `_parse_and_validate_answer`
+# below enforces the citation requirement on "grounded" segments in code,
+# never on the prompt's word alone, exactly as it always has -- "prose" is
+# a new, narrow, explicitly-bounded exception (capped at
+# `_MAX_PROSE_SEGMENTS`), not a loophole in that guarantee.
 _CHAT_SYSTEM_PROMPT_TEMPLATE = (
     "You answer a question using ONLY the numbered passages below. Respond "
-    "with strict JSON only -- no prose, no markdown code fences -- matching "
-    'exactly this shape: {{"segments": [{{"text": "...", "passage_numbers": '
-    '[1, 2]}}], "followup_questions": ["...", "..."]}}. Each "text" is one '
-    "claim-bearing sentence or clause of your answer. Every segment's "
-    '"passage_numbers" must list every passage (by its number below) that '
-    "supports that segment's claim -- never leave this list empty for a "
-    "claim-bearing segment. Use only information present in the passages; "
-    "do not invent facts. Write every \"text\" value in the same language "
-    "as the question below, regardless of what language the passages "
-    "themselves are written in. If the passages do not support any answer "
-    'at all, respond with {{"segments": [], "followup_questions": []}}.\n\n'
+    "with strict JSON only -- no markdown code fences -- matching exactly "
+    'this shape: {{"segments": [{{"text": "...", "kind": "grounded", '
+    '"passage_numbers": [1, 2]}}], "followup_questions": ["...", "..."]}}. '
+    '"kind" is "grounded" for every claim-bearing sentence or clause of '
+    'your answer -- its "passage_numbers" must list every passage (by its '
+    'number below) that supports that claim, never left empty. "kind" is '
+    '"prose" for a brief, optional framing sentence only (e.g. a short '
+    "lead-in before the answer) -- these carry no claim and must have "
+    '"passage_numbers": []; use at most 1 "prose" segment, and only when '
+    "it adds something beyond the answer itself. Use only information "
+    'present in the passages; do not invent facts. Write every "text" '
+    "value in the same language as the question below, regardless of what "
+    "language the passages themselves are written in. If the passages do "
+    'not support any answer at all, respond with {{"segments": [], '
+    '"followup_questions": []}}.\n\n'
     '"followup_questions" is at most 3 short, natural follow-up questions '
     "the user might reasonably ask next -- each one must be answerable "
     "using ONLY the passages above (never a question the passages can't "
     "support), must not just restate the current question, and must be "
     "written in the same language as the question below. Use an empty "
     "list if no such follow-up exists.\n\n{history}{passages}"
+)
+
+# Story 3.5's document-overview intent: a request for a summary, outline,
+# or "what is this document about" answer, built from every passage of the
+# scoped document(s) (`weaviate_client.fetch_passages_for_documents`) plus
+# their chapter structure (`{structure}`, built by `chat/service.py` from
+# `Document.chapter_breakdown` -- this module never reads Postgres itself,
+# AD-2/AD-6), rather than from `search_passages`'s top-K nearest-match
+# result. A separate template from `_CHAT_SYSTEM_PROMPT_TEMPLATE` above,
+# not a shared one with a mode flag threaded through it: the two intents
+# read genuinely different context (a relevance-ranked passage list vs. a
+# document's full structure-plus-content), and a wider "prose" allowance
+# is appropriate here (an outline is naturally more narrative than a
+# one-fact answer) in a way that would be a strange default for the
+# factual template above.
+_OVERVIEW_SYSTEM_PROMPT_TEMPLATE = (
+    "You are answering a request for a summary, outline, or \"what is this "
+    "document about\" question, using ONLY the document structure and the "
+    "numbered passages below -- sampled across the whole document, not "
+    "just its beginning. Respond with strict JSON only -- no markdown code "
+    'fences -- matching exactly this shape: {{"segments": [{{"text": "...", '
+    '"kind": "grounded", "passage_numbers": [1, 2]}}], '
+    '"followup_questions": ["...", "..."]}}. "kind" is '
+    '"grounded" for any claim-bearing sentence -- its "passage_numbers" '
+    "must list every passage (by its number below) that supports it, never "
+    'left empty. "kind" is "prose" for framing/connective sentences that '
+    'introduce or organize the answer (e.g. "Here is an outline of the '
+    'document:") -- these carry no claim and must have "passage_numbers": '
+    '[]. Use at most 2 "prose" segments. Use only information present in '
+    "the structure and passages; do not invent facts, chapters, or "
+    'figures. Write every "text" value in the same language as the '
+    "question below, regardless of what language the document is written "
+    "in. If the structure and passages do not support any answer at all, "
+    'respond with {{"segments": [], "followup_questions": []}}.\n\n'
+    '"followup_questions" is at most 3 short, natural follow-up questions '
+    "the user might reasonably ask next -- each one must be answerable "
+    "using ONLY the structure and passages above (never a question they "
+    "can't support), must not just restate the current question, and must "
+    "be written in the same language as the question below. Use an empty "
+    "list if no such follow-up exists.\n\n{history}{structure}{passages}"
 )
 
 
@@ -660,6 +747,16 @@ def bound_chat_history(history: list[ChatHistoryTurn]) -> list[ChatHistoryTurn]:
     return selected
 
 
+def _format_turn_lines(history: list[ChatHistoryTurn]) -> str:
+    """`"Q: {question}\\nA: {answer}\\n"` for each turn, concatenated --
+    the one place that line shape is defined, shared by
+    `_build_history_block` (chat/overview generation) and
+    `_build_router_history_block` (`resolve_question`) below so the two
+    prompts render one conversation turn identically rather than two
+    independently-formatted copies that could drift apart."""
+    return "".join(f"Q: {turn.question}\nA: {turn.answer}\n" for turn in history)
+
+
 def _build_history_block(history: list[ChatHistoryTurn] | None) -> str:
     """Empty/`None` history renders as the empty string -- the one place
     that guarantees a fresh conversation's system prompt stays
@@ -668,26 +765,276 @@ def _build_history_block(history: list[ChatHistoryTurn] | None) -> str:
     `_CHAT_SYSTEM_PROMPT_TEMPLATE`'s `{history}` placeholder)."""
     if not history:
         return ""
-    turn_lines = "".join(f"Q: {turn.question}\nA: {turn.answer}\n" for turn in history)
     return (
         "Recent conversation so far, oldest first -- use it only to "
         'resolve references like "it"/"that" in the current question; '
         "never treat it as a source of facts beyond what the passages "
-        f"below support:\n{turn_lines}\n"
+        f"below support:\n{_format_turn_lines(history)}\n"
     )
+
+
+def _build_router_history_block(history: list[ChatHistoryTurn] | None) -> str:
+    """`resolve_question`'s own history framing -- lighter than
+    `_build_history_block`'s above, since the router never generates an
+    answer and so has no "don't treat history as a source of facts"
+    concern to state; it only needs enough of the conversation to resolve
+    a pronoun/reference in the current question."""
+    if not history:
+        return ""
+    return (
+        "Recent conversation so far, oldest first -- use it only to "
+        'resolve references like "it"/"that" in the current question:\n'
+        f"{_format_turn_lines(history)}\n"
+    )
+
+
+_ROUTER_ALLOWED_INTENTS = frozenset({"greeting", "document_overview", "factual"})
+
+# Story 3.5: classifies the current question's intent and rewrites it into
+# a standalone form for retrieval, in one call. Replaces the pre-3.5
+# behaviour of joining the last `HISTORY_MAX_TURNS` raw *questions* ahead
+# of the current one for embedding (`chat/service.py`'s old `query_text`
+# construction) -- that join diluted the retrieval embedding with whatever
+# unrelated questions preceded it in the same conversation, routinely
+# pushing an otherwise-answerable follow-up's distance back above
+# `RELEVANCE_THRESHOLD`. A rewritten, self-contained question (e.g. "what
+# about its budget?" -> "What is Project Aurora's budget?") embeds on the
+# actual topic instead.
+_ROUTER_SYSTEM_PROMPT_TEMPLATE = (
+    "Classify the user's question and prepare it for retrieval. Respond "
+    "with strict JSON only -- no prose, no markdown code fences -- "
+    'matching exactly this shape: {{"intent": "...", "search_query": "...", '
+    '"reply": "..."}}. "intent" must be exactly one of: "greeting" (a '
+    "greeting, thanks, or small talk with no question about the "
+    'documents), "document_overview" (a request for a summary, outline, '
+    'table of contents, or "what is this document about" -- anything '
+    "asking about the document as a whole rather than one specific "
+    'fact), or "factual" (a specific question answerable from a passage '
+    'or two). "search_query" is the current question rewritten as a '
+    "standalone question a search engine could embed on its own -- "
+    'resolve pronouns and references ("it", "that", "the vendor") using '
+    "the conversation below, in the same language as the original "
+    'question. Leave "search_query" equal to the original question if '
+    'there is nothing to resolve. "reply" is a short, friendly reply IN '
+    'THE SAME LANGUAGE as the question, used only when intent is '
+    '"greeting" -- empty string otherwise.\n\n{history}Question: {question}'
+)
+
+
+@dataclass(frozen=True)
+class QuestionPlan:
+    """`resolve_question`'s return shape (Story 3.5): what `chat/
+    service.py` needs to route one question to the right branch.
+
+    `intent` -- one of `_ROUTER_ALLOWED_INTENTS`, always a member of that
+    set by construction (`_parse_and_validate_plan` defaults anything else
+    to `"factual"`, never surfaces an out-of-vocabulary value here).
+
+    `search_query` -- always a non-blank string: the model's rewritten,
+    standalone form of the question when it returned one, otherwise the
+    original `question` verbatim (`resolve_question`'s own fallback, and
+    `_parse_and_validate_plan`'s per-field fallback). `chat/service.py`
+    uses this for retrieval embedding; it never appears in the rendered
+    answer or in persisted chat history, which still show the user's own
+    original wording.
+
+    `reply` -- non-`None` only when `intent == "greeting"`; `chat/
+    service.py`'s greeting branch renders this directly as the answer's
+    one prose segment, without any retrieval or generation call. Always
+    `None` for every other intent -- there is nothing for a factual/
+    overview branch to do with a canned reply.
+    """
+
+    intent: Literal["greeting", "document_overview", "factual"]
+    search_query: str
+    reply: str | None = None
+
+
+class _RouterCallError(Exception):
+    """Internal: `_call_openrouter_for_router`'s OpenRouter call itself
+    failed -- transport error, timeout, non-2xx status, or a response
+    missing `choices[0].message.content`. Never raised past
+    `resolve_question`, which catches this uniformly and returns the
+    `factual` fallback (see that function's own docstring for why every
+    failure mode here degrades to the exact same outcome rather than being
+    distinguished the way `_RetryableChatError`/`_RetryableExtractionError`
+    are -- this call is never retried, so there is no retry-vs-give-up
+    decision for the distinction to inform)."""
+
+
+def resolve_question(question: str, history: list[ChatHistoryTurn] | None = None) -> QuestionPlan:
+    """The current question (plus recent history, for reference
+    resolution) -> a `QuestionPlan` deciding which of `chat/service.py`'s
+    three branches (greeting / document_overview / factual) handles it,
+    and a retrieval-ready standalone rewrite of the question.
+
+    Never raises. Every failure mode -- a network/timeout error, a
+    non-2xx response, malformed JSON, an out-of-vocabulary `intent`, a
+    missing `search_query`/`reply` -- degrades to `QuestionPlan(intent=
+    "factual", search_query=question, reply=None)`, which is exactly
+    pre-3.5 behaviour: the bare original question, routed to the one
+    branch that already existed. A classification call is a pure
+    enhancement over that baseline, never a new way for `/chat/ask` to
+    fail; `chat/service.py` calls this unconditionally and never wraps it
+    in its own `try`/`except`, because there is nothing left for a caller
+    to catch.
+
+    Called once per question, never retried (`_ROUTER_TIMEOUT_SECONDS`'s
+    own comment explains why) -- unlike `generate_answer`'s
+    `_CHAT_MAX_ATTEMPTS`, a second attempt here would only add latency in
+    front of the real answer for a call whose entire failure mode already
+    has a safe, cheap fallback.
+    """
+    fallback = QuestionPlan(intent="factual", search_query=question, reply=None)
+    try:
+        content = _call_openrouter_for_router(question, history)
+    except _RouterCallError as exc:
+        logger.warning("resolve_question: router call failed, falling back to factual: %s", exc)
+        return fallback
+    return _parse_and_validate_plan(content, question, fallback)
+
+
+def _call_openrouter_for_router(question: str, history: list[ChatHistoryTurn] | None) -> str:
+    """Issues the intent-classification/query-rewrite call and returns the
+    raw message content -- not parsed here, mirrors `_call_openrouter`'s
+    own split. Raises `_RouterCallError` on any failure; `resolve_question`
+    is this function's only caller and catches that uniformly."""
+    api_key = env_str("OPENROUTER_API_KEY")
+    if not api_key:
+        raise _RouterCallError("Missing required environment variable: OPENROUTER_API_KEY")
+    # A dedicated, independently-overridable slug (falling back to the
+    # chat model, then the module default) -- classification is a small,
+    # latency-sensitive task well suited to a smaller/faster model than
+    # answer generation itself, once one is chosen for OPENROUTER_ROUTER_MODEL.
+    model = env_str("OPENROUTER_ROUTER_MODEL", env_str("OPENROUTER_CHAT_MODEL", DEFAULT_MODEL))
+
+    system_prompt = _ROUTER_SYSTEM_PROMPT_TEMPLATE.format(
+        history=_build_router_history_block(history), question=question
+    )
+
+    try:
+        response = httpx.post(
+            OPENROUTER_URL,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": question},
+                ],
+                "response_format": {"type": "json_object"},
+            },
+            timeout=_ROUTER_TIMEOUT_SECONDS,
+        )
+    except httpx.TimeoutException as exc:
+        raise _RouterCallError(f"OpenRouter router request timed out: {exc}") from exc
+    except httpx.TransportError as exc:
+        raise _RouterCallError(f"OpenRouter router request failed: {exc}") from exc
+
+    if response.status_code >= 400:
+        # Every failure status is treated alike -- unlike chat/extraction,
+        # this call is never retried (see `_ROUTER_TIMEOUT_SECONDS`'s own
+        # comment), so a 429's `Retry-After` has nothing to inform here.
+        raise _RouterCallError(
+            f"OpenRouter returned {response.status_code} for routing: {response.text[:500]}"
+        )
+
+    try:
+        body = response.json()
+        return body["choices"][0]["message"]["content"]
+    except (json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
+        raise _RouterCallError(
+            f"OpenRouter router response missing choices[0].message.content: {exc}"
+        ) from exc
+
+
+def _parse_and_validate_plan(content: str, original_question: str, fallback: QuestionPlan) -> QuestionPlan:
+    """The router's raw JSON string -> a validated `QuestionPlan`, or
+    `fallback` for any shape this function doesn't trust -- mirrors
+    `_parse_and_validate`/`_parse_and_validate_answer`'s "never trust the
+    prompt alone" enforcement, just with a fallback value in place of a
+    raised error, since `resolve_question` itself never raises."""
+    # `TypeError` alongside `JSONDecodeError`: `content` is whatever
+    # `choices[0].message.content` held, and a provider that answers with
+    # `"content": null` (some free-tier models do, putting their output in
+    # a sibling `reasoning` field) hands `json.loads` a `None`, which is a
+    # `TypeError` rather than a decode error. Uncaught, it would escape
+    # this function's own "never raises" contract -- and `chat/service.py`
+    # deliberately has no `try`/`except` around `resolve_question` -- so a
+    # null body would 500 the request instead of degrading to `factual`.
+    try:
+        payload = json.loads(content)
+    except (json.JSONDecodeError, TypeError):
+        logger.warning("resolve_question: router returned malformed JSON, falling back to factual")
+        return fallback
+
+    if not isinstance(payload, dict):
+        logger.warning(
+            "resolve_question: router JSON response was not a JSON object, falling back to factual"
+        )
+        return fallback
+
+    intent = payload.get("intent")
+    # `isinstance` first, and not merely for tidiness: a membership test
+    # against a `frozenset` *raises* `TypeError` for an unhashable value
+    # (`["factual"] in frozenset(...)`), it does not evaluate `False`, so a
+    # model that returned a list/object here would break the never-raises
+    # contract above rather than fall through to the default.
+    if not isinstance(intent, str) or intent not in _ROUTER_ALLOWED_INTENTS:
+        logger.warning(
+            "resolve_question: router returned out-of-vocabulary intent %r, defaulting to factual",
+            intent,
+        )
+        intent = "factual"
+
+    raw_search_query = payload.get("search_query")
+    if isinstance(raw_search_query, str) and raw_search_query.strip():
+        search_query = raw_search_query.strip()
+    else:
+        search_query = original_question
+
+    raw_reply = payload.get("reply")
+    if intent == "greeting":
+        if not isinstance(raw_reply, str) or not raw_reply.strip():
+            # A "greeting" intent with nothing to render as its reply
+            # would leave `chat/service.py`'s greeting branch with no
+            # text to show -- degrade the intent itself, not just this
+            # field, so that branch is never reached empty-handed.
+            logger.warning(
+                "resolve_question: greeting intent had no usable reply, falling back to factual"
+            )
+            return fallback
+        reply = raw_reply.strip()
+    else:
+        reply = None
+
+    return QuestionPlan(intent=intent, search_query=search_query, reply=reply)
 
 
 @dataclass(frozen=True)
 class AnswerSegment:
     """One piece of a generated chat answer, as parsed from the LLM's JSON
     response and already validated against the passages it was given --
-    never an out-of-range passage reference, and never a claim-bearing
+    never an out-of-range passage reference, and never a `kind="grounded"`
     segment left without at least one valid citation (this is where FR-9/
     the story's AC6 guarantee is actually enforced, in code, not just in
-    the prompt)."""
+    the prompt).
+
+    `kind` (Story 3.5): `"grounded"` for a claim-bearing segment (FR-9's
+    citation guarantee applies); `"prose"` for a short framing/connective
+    segment that carries no claim and so needs none -- always
+    `passage_numbers=[]}` in that case (`_parse_and_validate_answer`
+    enforces this, not just the prompt). Defaults to `"grounded"` so every
+    pre-3.5 construction of this dataclass -- and every already-persisted
+    `chat_messages` row read back without a `kind` key -- keeps meaning
+    exactly what it always did."""
 
     text: str
     passage_numbers: list[int]  # 1-based, indexes into the passages `generate_answer` was called with
+    kind: Literal["grounded", "prose"] = "grounded"
 
 
 @dataclass(frozen=True)
@@ -813,6 +1160,70 @@ def _select_passages_within_budget(passages: list[WeaviateSearchResult]) -> list
     return selected
 
 
+def _select_overview_passages_within_budget(
+    passages: list[WeaviateSearchResult],
+) -> list[WeaviateSearchResult]:
+    """`passages` (already `(document_id, chunk_index)`-ordered by
+    `weaviate_client.fetch_passages_for_documents`) -> the subset that
+    fits inside `_OVERVIEW_MAX_PROMPT_CHARS`, sampled with an even stride
+    across the full list rather than dropped from the tail the way
+    `_select_passages_within_budget` drops from a nearest-first retrieval
+    list.
+
+    The difference from that function is deliberate, not cosmetic: a
+    nearest-first list's tail is genuinely the least relevant, so dropping
+    it loses the least. This list carries no such relevance ordering --
+    it's every passage of one or more documents, in reading order -- so
+    dropping the tail would silently turn "summarize the whole document"
+    into "summarize its first N pages," a wrong answer that looks like a
+    right one. An even stride keeps some coverage of the whole document
+    instead. Whole passages only, never a partial one -- same "no
+    half-sentence context" reasoning as `_select_passages_within_budget`.
+    """
+    if not passages:
+        return []
+    total_chars = sum(
+        len(f"Passage {index} (Chapter: {p.chapter}): {p.text}\n")
+        for index, p in enumerate(passages, start=1)
+    )
+    if total_chars <= _OVERVIEW_MAX_PROMPT_CHARS:
+        return list(passages)
+
+    # Char length varies per passage, so a count-based stride is only an
+    # estimate of what will actually fit -- the trim loop below is what
+    # enforces the real budget; the stride just decides which passages are
+    # even considered, so the sample spreads across the whole list instead
+    # of being the first ones that happen to fit.
+    keep_fraction = _OVERVIEW_MAX_PROMPT_CHARS / total_chars
+    stride = max(1, round(1 / keep_fraction))
+    sampled = passages[::stride] or [passages[0]]
+
+    selected: list[WeaviateSearchResult] = []
+    used_chars = 0
+    for index, passage in enumerate(sampled, start=1):
+        line_len = len(f"Passage {index} (Chapter: {passage.chapter}): {passage.text}\n")
+        if used_chars + line_len > _OVERVIEW_MAX_PROMPT_CHARS:
+            break
+        selected.append(passage)
+        used_chars += line_len
+    if not selected:
+        # Mirrors `_select_passages_within_budget`'s own "the single
+        # oversized passage" fallback -- an empty prompt is a guaranteed
+        # zero-segment response; one over-budget passage at least has a
+        # chance.
+        selected.append(sampled[0])
+    if len(selected) < len(passages):
+        logger.warning(
+            "_select_overview_passages_within_budget: sampled %s/%s passages "
+            "(_OVERVIEW_MAX_PROMPT_CHARS=%s, stride=%s)",
+            len(selected),
+            len(passages),
+            _OVERVIEW_MAX_PROMPT_CHARS,
+            stride,
+        )
+    return selected
+
+
 def _build_chat_system_prompt(
     passages: list[WeaviateSearchResult], history: list[ChatHistoryTurn] | None = None
 ) -> str:
@@ -825,10 +1236,35 @@ def _build_chat_system_prompt(
     )
 
 
+def _build_overview_system_prompt(
+    passages: list[WeaviateSearchResult],
+    history: list[ChatHistoryTurn] | None,
+    document_structure: str | None,
+) -> str:
+    """Mirrors `_build_chat_system_prompt`'s shape for the
+    `_OVERVIEW_SYSTEM_PROMPT_TEMPLATE`'s extra `{structure}` slot.
+    `document_structure` is Postgres-derived text `chat/service.py`
+    builds from `Document.chapter_breakdown` -- this module never queries
+    Postgres itself (AD-2/AD-6), so it only ever renders the string it's
+    handed. `None`/blank renders as no structure section at all, never a
+    fabricated one."""
+    passage_block = "\n".join(
+        f"Passage {index} (Chapter: {passage.chapter}): {passage.text}"
+        for index, passage in enumerate(passages, start=1)
+    )
+    structure_block = f"Document structure:\n{document_structure}\n\n" if document_structure else ""
+    return _OVERVIEW_SYSTEM_PROMPT_TEMPLATE.format(
+        history=_build_history_block(history), structure=structure_block, passages=passage_block
+    )
+
+
 def generate_answer(
     question: str,
     passages: list[WeaviateSearchResult],
     history: list[ChatHistoryTurn] | None = None,
+    *,
+    mode: Literal["factual", "overview"] = "factual",
+    document_structure: str | None = None,
 ) -> AnswerResult:
     """A question plus its retrieved passages -> a structured, citable
     answer. Callers (`chat/service.py`) must only call this with a
@@ -843,6 +1279,20 @@ def generate_answer(
     keeps producing the exact prompt it always did; see
     `_build_history_block`'s docstring for the byte-identical guarantee.
 
+    `mode` (Story 3.5): `"factual"` (default) is the pre-3.5 shape,
+    unchanged -- `_CHAT_SYSTEM_PROMPT_TEMPLATE`, `_MAX_PROMPT_CHARS`,
+    `_CHAT_TIMEOUT_SECONDS`, and `passages` treated as a nearest-first
+    retrieval list. `"overview"` is the document-overview intent's own
+    shape -- `_OVERVIEW_SYSTEM_PROMPT_TEMPLATE`,
+    `_OVERVIEW_MAX_PROMPT_CHARS`, `_OVERVIEW_TIMEOUT_SECONDS`, `passages`
+    treated as a full-document reading-order list
+    (`_select_overview_passages_within_budget`'s even-stride sampling
+    instead of `_select_passages_within_budget`'s tail-drop), and
+    `document_structure` rendered into the prompt. `chat/service.py` is
+    the only caller that passes `mode="overview"`; every existing call
+    site keeps the default, so this parameter is additive, not a
+    behaviour change to the factual path.
+
     Retries up to `_CHAT_MAX_ATTEMPTS` total on a timeout, a 5xx, a 429,
     or a malformed/unparseable response -- the same treatment
     `extract_entities_and_relationships` gives those conditions, on a
@@ -854,13 +1304,19 @@ def generate_answer(
     immediately for a non-retryable failure) -- callers never see the
     underlying `httpx`/`json` exception directly.
     """
-    included_passages = _select_passages_within_budget(passages)
-    system_prompt = _build_chat_system_prompt(included_passages, history)
+    if mode == "overview":
+        included_passages = _select_overview_passages_within_budget(passages)
+        system_prompt = _build_overview_system_prompt(included_passages, history, document_structure)
+        timeout = _OVERVIEW_TIMEOUT_SECONDS
+    else:
+        included_passages = _select_passages_within_budget(passages)
+        system_prompt = _build_chat_system_prompt(included_passages, history)
+        timeout = _CHAT_TIMEOUT_SECONDS
 
     last_error: Exception | None = None
     for attempt in range(1, _CHAT_MAX_ATTEMPTS + 1):
         try:
-            content = _call_openrouter_for_chat(system_prompt, question)
+            content = _call_openrouter_for_chat(system_prompt, question, timeout=timeout)
             segments, followup_questions = _parse_and_validate_answer(content, len(included_passages))
             return AnswerResult(
                 segments=segments,
@@ -886,11 +1342,19 @@ def generate_answer(
     ) from last_error
 
 
-def _call_openrouter_for_chat(system_prompt: str, question: str) -> str:
+def _call_openrouter_for_chat(
+    system_prompt: str, question: str, *, timeout: float = _CHAT_TIMEOUT_SECONDS
+) -> str:
     """Issues the chat-completion call for a generated answer and returns
     the raw message content -- not parsed here, mirrors `_call_openrouter`'s
     split so the retry loop can treat "the network failed" and "the
-    response body was garbage" uniformly via `_RetryableChatError`."""
+    response body was garbage" uniformly via `_RetryableChatError`.
+
+    `timeout` (Story 3.5): defaults to `_CHAT_TIMEOUT_SECONDS` (every
+    pre-3.5 call site's exact behaviour); `generate_answer`'s
+    `mode="overview"` branch passes `_OVERVIEW_TIMEOUT_SECONDS` instead,
+    since that mode's prompt can carry close to double the passage text.
+    """
     api_key = env_str("OPENROUTER_API_KEY")
     if not api_key:
         raise RuntimeError(
@@ -917,7 +1381,7 @@ def _call_openrouter_for_chat(system_prompt: str, question: str) -> str:
                 ],
                 "response_format": {"type": "json_object"},
             },
-            timeout=_CHAT_TIMEOUT_SECONDS,
+            timeout=timeout,
         )
     except httpx.TimeoutException as exc:
         raise _RetryableChatError(f"OpenRouter chat request timed out: {exc}") from exc
@@ -961,23 +1425,50 @@ def _call_openrouter_for_chat(system_prompt: str, question: str) -> str:
         ) from exc
 
 
-def _parse_and_validate_answer(content: str, passage_count: int) -> tuple[list[AnswerSegment], list[str]]:
+# Story 3.5: the hard cap on "prose" (uncited) segments in one answer,
+# enforced here in code -- never left to the prompt's own "use at most
+# N" wording alone, same "never trust the prompt alone" principle this
+# function already applies to citations. Keeps a response from turning
+# into all narration with no grounded content even if the model ignores
+# its instructions; the answer-level "was anything actually grounded"
+# check lives in `chat/service.py`, which drops to `no_answer` when a
+# response has segments but none of them are `kind="grounded"`.
+_MAX_PROSE_SEGMENTS = 2
+
+_VALID_SEGMENT_KINDS = frozenset({"grounded", "prose"})
+
+
+def _parse_and_validate_answer(
+    content: str, passage_count: int
+) -> tuple[list[AnswerSegment], list[str]]:
     """Parses the model's JSON string and enforces, in code, that every
-    segment reaching the caller carries at least one valid citation --
-    never trusting the prompt's own instruction alone to hold (mirrors
-    `_parse_and_validate`'s OD-1 enforcement for extraction). An
-    out-of-range `passage_numbers` entry is dropped individually
-    (logged); a segment left with zero valid numbers after filtering is
-    dropped entirely -- an uncited claim-bearing sentence must never
-    reach the frontend, since that's exactly the guarantee FR-9/AC6
-    require. `[]` is a valid, non-error outcome (mirrors extraction's
-    "empty is not a failure"). Returns `(segments, followup_questions)`
-    directly rather than wrapping them in `AnswerResult` -- this function
-    never sees `included_passages` (only `generate_answer`, its caller,
-    has that), so returning the wrapper type would leave that field
-    permanently empty here, only for the caller to immediately
-    reconstruct a second, correctly-populated `AnswerResult` around the
-    same segments.
+    `kind="grounded"` segment reaching the caller carries at least one
+    valid citation -- never trusting the prompt's own instruction alone
+    to hold (mirrors `_parse_and_validate`'s OD-1 enforcement for
+    extraction). An out-of-range `passage_numbers` entry is dropped
+    individually (logged); a `"grounded"` segment left with zero valid
+    numbers after filtering is dropped entirely -- an uncited claim-
+    bearing sentence must never reach the frontend, since that's exactly
+    the guarantee FR-9/AC6 require. `[]` is a valid, non-error outcome
+    (mirrors extraction's "empty is not a failure").
+
+    `kind` (Story 3.5): an item's `"kind"` field selects which rule
+    applies. Missing or out-of-vocabulary defaults to `"grounded"` --
+    the pre-3.5 behaviour for every segment, so a model that never emits
+    `"kind"` at all (an older prompt version, a provider that ignores the
+    field) is still held to the citation requirement rather than silently
+    downgraded to unchecked prose. A `"prose"` segment is exempt from the
+    citation check (its `passage_numbers` is always stored as `[]`,
+    discarding whatever the model sent) but is capped at
+    `_MAX_PROSE_SEGMENTS` per response -- anything beyond that is dropped,
+    logged, never silently truncating the text itself.
+
+    Returns `(segments, followup_questions)` directly rather than wrapping
+    them in `AnswerResult` -- this function never sees
+    `included_passages` (only `generate_answer`, its caller, has that), so
+    returning the wrapper type would leave that field permanently empty
+    here, only for the caller to immediately reconstruct a second,
+    correctly-populated `AnswerResult` around the same segments.
 
     `followup_questions` gets the same "never trust the prompt alone"
     treatment `_MAX_FOLLOWUP_QUESTIONS`'s own comment describes: each
@@ -996,19 +1487,52 @@ def _parse_and_validate_answer(content: str, passage_count: int) -> tuple[list[A
         raise _RetryableChatError("OpenRouter JSON response's segments was not a list")
 
     segments: list[AnswerSegment] = []
+    prose_count = 0
     for item in raw_segments:
         if not isinstance(item, dict):
             logger.warning("Dropping malformed answer segment (not an object): %r", item)
             continue
         text = item.get("text")
         raw_numbers = item.get("passage_numbers", [])
+        raw_kind = item.get("kind", "grounded")
         if not isinstance(text, str) or not text.strip():
             logger.warning("Dropping answer segment with missing/blank text: %r", item)
             continue
         if not isinstance(raw_numbers, list):
             logger.warning("Dropping answer segment with non-list passage_numbers: %r", item)
             continue
+        # `isinstance` first, same reason as `_parse_and_validate_plan`'s
+        # own intent check: `{...} in frozenset(...)` raises `TypeError`
+        # for an unhashable value instead of returning `False`, and that
+        # error is not a `_RetryableChatError`, so it would escape
+        # `generate_answer`'s retry loop and `chat/service.py`'s
+        # `ChatCompletionError` handler alike -- a 500 where this loop's
+        # every other field check merely drops the segment.
+        valid_kind = isinstance(raw_kind, str) and raw_kind in _VALID_SEGMENT_KINDS
+        kind = raw_kind if valid_kind else "grounded"
+        if not valid_kind:
+            logger.warning(
+                "Answer segment had out-of-vocabulary kind %r, defaulting to 'grounded': %r",
+                raw_kind,
+                text,
+            )
 
+        if kind == "prose":
+            if prose_count >= _MAX_PROSE_SEGMENTS:
+                logger.warning(
+                    "Dropping prose answer segment beyond the %s-segment cap: %r",
+                    _MAX_PROSE_SEGMENTS,
+                    text,
+                )
+                continue
+            prose_count += 1
+            segments.append(AnswerSegment(text=text.strip(), passage_numbers=[], kind="prose"))
+            continue
+
+        # kind == "grounded": same enforcement as pre-3.5 -- every claim
+        # needs at least one valid citation, or the whole segment is
+        # dropped (FR-9/AC6, never trusting the prompt alone).
+        #
         # A single-pass partition, not "invalid = raw_numbers minus valid
         # via `in`" -- `True == 1` in Python, so a membership test against
         # `valid_numbers` would silently swallow a stray boolean into
@@ -1035,7 +1559,7 @@ def _parse_and_validate_answer(content: str, passage_count: int) -> tuple[list[A
             logger.warning("Dropping answer segment with no valid citations: %r", item)
             continue
 
-        segments.append(AnswerSegment(text=text.strip(), passage_numbers=valid_numbers))
+        segments.append(AnswerSegment(text=text.strip(), passage_numbers=valid_numbers, kind="grounded"))
 
     raw_followups = payload.get("followup_questions", [])
     followup_questions: list[str] = []
