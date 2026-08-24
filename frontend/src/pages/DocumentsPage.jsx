@@ -562,22 +562,22 @@ export default function DocumentsPage() {
 
             {/* Card grid rather than the mockup's `.doclist` table -- a
                 human-requested design change, recorded in the spec's
-                Change Log. `auto-fill` + `minmax` reflows by itself as the
-                content area narrows (including at 200% zoom), which is
-                also what retires the table's clipping problem
-                structurally rather than by patching an overflow rule:
-                there is no fixed min-content width to clip. A <ul>
-                because this is a list of things, not a grid of layout
-                boxes -- screen readers announce the count. */}
+                Change Log. A <ul> because this is a list of things, not a
+                grid of layout boxes -- screen readers announce the count.
+
+                Fixed breakpoint column counts (not `auto-fill`/`minmax`,
+                which sized columns off the grid's own container width):
+                opening the folders panel shrinks that container without
+                changing the viewport, so a container-width-driven grid
+                silently dropped a column and stranded one card alone on
+                its own row -- human-reported. Keying off the viewport via
+                Tailwind's breakpoints instead means the column count only
+                ever changes when the *window* is resized, never when the
+                folders panel is toggled. */}
             {showGrid && (
               <ul
                 aria-label={t('documents.title')}
-                className={[
-                  'grid list-none gap-4 p-0',
-                  isFoldersOpen
-                    ? 'grid-cols-[repeat(auto-fill,minmax(16rem,1fr))]'
-                    : 'grid-cols-[repeat(auto-fill,minmax(14rem,1fr))]',
-                ].join(' ')}
+                className="grid list-none grid-cols-1 gap-4 p-0 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
               >
                 {visibleDocuments.map((doc) => (
                   <DocumentCard
