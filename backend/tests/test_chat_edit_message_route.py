@@ -15,8 +15,8 @@ from datetime import datetime, timedelta, timezone
 
 from app.chat import service as chat_service_module
 from app.shared.data_access.shapes import WeaviateSearchResult
-from app.shared.llm_client import AnswerResult, AnswerSegment
-from app.shared.models import ChatMessage
+from app.shared.llm_client import AnswerResult, AnswerSegment, ChatCompletionError
+from app.shared.models import ChatMessage, ChatSession
 
 
 def _register_and_login(client, *, full_name, email, password):
@@ -291,3 +291,104 @@ def test_edit_rejects_a_blank_question_with_422(client, monkeypatch):
         _edit_url(session_id, first["user_message_id"]), headers=_auth_headers(token), json={"question": "   "}
     )
     assert response.status_code == 422
+
+
+def test_edit_that_fails_generation_keeps_the_whole_conversation(client, db_session, monkeypatch):
+    """The truncation and the re-ask are one transaction: a 503 from
+    generation must leave the conversation exactly as it was, not delete
+    the edited question and every turn after it with nothing to show for
+    it. There is no undo for that -- the client has already truncated its
+    own view optimistically (ChatPage.jsx::handleEditMessage) and can
+    only restore what the server still has."""
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-edit-503@example.com", password="password12345"
+    )
+    session_id, document_id = _setup_session_with_document(client, token)
+    _stub_generation(monkeypatch, document_id=document_id)
+    first = _ask_at_tick(client, db_session, token, session_id, "Question one?", 0)
+    _ask_at_tick(client, db_session, token, session_id, "Question two?", 10)
+
+    def _failing_generate(*a, **k):
+        raise ChatCompletionError("OpenRouter chat generation failed after 2 attempts")
+
+    monkeypatch.setattr(chat_service_module, "generate_answer", _failing_generate)
+
+    response = client.post(
+        _edit_url(session_id, first["user_message_id"]),
+        headers=_auth_headers(token),
+        json={"question": "Edited question one?"},
+    )
+
+    assert response.status_code == 503
+    db_session.expire_all()
+    rows = (
+        db_session.query(ChatMessage)
+        .filter_by(session_id=uuid.UUID(session_id))
+        .order_by(ChatMessage.created_at, ChatMessage.role, ChatMessage.id)
+        .all()
+    )
+    questions = [r.question for r in rows if r.role == "user"]
+    assert questions == ["Question one?", "Question two?"]
+    assert len([r for r in rows if r.role == "assistant"]) == 2
+
+
+def test_editing_the_first_question_retitles_the_session(client, db_session, monkeypatch):
+    """The session's auto-title was derived from the question being
+    replaced, so leaving it alone would leave the sidebar showing a
+    question that no longer exists anywhere."""
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-edit-retitle@example.com", password="password12345"
+    )
+    session_id, document_id = _setup_session_with_document(client, token)
+    _stub_generation(monkeypatch, document_id=document_id)
+    first = _ask(client, token, session_id, "Question one?")
+
+    response = client.post(
+        _edit_url(session_id, first["user_message_id"]),
+        headers=_auth_headers(token),
+        json={"question": "Edited question one?"},
+    )
+
+    assert response.status_code == 200, response.text
+    db_session.expire_all()
+    assert db_session.get(ChatSession, uuid.UUID(session_id)).title == "Edited question one?"
+
+
+def test_editing_a_later_question_leaves_the_title_alone(client, db_session, monkeypatch):
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-edit-keeps-title@example.com", password="password12345"
+    )
+    session_id, document_id = _setup_session_with_document(client, token)
+    _stub_generation(monkeypatch, document_id=document_id)
+    _ask_at_tick(client, db_session, token, session_id, "Question one?", 0)
+    second = _ask_at_tick(client, db_session, token, session_id, "Question two?", 10)
+
+    response = client.post(
+        _edit_url(session_id, second["user_message_id"]),
+        headers=_auth_headers(token),
+        json={"question": "Edited question two?"},
+    )
+
+    assert response.status_code == 200, response.text
+    db_session.expire_all()
+    assert db_session.get(ChatSession, uuid.UUID(session_id)).title == "Question one?"
+
+
+def test_editing_the_first_question_never_overwrites_a_users_own_rename(client, db_session, monkeypatch):
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-edit-rename-kept@example.com", password="password12345"
+    )
+    session_id, document_id = _setup_session_with_document(client, token)
+    _stub_generation(monkeypatch, document_id=document_id)
+    first = _ask(client, token, session_id, "Question one?")
+    client.patch(f"/chat/sessions/{session_id}", headers=_auth_headers(token), json={"title": "Refund policy"})
+
+    response = client.post(
+        _edit_url(session_id, first["user_message_id"]),
+        headers=_auth_headers(token),
+        json={"question": "Edited question one?"},
+    )
+
+    assert response.status_code == 200, response.text
+    db_session.expire_all()
+    assert db_session.get(ChatSession, uuid.UUID(session_id)).title == "Refund policy"

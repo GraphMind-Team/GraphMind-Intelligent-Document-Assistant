@@ -20,11 +20,12 @@ const SESSION_B = { id: 'session-b', title: 'B', created_at: 't2', updated_at: '
 // rather than through ChatSessionsPanel's UI (that's
 // ChatSessionsPanel.test.jsx's job).
 function Consumer() {
-  const { sessions, activeSessionId, isLoading, createSession, renameSession, deleteSession } = useChatSessions()
+  const { sessions, activeSessionId, isLoading, error, createSession, renameSession, deleteSession } = useChatSessions()
   return (
     <div>
       <p data-testid="loading">{String(isLoading)}</p>
       <p data-testid="active">{activeSessionId}</p>
+      <p data-testid="error">{error ?? ''}</p>
       <ul>
         {sessions.map((session) => (
           <li key={session.id}>{session.title}</li>
@@ -138,5 +139,20 @@ describe('ChatSessionsContext', () => {
     await user.click(screen.getByText('delete a'))
 
     await waitFor(() => expect(screen.getByTestId('route-session')).toHaveTextContent('session-fresh'))
+  })
+
+  it('deleting the last remaining session surfaces an error instead of hanging when the replacement create fails', async () => {
+    vi.spyOn(chatSessionsClient, 'listChatSessions').mockResolvedValue([SESSION_A])
+    vi.spyOn(chatSessionsClient, 'deleteChatSession').mockResolvedValue(undefined)
+    vi.spyOn(chatSessionsClient, 'createChatSession').mockRejectedValue(new Error('Could not start a new chat.'))
+    const user = userEvent.setup()
+    renderConsumer({ initialSessionId: SESSION_A.id })
+    await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('false'))
+
+    await user.click(screen.getByText('delete a'))
+
+    await waitFor(() => expect(screen.getByTestId('error')).toHaveTextContent('Could not start a new chat.'))
+    // The delete itself still went through -- only the replacement create failed.
+    expect(screen.queryByText('A')).not.toBeInTheDocument()
   })
 })

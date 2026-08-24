@@ -9,7 +9,7 @@ hand-written `select(Document).where(...)` -- same pattern
 import uuid
 from datetime import datetime
 
-from sqlalchemy import and_, case, delete, desc, or_
+from sqlalchemy import and_, case, delete, desc, func, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -69,6 +69,37 @@ def _strictly_before(ordered_columns_and_values: list[tuple]) -> ColumnElement:
         equalities = [c == v for c, v in ordered_columns_and_values[:i]]
         conditions.append(and_(*equalities, column < value) if equalities else column < value)
     return or_(*conditions)
+
+
+def _stored_created_at(message_id: uuid.UUID, fallback: datetime):
+    """The `created_at` value as *stored* for `message_id`, falling back
+    to `fallback` (the cursor's own decoded timestamp) if that row is
+    gone.
+
+    Exists so a pagination cursor compares a stored `created_at` against
+    another stored `created_at`, never against a Python-side `datetime`
+    bound as a parameter. On SQLite (this project's test suite,
+    `tests/conftest.py::db_session`) `DateTime` has no native type and is
+    compared as TEXT; this column's `server_default=func.now()` stores a
+    whole-second string with no fractional part, while SQLAlchemy's bind
+    processor renders a Python-side `datetime` *with* one (`...:56` vs
+    `...:56.000000`), so two equal instants compare as unequal -- the
+    stored value sorting "before" its own re-serialized self. That makes
+    a cursor landing on one of two rows written in the same second skip
+    or repeat rows. `delete_messages_from`'s docstring below describes
+    the same bug in detail; it side-steps it by ordering ids instead,
+    which is right for a delete but needlessly heavy for a page read --
+    this scalar subquery fixes the comparison itself, on SQLite and
+    Postgres alike.
+
+    The fallback matters: a cursor can outlive its row (`edit_message`
+    truncates a conversation), and a bare subquery would yield NULL
+    there, silently turning the whole WHERE into "no rows".
+    """
+    return func.coalesce(
+        select(ChatMessage.created_at).where(ChatMessage.id == message_id).scalar_subquery(),
+        fallback,
+    )
 
 
 def get_filenames_for_documents(
@@ -194,7 +225,7 @@ def list_messages_for_user(
         stmt = stmt.where(
             _strictly_before(
                 [
-                    (ChatMessage.created_at, cursor_created_at),
+                    (ChatMessage.created_at, _stored_created_at(cursor_id, cursor_created_at)),
                     (_TURN_ROLE_RANK, cursor_role_rank),
                     (ChatMessage.id, cursor_id),
                 ]
@@ -256,6 +287,33 @@ def delete_messages_for_session(db: Session, user_id: uuid.UUID, session_id: uui
         delete(ChatMessage).where(ChatMessage.session_id == session_id, ChatMessage.user_id == user_id)
     )
     return result.rowcount
+
+
+def count_messages_before(db: Session, user_id: uuid.UUID, session_id: uuid.UUID, message: ChatMessage) -> int:
+    """How many of this session's messages sort *before* `message`, by the
+    same `(created_at, turn_role_rank, id)` order everything else in this
+    module orders on -- `0` meaning `message` is the session's very first
+    row.
+
+    `chat/service.py::edit_message` uses it for exactly one decision: an
+    edit of the *first* question invalidates the session's auto-title,
+    since that title was derived from the text being replaced.
+
+    Compares stored values against each other via the same ordered-ids
+    scan `delete_messages_from` below uses, rather than a
+    `_strictly_before`-shaped WHERE against a re-serialized Python
+    `datetime` -- see that function's docstring for the SQLite
+    TEXT-comparison bug that makes the direct comparison unsafe here.
+    """
+    stmt = (
+        user_scoped_select(ChatMessage, user_id)
+        .where(ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.created_at, _TURN_ROLE_RANK, ChatMessage.id)
+    )
+    ordered_ids = [row.id for row in db.execute(stmt).scalars().all()]
+    if message.id not in ordered_ids:
+        return 0
+    return ordered_ids.index(message.id)
 
 
 def delete_messages_from(db: Session, user_id: uuid.UUID, session_id: uuid.UUID, from_message: ChatMessage) -> int:

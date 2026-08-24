@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useChatSessions } from '../context/ChatSessionsContext'
@@ -20,11 +20,16 @@ export default function ChatIndexRedirect() {
   // with the same (still-empty) `sessions` array before the redirect
   // lands would fire a second, duplicate create.
   const hasRequestedCreateRef = useRef(false)
+  // The create call's own failure. `error` from the context only ever
+  // reports the *list* fetch, so without this a failed create would leave
+  // this page spinning forever (there is no session to redirect to and no
+  // second attempt) plus an unhandled rejection.
+  const [createError, setCreateError] = useState(null)
 
   useEffect(() => {
     if (isLoading || error || sessions.length > 0 || hasRequestedCreateRef.current) return
     hasRequestedCreateRef.current = true
-    createSession()
+    createSession().catch((err) => setCreateError(err.message))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoading, error, sessions.length])
 
@@ -34,9 +39,9 @@ export default function ChatIndexRedirect() {
 
   return (
     <div className="flex min-h-[400px] items-center justify-center">
-      {error ? (
+      {error || createError ? (
         <p role="alert" className="text-sm text-danger">
-          {error}
+          {error || createError}
         </p>
       ) : (
         <p role="status" className="flex items-center gap-3 text-sm font-semibold text-text2">

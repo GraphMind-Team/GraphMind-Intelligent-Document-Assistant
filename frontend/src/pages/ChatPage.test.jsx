@@ -484,6 +484,28 @@ describe('ChatPage editing a past question', () => {
     expect(screen.queryByText('The warranty is one year.', { exact: false })).not.toBeInTheDocument()
   })
 
+  it('restores the whole thread when the edit fails', async () => {
+    // The optimistic truncation is a view of a delete the backend keeps
+    // uncommitted until the re-ask succeeds (chat/service.py::edit_message),
+    // so a failure must put the thread back rather than leave the user
+    // looking at a conversation that only appears destroyed.
+    renderChatPage({ historyPage: HISTORY_TWO_TURNS })
+    await screen.findByText('What is the warranty period?')
+    vi.spyOn(chatClient, 'editMessage').mockRejectedValue(new Error('Something went wrong.'))
+    const user = userEvent.setup()
+
+    await user.click(screen.getAllByRole('button', { name: 'Edit your message' })[0])
+    const textarea = screen.getByRole('textbox', { name: 'Edit your message' })
+    await user.clear(textarea)
+    await user.type(textarea, 'What is the refund window, exactly?{Enter}')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Something went wrong.')
+    expect(screen.getByText('What is the refund window?')).toBeInTheDocument()
+    expect(screen.getByText('The refund window is 30 days.', { exact: false })).toBeInTheDocument()
+    expect(screen.getByText('What is the warranty period?')).toBeInTheDocument()
+    expect(screen.queryByText('What is the refund window, exactly?')).not.toBeInTheDocument()
+  })
+
   it('Cancel leaves the thread untouched and never calls the backend', async () => {
     renderChatPage({ historyPage: HISTORY_TWO_TURNS })
     await screen.findByText('What is the warranty period?')

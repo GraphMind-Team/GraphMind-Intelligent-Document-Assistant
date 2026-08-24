@@ -404,7 +404,6 @@ def test_history_scoped_to_one_session_never_mixes_another_sessions_messages(cli
         client, full_name="Maria", email="maria-history-multi-session@example.com", password="password12345"
     )
     session_id_1 = _create_session_id(client, token)
-    session_id_2 = _create_session_id(client, token)
     _seed_turn(
         db_session,
         user_id,
@@ -413,6 +412,12 @@ def test_history_scoped_to_one_session_never_mixes_another_sessions_messages(cli
         answer_text="Session 1's answer.",
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
+    # Created only once session 1 has messages in it: an empty, untitled
+    # session is reused rather than duplicated
+    # (`sessions_service.create_session`), so two back-to-back creates
+    # would hand back the same id and this test would be asserting
+    # isolation between a session and itself.
+    session_id_2 = _create_session_id(client, token)
     _seed_turn(
         db_session,
         user_id,
@@ -430,3 +435,58 @@ def test_history_scoped_to_one_session_never_mixes_another_sessions_messages(cli
     questions_2 = [m["question"] for m in response_2.json()["messages"] if m["role"] == "user"]
     assert questions_1 == ["Session 1's question"]
     assert questions_2 == ["Session 2's question"]
+
+
+def test_paging_never_skips_or_repeats_rows_written_in_the_same_second(client, db_session):
+    """The cursor's `created_at` half must compare a stored value against
+    a stored value.
+
+    These rows are inserted with no explicit `created_at`, so they take
+    the column's own `server_default` -- which on SQLite (this suite's
+    DB) is a whole-second string with no fractional part, while a
+    Python-side `datetime` bound as a query parameter always renders one
+    (`...:56` vs `...:56.000000`). Comparing the two as TEXT makes a
+    stored timestamp sort *before* its own re-serialized self, so a
+    cursor landing between two rows of the same second either skips the
+    rest of that second or hands them back again. Every row here shares
+    one second by construction, which is exactly the case a
+    `created_at`-spaced fixture can never reach.
+    """
+    token, user_id = _register_and_login(
+        client, full_name="Maria", email="maria-history-same-second@example.com", password="password12345"
+    )
+    session_id = _create_session_id(client, token)
+    for index in range(3):
+        db_session.add(
+            ChatMessage(user_id=user_id, session_id=session_id, role="user", question=f"Question {index}?")
+        )
+        db_session.add(
+            ChatMessage(
+                user_id=user_id,
+                session_id=session_id,
+                role="assistant",
+                segments=[{"text": f"Answer {index}.", "citations": []}],
+            )
+        )
+    db_session.commit()
+
+    seen = []
+    cursor = None
+    for _ in range(6):
+        url = f"/chat/sessions/{session_id}/history?limit=2"
+        if cursor is not None:
+            url += f"&cursor={cursor}"
+        response = client.get(url, headers=_auth_headers(token))
+        assert response.status_code == 200, response.text
+        body = response.json()
+        seen.extend(row["id"] for row in body["messages"])
+        cursor = body["next_cursor"]
+        if not body["has_more"]:
+            break
+
+    assert cursor is None
+    # Every row exactly once -- no duplicate (a cursor that failed to
+    # advance past its own second) and none missing (a cursor that
+    # skipped the rest of it).
+    assert len(seen) == 6
+    assert len(set(seen)) == 6

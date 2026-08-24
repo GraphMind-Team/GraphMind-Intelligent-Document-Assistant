@@ -94,6 +94,16 @@ def test_list_sessions_orders_most_recently_active_first(client, db_session):
         client, full_name="Maria Ivanova", email="sessions-list-order@example.com", password="password12345"
     )
     first = _create_session(client, token)
+    # Renamed before the second create: an empty, untitled session is
+    # reused rather than duplicated (`sessions_service.create_session`),
+    # and a title is exactly what makes one ineligible for that reuse --
+    # so this is what actually yields two distinct sessions here. A
+    # rename never touches `updated_at` (this test's own subject), so the
+    # ordering being asserted is unaffected.
+    rename = client.patch(
+        f"/chat/sessions/{first['id']}", headers=_auth_headers(token), json={"title": "First"}
+    )
+    assert rename.status_code == 200, rename.text
     second = _create_session(client, token)
 
     # Directly bump the first (chronologically older) session's
@@ -372,3 +382,50 @@ def test_ask_truncates_a_long_question_to_eighty_characters_for_the_title(client
 
     listing = client.get("/chat/sessions", headers=_auth_headers(token))
     assert listing.json()[0]["title"] == "x" * 80
+
+
+def test_create_session_reuses_an_existing_empty_untitled_session(client):
+    """Nothing in this app ever deletes an unused session, so a "New chat"
+    that always inserted would let blank rows pile up in the sidebar
+    forever -- one per click, one per `/chat` visit that redirects through
+    ChatIndexRedirect."""
+    token = _register_and_login(
+        client, full_name="Maria Ivanova", email="sessions-create-reuse@example.com", password="password12345"
+    )
+
+    first = _create_session(client, token)
+    second = _create_session(client, token)
+
+    assert second["id"] == first["id"]
+    listed = client.get("/chat/sessions", headers=_auth_headers(token))
+    assert [row["id"] for row in listed.json()] == [first["id"]]
+
+
+def test_create_session_does_not_reuse_a_renamed_empty_session(client):
+    """A renamed-but-still-empty session is one the user deliberately set
+    up; handing it back as the target of an unrelated "New chat" would
+    silently hijack it."""
+    token = _register_and_login(
+        client, full_name="Maria Ivanova", email="sessions-create-no-hijack@example.com", password="password12345"
+    )
+    first = _create_session(client, token)
+    client.patch(f"/chat/sessions/{first['id']}", headers=_auth_headers(token), json={"title": "Planning"})
+
+    second = _create_session(client, token)
+
+    assert second["id"] != first["id"]
+    assert second["title"] is None
+
+
+def test_create_session_never_reuses_another_accounts_empty_session(client):
+    token_a = _register_and_login(
+        client, full_name="Account A", email="sessions-reuse-a@example.com", password="password-account-a"
+    )
+    token_b = _register_and_login(
+        client, full_name="Account B", email="sessions-reuse-b@example.com", password="password-account-b"
+    )
+
+    session_a = _create_session(client, token_a)
+    session_b = _create_session(client, token_b)
+
+    assert session_a["id"] != session_b["id"]

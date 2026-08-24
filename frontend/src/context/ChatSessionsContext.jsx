@@ -86,7 +86,16 @@ export function ChatSessionsProvider({ children }) {
         if (remaining.length > 0) {
           navigate(`/chat/${remaining[0].id}`)
         } else {
-          await createSession()
+          // Surfaced through the panel's own error slot rather than
+          // rethrown: the delete itself already succeeded, so failing the
+          // whole call here would misreport it -- but swallowing it
+          // silently would leave the user on a deleted session's route
+          // with no explanation.
+          try {
+            await createSession()
+          } catch (err) {
+            setError(err.message)
+          }
         }
       }
     },
