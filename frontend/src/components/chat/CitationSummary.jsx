@@ -47,7 +47,7 @@ export default function CitationSummary({ citations }) {
   if (citations.length === 0) return null
 
   return (
-    <div className="relative mt-2 inline-block" onKeyDown={handleKeyDown}>
+    <div className="relative mt-2 block w-fit" onKeyDown={handleKeyDown}>
       <button
         ref={buttonRef}
         type="button"
