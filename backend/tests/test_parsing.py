@@ -157,6 +157,25 @@ def test_docx_headings_become_chapters():
     assert "Body of chapter two." in chapter_two_chunk.text
 
 
+def test_docx_headings_become_chapters_with_localized_style_names():
+    # A non-English-localized Word (e.g. German) renames the *displayed*
+    # style name (here simulated directly, since python-docx itself always
+    # writes English names) while keeping the built-in style_id
+    # ("Heading1") unchanged -- headings must still be detected via that
+    # locale-invariant id, not the localized display name.
+    def build(document):
+        document.add_paragraph("Intro before any heading.")
+        document.add_heading("Kapitel Eins", level=1)
+        document.add_paragraph("Text von Kapitel eins.")
+        document.styles["Heading 1"].name = "Überschrift 1"
+
+    chunks = parse_document("docx", _docx_bytes(build))
+
+    assert {c.chapter for c in chunks} == {"Full Document", "Kapitel Eins"}
+    chapter_chunk = next(c for c in chunks if c.chapter == "Kapitel Eins")
+    assert "Text von Kapitel eins." in chapter_chunk.text
+
+
 def test_docx_with_no_headings_has_single_full_document_chapter():
     def build(document):
         document.add_paragraph("Just a plain paragraph.")

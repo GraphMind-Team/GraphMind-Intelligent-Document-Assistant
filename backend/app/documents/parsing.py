@@ -239,12 +239,25 @@ def _parse_html(content: bytes) -> list[tuple[str, str]]:
 
 # --- DOCX -----------------------------------------------------------------
 
-# Word's built-in styles for section headings. A localized/renamed Word
-# install can produce different `style.name` strings, in which case a
-# document just falls back to reading as a single "Full Document" chapter
-# (the same degraded-but-not-broken outcome as a PDF with no outline) --
-# not treated as a parse failure.
-_DOCX_HEADING_STYLES = {"Title", "Heading 1", "Heading 2", "Heading 3"}
+# Word's built-in heading styles, matched two ways:
+#
+# `style_id` is the locale-invariant identifier Word itself assigns on the
+# style definition (`w:styleId`) -- stable regardless of the Word install's
+# UI language, because it's fixed by the OOXML built-in style table rather
+# than translated for display.
+_DOCX_HEADING_STYLE_IDS = {"Title", "Heading1", "Heading2", "Heading3"}
+
+# `style.name` is the human-readable label (`w:name`), which a
+# non-English-localized Word *does* translate (e.g. German "Uberschrift 1"
+# instead of "Heading 1") -- kept as a second check for documents from
+# tools that set a recognizable name without the matching built-in
+# `style_id` (exports from non-Word editors, hand-edited XML). Checking
+# both means neither a localized Word install nor a non-Word export loses
+# chapter structure; a document matching neither still falls back to
+# reading as a single "Full Document" chapter (the same degraded-but-not-
+# broken outcome as a PDF with no outline) -- not treated as a parse
+# failure.
+_DOCX_HEADING_STYLE_NAMES = {"Title", "Heading 1", "Heading 2", "Heading 3"}
 
 
 def _parse_docx(content: bytes) -> list[tuple[str, str]]:
@@ -261,8 +274,12 @@ def _parse_docx(content: bytes) -> list[tuple[str, str]]:
         text = paragraph.text.strip()
         if not text:
             continue
-        style_name = paragraph.style.name if paragraph.style is not None else None
-        if style_name in _DOCX_HEADING_STYLES:
+        style = paragraph.style
+        is_heading = style is not None and (
+            style.style_id in _DOCX_HEADING_STYLE_IDS
+            or style.name in _DOCX_HEADING_STYLE_NAMES
+        )
+        if is_heading:
             if current_parts:
                 chapters.append((current_title, current_parts))
             current_title = text
