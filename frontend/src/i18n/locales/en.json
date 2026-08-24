@@ -289,6 +289,11 @@
       "defaultNotice": "GraphMind has nothing to show for this question.",
       "refusal": "No supporting evidence found in your documents for this question."
     },
+    "sources": {
+      "toggleLabel_one": "{{count}} source",
+      "toggleLabel_other": "{{count}} sources",
+      "panelAria": "Sources for this answer"
+    },
     "searchPanel": {
       "title": "Search in chat",
       "placeholder": "Search in chat…",

@@ -86,7 +86,11 @@ describe('ChatPage', () => {
     await user.click(screen.getByRole('button', { name: 'Ask' }))
 
     expect(screen.getByText('What is the refund window?')).toBeInTheDocument()
-    expect(await screen.findByText('Ch. Chapter 4, Vendor_Agreement_2026.pdf')).toBeInTheDocument()
+    // Citations now sit behind a single collapsed "N source(s)" pill
+    // (CitationSummary) instead of rendering inline -- open it before
+    // asserting the citation text underneath.
+    await user.click(await screen.findByRole('button', { name: '1 source' }))
+    expect(screen.getByText('Ch. Chapter 4, Vendor_Agreement_2026.pdf')).toBeInTheDocument()
   })
 
   it('submits via pressing Enter', async () => {
@@ -97,7 +101,8 @@ describe('ChatPage', () => {
     await user.type(screen.getByLabelText(/ask a question/i), 'What is the refund window?{Enter}')
 
     expect(screen.getByText('What is the refund window?')).toBeInTheDocument()
-    expect(await screen.findByText('Ch. Chapter 4, Vendor_Agreement_2026.pdf')).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: '1 source' }))
+    expect(screen.getByText('Ch. Chapter 4, Vendor_Agreement_2026.pdf')).toBeInTheDocument()
   })
 
   it('renders the user message before the assistant reply arrives', async () => {
@@ -125,7 +130,8 @@ describe('ChatPage', () => {
 
     await user.type(screen.getByLabelText(/ask a question/i), 'q{Enter}')
 
-    const chip = await screen.findByText('Ch. Chapter 4, Vendor_Agreement_2026.pdf')
+    await user.click(await screen.findByRole('button', { name: '1 source' }))
+    const chip = screen.getByText('Ch. Chapter 4, Vendor_Agreement_2026.pdf')
     expect(chip.tagName).toBe('CITE')
   })
 

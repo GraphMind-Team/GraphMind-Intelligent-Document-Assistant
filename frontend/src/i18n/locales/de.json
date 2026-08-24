@@ -289,6 +289,11 @@
       "defaultNotice": "GraphMind hat nichts zu dieser Frage anzuzeigen.",
       "refusal": "In deinen Dokumenten wurde kein Beleg für diese Frage gefunden."
     },
+    "sources": {
+      "toggleLabel_one": "{{count}} Quelle",
+      "toggleLabel_other": "{{count}} Quellen",
+      "panelAria": "Quellen für diese Antwort"
+    },
     "searchPanel": {
       "title": "Im Chat suchen",
       "placeholder": "Im Chat suchen…",

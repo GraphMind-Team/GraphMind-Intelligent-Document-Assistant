@@ -1,6 +1,6 @@
 import { forwardRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import CitationChip from './CitationChip'
+import CitationSummary from './CitationSummary'
 import highlightMatches from './highlightMatches'
 import Icon from '../Icon'
 
@@ -135,6 +135,24 @@ const ChatMessage = forwardRef(function ChatMessage({ message, highlight = '', i
   // layers a faint brand-blue ombre over it (the same token `.btn-ghost`
   // uses), so the answer bubble reads as "GraphMind" at a glance without
   // needing a border-color trick.
+  //
+  // Citations used to render as a chip after every segment they belonged
+  // to, which read as cluttered on a multi-segment answer. Deduped here
+  // (by chapter+document, first-seen order) into one flat list and handed
+  // to a single CitationSummary pill below the answer text instead --
+  // "where did this come from" is now one click away rather than several
+  // chips interrupting the prose.
+  const seenCitations = new Set()
+  const citations = []
+  for (const segment of message.segments) {
+    for (const citation of segment.citations) {
+      const key = `${citation.chapter}::${citation.document_filename}`
+      if (seenCitations.has(key)) continue
+      seenCitations.add(key)
+      citations.push({ chapter: citation.chapter, documentFilename: citation.document_filename })
+    }
+  }
+
   return (
     <div
       ref={ref}
@@ -142,17 +160,9 @@ const ChatMessage = forwardRef(function ChatMessage({ message, highlight = '', i
     >
       <span className="sr-only">{t('chat.message.assistantPrefix')} </span>
       {message.segments.map((segment, index) => (
-        <span key={index}>
-          {highlightMatches(segment.text, highlight)}
-          {segment.citations.map((citation, citationIndex) => (
-            <CitationChip
-              key={citationIndex}
-              chapter={citation.chapter}
-              documentFilename={citation.document_filename}
-            />
-          ))}{' '}
-        </span>
+        <span key={index}>{highlightMatches(segment.text, highlight)} </span>
       ))}
+      <CitationSummary citations={citations} />
     </div>
   )
 })
