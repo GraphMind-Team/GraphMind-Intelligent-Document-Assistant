@@ -131,7 +131,7 @@ def _logo_lockup() -> str:
 <td width="36" height="36" bgcolor="{_BRAND}" style="width:36px; height:36px; border-radius:11px; background-color:{_BRAND}; background-image:{_BRAND_GRADIENT}; text-align:center; vertical-align:middle;">
 <div style="width:12px; height:12px; margin:0 auto; border:2px solid #FFFFFF; border-radius:50%; font-size:0; line-height:0;">&nbsp;</div>
 </td>
-<td valign="middle" style="padding-left:10px; font-family:{_FONT_DISPLAY}; font-size:19px; line-height:24px; font-weight:700; letter-spacing:-0.01em; color:{_INK};">GraphMind</td>
+<td valign="middle" style="padding-left:10px; font-family:{_FONT_DISPLAY}; font-size:19px; line-height:28px; font-weight:700; letter-spacing:-0.01em; color:{_INK};">GraphMind</td>
 </tr>
 </table>"""
 
@@ -144,7 +144,7 @@ def _button(*, href: str, label: str) -> str:
     return f"""<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center">
 <tr>
 <td align="center" bgcolor="#FFFFFF" style="border-radius:999px; background-color:#FFFFFF;">
-<a href="{href}" target="_blank" style="display:inline-block; padding:15px 38px; font-family:{_FONT}; font-size:15px; font-weight:700; line-height:1; color:{_PRIMARY}; text-decoration:none; border-radius:999px;">{_e(label)}</a>
+<a href="{href}" target="_blank" style="display:inline-block; padding:14px 32px; font-family:{_FONT}; font-size:15px; line-height:22px; font-weight:700; color:{_PRIMARY}; text-decoration:none; border-radius:999px;">{_e(label)}</a>
 </td>
 </tr>
 </table>"""
@@ -153,7 +153,7 @@ def _button(*, href: str, label: str) -> str:
 def _section_title(text: str) -> str:
     return (
         f'<p style="margin:0 0 20px; font-family:{_FONT_DISPLAY}; font-size:19px; '
-        f'line-height:24px; font-weight:700; letter-spacing:-0.01em; color:{_INK};">{_e(text)}</p>'
+        f'line-height:28px; font-weight:700; letter-spacing:-0.01em; color:{_INK};">{_e(text)}</p>'
     )
 
 
@@ -171,7 +171,7 @@ def _feature_row(*, glyph: str, title: str, body: str, is_last: bool) -> str:
 </table>
 </td>
 <td valign="top" style="padding-left:14px;">
-<p style="margin:0 0 4px; font-family:{_FONT_DISPLAY}; font-size:15px; line-height:20px; font-weight:700; color:{_INK};">{_e(title)}</p>
+<p style="margin:0 0 4px; font-family:{_FONT_DISPLAY}; font-size:15px; line-height:23px; font-weight:700; color:{_INK};">{_e(title)}</p>
 <p style="margin:0; font-family:{_FONT}; font-size:14px; line-height:22px; color:{_INK_SOFT};">{_e(body)}</p>
 </td>
 </tr>
@@ -187,9 +187,9 @@ def _step_row(*, numeral: str, title: str, body: str, is_last: bool) -> str:
     return f"""<tr><td colspan="2" style="padding:0;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
 <tr>
-<td width="44" valign="top" style="width:44px; font-family:{_FONT_DISPLAY}; font-size:20px; font-weight:700; line-height:26px; color:{_BRAND};">{numeral}</td>
+<td width="44" valign="top" style="width:44px; font-family:{_FONT_DISPLAY}; font-size:20px; font-weight:700; line-height:29px; color:{_BRAND};">{numeral}</td>
 <td valign="top" style="padding-left:14px;">
-<p style="margin:0 0 4px; font-family:{_FONT_DISPLAY}; font-size:15px; line-height:20px; font-weight:700; color:{_INK};">{_e(title)}</p>
+<p style="margin:0 0 4px; font-family:{_FONT_DISPLAY}; font-size:15px; line-height:23px; font-weight:700; color:{_INK};">{_e(title)}</p>
 <p style="margin:0; font-family:{_FONT}; font-size:14px; line-height:22px; color:{_INK_SOFT};">{_e(body)}</p>
 </td>
 </tr>
@@ -287,9 +287,9 @@ def verification_email_html(
 
 <img src="{_e(robot_src)}" width="150" height="150" alt="" style="display:block; width:150px; height:150px; border:0; outline:none; margin:0 auto 22px;" />
 
-<p style="margin:0 0 12px; font-family:{_FONT}; font-size:11px; line-height:16px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:#D8F1FF;">{_e(c["eyebrow"])}</p>
+<p style="margin:0 0 12px; font-family:{_FONT}; font-size:11px; line-height:20px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:#D8F1FF;">{_e(c["eyebrow"])}</p>
 
-<h1 style="margin:0 0 14px; font-family:{_FONT_DISPLAY}; font-size:32px; line-height:42px; font-weight:700; letter-spacing:-0.02em; color:#FFFFFF;">{_e(c["hero_title"])}</h1>
+<h1 style="margin:0 0 14px; font-family:{_FONT_DISPLAY}; font-size:30px; line-height:44px; font-weight:700; letter-spacing:-0.02em; color:#FFFFFF;">{_e(c["hero_title"])}</h1>
 
 <p style="margin:0 0 28px; font-family:{_FONT}; font-size:15px; line-height:24px; color:#E4F5FF;">{_e(c["hero_body"])}</p>
 
@@ -307,7 +307,7 @@ def verification_email_html(
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
 
 <tr><td colspan="2">
-<p style="margin:0 0 12px; font-family:{_FONT_DISPLAY}; font-size:17px; line-height:24px; font-weight:700; color:{_INK};">{_e(c["greeting"])}</p>
+<p style="margin:0 0 12px; font-family:{_FONT_DISPLAY}; font-size:17px; line-height:26px; font-weight:700; color:{_INK};">{_e(c["greeting"])}</p>
 <p style="margin:0; font-family:{_FONT}; font-size:15px; line-height:24px; color:{_INK_SOFT};">{_e(c["intro"])}</p>
 </td></tr>
 

@@ -82,6 +82,63 @@ def test_hero_keeps_a_solid_background_color_behind_its_gradient():
     assert 'bgcolor="#0EA5E9"' in hero
 
 
+def test_every_line_height_leaves_real_headroom_over_its_font_size():
+    """Regression: `text-size-adjust: 100%` (the other test below) does not
+    stop every client's font-boosting -- reported from a real Gmail Android
+    send, some words were still overlapping after that fix landed, most
+    visibly the button label wrapping to two lines with the old
+    `line-height: 1` (i.e. zero space between them). A ratio comfortably
+    above 1 is the fix that holds regardless of whether a client honors the
+    reset at all: even a client that boosts font-size while leaving
+    line-height untouched needs real slack before two lines start to touch.
+
+    1.4 is the floor actually shipped in `templates.py` as of this test
+    (see the ratios printed while fixing this) -- not a generic email best
+    practice number, so if a future edit legitimately needs to go tighter,
+    lower this constant deliberately rather than fighting the test.
+    """
+    html = verification_email_html(
+        verify_url=VERIFY_URL,
+        robot_src="https://app.example.com/email-robot.png",
+        copy={key: f"copy-{key}" for key in REQUIRED_COPY_KEYS},
+    )
+
+    min_ratio = 1.4
+    too_tight = []
+    for style in re.findall(r'style="([^"]*)"', html):
+        font_size = re.search(r"font-size:\s*(\d+)px", style)
+        line_height = re.search(r"line-height:\s*(\d+)px", style)
+        if not (font_size and line_height):
+            continue
+        fs, lh = int(font_size.group(1)), int(line_height.group(1))
+        if lh / fs < min_ratio:
+            too_tight.append((style, fs, lh, round(lh / fs, 2)))
+
+    assert too_tight == []
+
+
+def test_button_survives_wrapping_to_two_lines():
+    """The concrete failure the ratio test above guards abstractly: on a
+    narrow phone the longer BG/DE button labels wrap to two lines (English's
+    doesn't). Assert those two lines render with daylight between them,
+    not the touching-or-overlapping pair `line-height: 1` produced."""
+    html = verification_email_html(
+        verify_url=VERIFY_URL,
+        robot_src="https://app.example.com/email-robot.png",
+        copy={
+            **{key: f"copy-{key}" for key in REQUIRED_COPY_KEYS},
+            "button": "Потвърди имейл адреса",
+        },
+    )
+    button_style = re.search(
+        r'<a href="[^"]*"[^>]*style="([^"]*)">Потвърди', html
+    ).group(1)
+    font_size = int(re.search(r"font-size:\s*(\d+)px", button_style).group(1))
+    line_height = int(re.search(r"line-height:\s*(\d+)px", button_style).group(1))
+
+    assert line_height > font_size, "two wrapped lines would touch or overlap"
+
+
 def test_head_resets_text_size_adjust():
     """Regression: on a phone, the Gmail/iOS mail app auto-boosts font sizes
     as a readability heuristic, boosting different elements by different
