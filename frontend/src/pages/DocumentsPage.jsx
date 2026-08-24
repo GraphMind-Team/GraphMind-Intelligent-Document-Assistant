@@ -575,7 +575,7 @@ export default function DocumentsPage() {
                 className={[
                   'grid list-none gap-4 p-0',
                   isFoldersOpen
-                    ? 'grid-cols-[repeat(auto-fill,minmax(11rem,1fr))]'
+                    ? 'grid-cols-[repeat(auto-fill,minmax(16rem,1fr))]'
                     : 'grid-cols-[repeat(auto-fill,minmax(14rem,1fr))]',
                 ].join(' ')}
               >
