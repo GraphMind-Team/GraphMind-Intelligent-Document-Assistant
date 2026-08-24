@@ -316,9 +316,15 @@
     "sessionsPanel": {
       "title": "Chats",
       "newChat": "Neuer Chat",
-      "newChatComingSoon": "Neue Chats starten kommt bald",
-      "currentChat": "Aktueller Chat",
-      "note": "Weitere Chats folgen bald."
+      "untitled": "Neuer Chat",
+      "loading": "Chats werden geladen…",
+      "empty": "Noch keine Chats.",
+      "deleting": "Wird gelöscht…",
+      "deleteConfirm": "\"{{title}}\" löschen? Dies kann nicht rückgängig gemacht werden.",
+      "renameLabel": "Chat umbenennen",
+      "renamePlaceholder": "Chatname…",
+      "editAria": "{{title}} umbenennen",
+      "deleteAria": "{{title}} löschen"
     }
   },
   "graph": {

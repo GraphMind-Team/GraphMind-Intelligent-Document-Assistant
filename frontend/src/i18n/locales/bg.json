@@ -316,9 +316,15 @@
     "sessionsPanel": {
       "title": "Чатове",
       "newChat": "Нов чат",
-      "newChatComingSoon": "Стартирането на нови чатове предстои скоро",
-      "currentChat": "Текущ чат",
-      "note": "Скоро ще можете да имате повече чатове."
+      "untitled": "Нов чат",
+      "loading": "Зареждане на чатовете…",
+      "empty": "Все още няма чатове.",
+      "deleting": "Изтриване…",
+      "deleteConfirm": "Изтриване на „{{title}}“? Това не може да бъде отменено.",
+      "renameLabel": "Преименуване на чата",
+      "renamePlaceholder": "Име на чата…",
+      "editAria": "Преименувай {{title}}",
+      "deleteAria": "Изтрий {{title}}"
     }
   },
   "graph": {

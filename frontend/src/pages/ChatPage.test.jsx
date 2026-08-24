@@ -1,19 +1,42 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import ChatPage from './ChatPage'
 import { useAuth } from '../context/AuthContext'
 import * as chatClient from '../api/chatClient'
 
+const SESSION_ID = 'session-1'
+
 vi.mock('../context/AuthContext', () => ({ useAuth: vi.fn() }))
 vi.mock('../components/chat/DocumentsScopePanel', () => ({
   default: () => <div>scope panel stub</div>,
+}))
+// ChatSessionsPanel reads ChatSessionsContext -- out of scope for this
+// file (its own create/rename/delete flows are covered by
+// ChatSessionsPanel.test.jsx), and this file has no ChatSessionsProvider
+// ancestor to satisfy it.
+vi.mock('../components/chat/ChatSessionsPanel', () => ({
+  default: () => <div>sessions panel stub</div>,
 }))
 
 afterEach(() => {
   vi.restoreAllMocks()
 })
+
+// Renders at a real, matched `/chat/:sessionId` route (mirrors how
+// App.jsx actually mounts ChatPage) so `useParams()` resolves a real
+// `sessionId` instead of `undefined` -- every mocked `askQuestion`/
+// `getChatHistory` call below expects that as their second argument.
+function renderAtChatRoute(ui, { initialEntries = [`/chat/${SESSION_ID}`] } = {}) {
+  return render(
+    <MemoryRouter initialEntries={initialEntries}>
+      <Routes>
+        <Route path="/chat/:sessionId" element={ui} />
+      </Routes>
+    </MemoryRouter>,
+  )
+}
 
 // Story 3.4: every render now fires an initial `GET /chat/history` fetch
 // on mount -- defaults to an empty page here (mirrors a brand-new
@@ -26,7 +49,7 @@ function renderChatPage({ historyPage } = {}) {
   vi.spyOn(chatClient, 'getChatHistory').mockResolvedValue(
     historyPage ?? { messages: [], next_cursor: null, has_more: false },
   )
-  return render(<ChatPage />, { wrapper: MemoryRouter })
+  return renderAtChatRoute(<ChatPage />)
 }
 
 // Mirrors the real `AskResponse` shape, `chunk_indexes` included -- nothing
@@ -340,10 +363,11 @@ describe('ChatPage conversation history (Story 3.4)', () => {
       has_more: false,
     })
     useAuth.mockReturnValue({ authFetch: vi.fn() })
-    render(<ChatPage />, { wrapper: MemoryRouter })
+    renderAtChatRoute(<ChatPage />)
 
     await waitFor(() => expect(historySpy).toHaveBeenCalled())
-    const [, options] = historySpy.mock.calls[0]
+    const [, sessionArg, options] = historySpy.mock.calls[0]
+    expect(sessionArg).toBe(SESSION_ID)
     expect(options).toEqual({ limit: 10 })
   })
 
@@ -442,7 +466,7 @@ describe('ChatPage conversation history (Story 3.4)', () => {
       has_more: false,
     })
     useAuth.mockReturnValue({ authFetch: vi.fn() })
-    render(<ChatPage />, { wrapper: MemoryRouter })
+    renderAtChatRoute(<ChatPage />)
 
     expect(await screen.findByText('Recent question?')).toBeInTheDocument()
     expect(screen.queryByText('Older question?')).not.toBeInTheDocument()
@@ -451,7 +475,7 @@ describe('ChatPage conversation history (Story 3.4)', () => {
     fireEvent.scroll(log, { target: { scrollTop: 0 } })
 
     expect(await screen.findByText('Older question?')).toBeInTheDocument()
-    const [, secondCallOptions] = historySpy.mock.calls[1]
+    const [, , secondCallOptions] = historySpy.mock.calls[1]
     expect(secondCallOptions).toEqual({ cursor: 'cursor-1', limit: 10 })
   })
 
@@ -501,7 +525,7 @@ describe('ChatPage conversation history (Story 3.4)', () => {
     historySpy.mockResolvedValueOnce(page('m2', 'Middle question?', 'cursor-2', true))
     historySpy.mockResolvedValueOnce(page('m1', 'Oldest question?', null, false))
     useAuth.mockReturnValue({ authFetch: vi.fn() })
-    render(<ChatPage />, { wrapper: MemoryRouter })
+    renderAtChatRoute(<ChatPage />)
 
     // No scroll gesture anywhere in this test: the thread fills itself.
     expect(await screen.findByText('Oldest question?')).toBeInTheDocument()
@@ -533,7 +557,7 @@ describe('ChatPage conversation history (Story 3.4)', () => {
       has_more: false,
     })
     useAuth.mockReturnValue({ authFetch: vi.fn() })
-    render(<ChatPage />, { wrapper: MemoryRouter })
+    renderAtChatRoute(<ChatPage />)
     await screen.findByText('Only question?')
 
     const log = screen.getByRole('log', { name: /conversation/i })
@@ -599,7 +623,7 @@ describe('ChatPage conversation history (Story 3.4)', () => {
       has_more: false,
     })
     useAuth.mockReturnValue({ authFetch: vi.fn() })
-    render(<ChatPage />, { wrapper: MemoryRouter })
+    renderAtChatRoute(<ChatPage />)
     await screen.findByText('Recent question?')
 
     const log = screen.getByRole('log', { name: /conversation/i })
@@ -699,7 +723,7 @@ describe('ChatPage conversation history (Story 3.4)', () => {
     vi.spyOn(chatClient, 'askQuestion').mockResolvedValue(ANSWER_RESULT)
     const user = userEvent.setup()
     useAuth.mockReturnValue({ authFetch: vi.fn() })
-    render(<ChatPage />, { wrapper: MemoryRouter })
+    renderAtChatRoute(<ChatPage />)
 
     await user.type(screen.getByLabelText(/ask a question/i), 'What is the refund window?')
     await user.click(screen.getByRole('button', { name: 'Ask' }))
@@ -732,7 +756,7 @@ describe('ChatPage conversation history (Story 3.4)', () => {
     historySpy.mockResolvedValueOnce({ messages: [], next_cursor: null, has_more: false })
     fireEvent.scroll(screen.getByRole('log', { name: /conversation/i }), { target: { scrollTop: 0 } })
     await waitFor(() => expect(historySpy).toHaveBeenCalledTimes(2))
-    const [, secondCallOptions] = historySpy.mock.calls[1]
+    const [, , secondCallOptions] = historySpy.mock.calls[1]
     expect(secondCallOptions).toEqual({ cursor: 'cursor-1', limit: 10 })
   })
 
@@ -762,7 +786,7 @@ describe('ChatPage conversation history (Story 3.4)', () => {
       () => new Promise((resolve) => { resolveSecond = resolve }),
     )
     useAuth.mockReturnValue({ authFetch: vi.fn() })
-    render(<ChatPage />, { wrapper: MemoryRouter })
+    renderAtChatRoute(<ChatPage />)
 
     await screen.findByText('Recent question?')
     const log = screen.getByRole('log', { name: /conversation/i })

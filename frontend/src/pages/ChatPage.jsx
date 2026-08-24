@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 import { ChatScopeProvider, useChatScope } from '../context/ChatScopeContext'
@@ -80,15 +80,31 @@ function messageSearchText(message) {
 // component renders -- a single component can't call a hook that reads a
 // provider it renders itself, that provider isn't mounted yet at the
 // point its own render function runs.
+//
+// Multi-session chat: `sessionId` comes from the route (`/chat/:sessionId`,
+// this page's own App.jsx entry) and is passed to `ChatPageContent` both
+// as a prop and as its React `key`. The `key` is load-bearing, not
+// decorative -- React Router does not remount this element on a
+// param-only navigation (switching sessions via ChatSessionsPanel), but
+// `ChatPageContent` owns close to a dozen pieces of session-scoped local
+// state/refs (`messages`, `historyCursor`, `hasMoreHistory`,
+// `isLoadingHistory`, `historyPrependToken`, `liveAnnouncementsEnabled`,
+// `isLoadingHistoryRef`, `hasSubmittedLiveQuestionRef`,
+// `pendingScrollAdjustmentRef`, `activeMatchOrdinal`) that must all reset
+// to their initial values on every session switch, not carry the
+// previous session's thread over. Keying on `sessionId` forces exactly
+// that clean remount instead of threading a manual reset effect through
+// every one of them.
 export default function ChatPage() {
+  const { sessionId } = useParams()
   return (
     <ChatScopeProvider>
-      <ChatPageContent />
+      <ChatPageContent key={sessionId} sessionId={sessionId} />
     </ChatScopeProvider>
   )
 }
 
-function ChatPageContent() {
+function ChatPageContent({ sessionId }) {
   const { t } = useTranslation()
   const { authFetch } = useAuth()
   const { selectedDocumentIds, selectAll } = useChatScope()
@@ -244,7 +260,7 @@ function ChatPageContent() {
   // `messages` simply stays `[]` until the user asks something new.
   useEffect(() => {
     let cancelled = false
-    getChatHistory(authFetch, { limit: HISTORY_PAGE_LIMIT })
+    getChatHistory(authFetch, sessionId, { limit: HISTORY_PAGE_LIMIT })
       .then((page) => {
         if (cancelled) return
         const seeded = page.messages.slice().reverse().map(toUiMessage)
@@ -286,7 +302,7 @@ function ChatPageContent() {
     return () => {
       cancelled = true
     }
-  }, [authFetch])
+  }, [authFetch, sessionId])
 
   // Keeps the newest message (or the transient "Thinking…" bubble) in
   // view without requiring the user to scroll manually -- a real question
@@ -336,7 +352,7 @@ function ChatPageContent() {
     setIsLoadingHistory(true)
     setError(null)
     try {
-      const page = await getChatHistory(authFetch, { cursor: historyCursor, limit: HISTORY_PAGE_LIMIT })
+      const page = await getChatHistory(authFetch, sessionId, { cursor: historyCursor, limit: HISTORY_PAGE_LIMIT })
       const older = page.messages.slice().reverse().map(toUiMessage)
       const el = messageListRef.current
       if (el) {
@@ -452,7 +468,7 @@ function ChatPageContent() {
     setError(null)
 
     try {
-      const result = await askQuestion(authFetch, trimmed, selectedDocumentIds)
+      const result = await askQuestion(authFetch, sessionId, trimmed, selectedDocumentIds)
       if (result.empty_reason === 'refusal') {
         // FR-10/UX-DR15: a designed refusal, not an empty-state notice --
         // its own message role so ChatMessage renders a real bubble,

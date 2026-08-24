@@ -1,11 +1,13 @@
 import { useEffect } from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import ChatPage from './ChatPage'
 import { useAuth } from '../context/AuthContext'
 import { useChatScope } from '../context/ChatScopeContext'
+
+const SESSION_ID = 'session-1'
 
 // A separate file from ChatPage.test.jsx: `vi.mock` factories are hoisted
 // per-file, so this file's DocumentsScopePanel mock (which calls the real,
@@ -14,6 +16,11 @@ import { useChatScope } from '../context/ChatScopeContext'
 // `<div>scope panel stub</div>` mock in the same file.
 vi.mock('../context/AuthContext', () => ({ useAuth: vi.fn() }))
 vi.mock('../components/chat/DocumentsScopePanel', () => ({ default: ScopePanelStub }))
+// ChatSessionsPanel reads ChatSessionsContext -- out of scope for this
+// file, and there's no ChatSessionsProvider ancestor here to satisfy it.
+vi.mock('../components/chat/ChatSessionsPanel', () => ({
+  default: () => <div>sessions panel stub</div>,
+}))
 
 // A `function` declaration, not a `const` arrow -- fully hoisted, so it's
 // safe to reference from the (also-hoisted) `vi.mock` factory above despite
@@ -42,16 +49,30 @@ function jsonResponse(body) {
   return { ok: true, json: async () => body }
 }
 
-// Story 3.4: ChatPage now also fires an initial `GET /chat/history` on
-// mount, through this same shared `authFetch` mock -- so the `/chat/ask`
-// call is no longer reliably `authFetch.mock.calls[0]`. Finding it by its
-// own URL keeps these two tests correct regardless of what else `authFetch`
-// gets called with (the history mock resolving as an ask-shaped body
-// rather than a history-shaped one causes `getChatHistory` to reject,
-// caught silently by ChatPage's own mount effect -- doesn't affect these
-// scope assertions either way).
+// Renders at a real, matched `/chat/:sessionId` route (mirrors how
+// App.jsx actually mounts ChatPage) -- `initialState` is merged into the
+// route's own location state, e.g. DocumentDetailPage's `presetDocumentId`
+// handoff.
+function renderAtChatRoute(ui, { initialState } = {}) {
+  return render(
+    <MemoryRouter initialEntries={[{ pathname: `/chat/${SESSION_ID}`, state: initialState }]}>
+      <Routes>
+        <Route path="/chat/:sessionId" element={ui} />
+      </Routes>
+    </MemoryRouter>,
+  )
+}
+
+// Story 3.4: ChatPage now also fires an initial `GET /chat/sessions/{id}/
+// history` on mount, through this same shared `authFetch` mock -- so the
+// ask call is no longer reliably `authFetch.mock.calls[0]`. Finding it by
+// its own URL shape keeps these two tests correct regardless of what else
+// `authFetch` gets called with (the history mock resolving as an
+// ask-shaped body rather than a history-shaped one causes `getChatHistory`
+// to reject, caught silently by ChatPage's own mount effect -- doesn't
+// affect these scope assertions either way).
 function findAskCall(authFetch) {
-  return authFetch.mock.calls.find(([url]) => url === '/chat/ask')
+  return authFetch.mock.calls.find(([url]) => url === `/chat/sessions/${SESSION_ID}/ask`)
 }
 
 describe('ChatPage document scope', () => {
@@ -59,7 +80,7 @@ describe('ChatPage document scope', () => {
     const authFetch = vi.fn().mockResolvedValue(jsonResponse({ segments: [], empty_reason: null }))
     useAuth.mockReturnValue({ authFetch })
     const user = userEvent.setup()
-    render(<ChatPage />, { wrapper: MemoryRouter })
+    renderAtChatRoute(<ChatPage />)
 
     await user.click(screen.getByRole('button', { name: 'toggle doc-1' }))
     await user.type(screen.getByLabelText(/ask a question/i), 'q{Enter}')
@@ -72,7 +93,7 @@ describe('ChatPage document scope', () => {
     const authFetch = vi.fn().mockResolvedValue(jsonResponse({ segments: [], empty_reason: null }))
     useAuth.mockReturnValue({ authFetch })
     const user = userEvent.setup()
-    render(<ChatPage />, { wrapper: MemoryRouter })
+    renderAtChatRoute(<ChatPage />)
 
     await user.type(screen.getByLabelText(/ask a question/i), 'q{Enter}')
 
@@ -84,13 +105,7 @@ describe('ChatPage document scope', () => {
     const authFetch = vi.fn().mockResolvedValue(jsonResponse({ segments: [], empty_reason: null }))
     useAuth.mockReturnValue({ authFetch })
     const user = userEvent.setup()
-    render(<ChatPage />, {
-      wrapper: ({ children }) => (
-        <MemoryRouter initialEntries={[{ pathname: '/chat', state: { presetDocumentId: 'doc-9' } }]}>
-          {children}
-        </MemoryRouter>
-      ),
-    })
+    renderAtChatRoute(<ChatPage />, { initialState: { presetDocumentId: 'doc-9' } })
 
     await user.type(screen.getByLabelText(/ask a question/i), 'q{Enter}')
 
@@ -102,7 +117,7 @@ describe('ChatPage document scope', () => {
 describe('ChatPage scope chip', () => {
   it('shows no chip when the scope is empty (asking everything)', async () => {
     useAuth.mockReturnValue({ authFetch: vi.fn() })
-    render(<ChatPage />, { wrapper: MemoryRouter })
+    renderAtChatRoute(<ChatPage />)
 
     expect(screen.queryByText(/Asking in/)).not.toBeInTheDocument()
   })
@@ -110,7 +125,7 @@ describe('ChatPage scope chip', () => {
   it('shows a chip once a document is toggled, and clears the scope when its × is clicked', async () => {
     useAuth.mockReturnValue({ authFetch: vi.fn() })
     const user = userEvent.setup()
-    render(<ChatPage />, { wrapper: MemoryRouter })
+    renderAtChatRoute(<ChatPage />)
 
     await user.click(screen.getByRole('button', { name: 'toggle doc-1' }))
 
