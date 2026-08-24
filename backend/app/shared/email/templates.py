@@ -11,7 +11,7 @@ clients (Outlook's Word rendering engine above all) support none of the
 modern CSS a normal web page would use. This is the actual convention for
 transactional email, not a stylistic choice.
 
-Two rules the layout below keeps that are easy to break by accident:
+Three rules the layout below keeps that are easy to break by accident:
 
   * **Every image is a PNG, and no layout depends on one loading.** SVG is
     refused outright by Gmail and Outlook (the first version of this email
@@ -21,11 +21,31 @@ Two rules the layout below keeps that are easy to break by accident:
     its own color from `bgcolor` -- with images off, the email still reads
     as a finished, branded page rather than a stack of grey boxes.
 
+    That image also has to be reachable from the *sender's* mail relay, not
+    just a developer's laptop: `robot_src` is built from `FRONTEND_ORIGIN`
+    (see `auth/service.py`), and in local dev that env var defaults to
+    `http://localhost:5173` -- fine for Brevo's HTTP relay fetching it
+    server-side over the public internet, but unreachable for a mail client
+    that fetches it itself, which is exactly what breaks a raw-SMTP send to
+    a real inbox from a laptop. Not a template bug; there is nothing this
+    file can do about a URL that points at localhost.
+
   * **Gradients are decoration layered over a solid `bgcolor`.** Outlook
     ignores `background-image: linear-gradient(...)` entirely; clients that
     support it get the brand gradient, and the rest get the flat brand
     color underneath. Never put text on a gradient without a `bgcolor` that
     keeps it legible on its own.
+
+  * **Every text element gets an explicit `line-height`, and the `<head>`
+    carries a `text-size-adjust: 100%` reset.** Without the reset, mobile
+    webviews (the Gmail Android/iOS app above all) auto-boost font sizes on
+    a narrow screen as a readability heuristic -- and boost different
+    elements by different ratios. A `<td>` whose line-height was left to
+    its default, or was set to a value that only matched the *original*
+    font-size, ends up with lines packed tighter than the now-larger text,
+    which is what "the words cover each other" on a phone actually is: not
+    misplaced elements, boosted text overflowing a line-height that no
+    longer fits it.
 
 The visual language (gradient hero, soft-tinted icon tiles, 01/02/03 step
 numerals, white pill CTA on brand) is lifted from the marketing page in
@@ -111,7 +131,7 @@ def _logo_lockup() -> str:
 <td width="36" height="36" bgcolor="{_BRAND}" style="width:36px; height:36px; border-radius:11px; background-color:{_BRAND}; background-image:{_BRAND_GRADIENT}; text-align:center; vertical-align:middle;">
 <div style="width:12px; height:12px; margin:0 auto; border:2px solid #FFFFFF; border-radius:50%; font-size:0; line-height:0;">&nbsp;</div>
 </td>
-<td style="padding-left:10px; font-family:{_FONT_DISPLAY}; font-size:19px; font-weight:700; letter-spacing:-0.01em; color:{_INK};">GraphMind</td>
+<td valign="middle" style="padding-left:10px; font-family:{_FONT_DISPLAY}; font-size:19px; line-height:24px; font-weight:700; letter-spacing:-0.01em; color:{_INK};">GraphMind</td>
 </tr>
 </table>"""
 
@@ -133,7 +153,7 @@ def _button(*, href: str, label: str) -> str:
 def _section_title(text: str) -> str:
     return (
         f'<p style="margin:0 0 20px; font-family:{_FONT_DISPLAY}; font-size:19px; '
-        f'font-weight:700; letter-spacing:-0.01em; color:{_INK};">{_e(text)}</p>'
+        f'line-height:24px; font-weight:700; letter-spacing:-0.01em; color:{_INK};">{_e(text)}</p>'
     )
 
 
@@ -151,7 +171,7 @@ def _feature_row(*, glyph: str, title: str, body: str, is_last: bool) -> str:
 </table>
 </td>
 <td valign="top" style="padding-left:14px;">
-<p style="margin:0 0 4px; font-family:{_FONT_DISPLAY}; font-size:15px; font-weight:700; color:{_INK};">{_e(title)}</p>
+<p style="margin:0 0 4px; font-family:{_FONT_DISPLAY}; font-size:15px; line-height:20px; font-weight:700; color:{_INK};">{_e(title)}</p>
 <p style="margin:0; font-family:{_FONT}; font-size:14px; line-height:22px; color:{_INK_SOFT};">{_e(body)}</p>
 </td>
 </tr>
@@ -167,9 +187,9 @@ def _step_row(*, numeral: str, title: str, body: str, is_last: bool) -> str:
     return f"""<tr><td colspan="2" style="padding:0;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
 <tr>
-<td width="44" valign="top" style="width:44px; font-family:{_FONT_DISPLAY}; font-size:20px; font-weight:700; line-height:22px; color:{_BRAND};">{numeral}</td>
+<td width="44" valign="top" style="width:44px; font-family:{_FONT_DISPLAY}; font-size:20px; font-weight:700; line-height:26px; color:{_BRAND};">{numeral}</td>
 <td valign="top" style="padding-left:14px;">
-<p style="margin:0 0 4px; font-family:{_FONT_DISPLAY}; font-size:15px; font-weight:700; color:{_INK};">{_e(title)}</p>
+<p style="margin:0 0 4px; font-family:{_FONT_DISPLAY}; font-size:15px; line-height:20px; font-weight:700; color:{_INK};">{_e(title)}</p>
 <p style="margin:0; font-family:{_FONT}; font-size:14px; line-height:22px; color:{_INK_SOFT};">{_e(body)}</p>
 </td>
 </tr>
@@ -221,9 +241,20 @@ def verification_email_html(
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="x-apple-disable-message-reformatting" />
+<meta name="format-detection" content="telephone=no, date=no, address=no, email=no" />
 <title></title>
+<style type="text/css">
+  /* The actual fix for "text overlaps itself on a phone": stop the
+     Gmail/iOS mail app from auto-boosting font sizes past the fixed
+     line-heights set throughout this file. Every other rule here is the
+     standard companion reset (Outlook table spacing, image scaling) --
+     see the module docstring's third rule. */
+  body, table, td, a {{ -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; text-size-adjust: 100%; }}
+  table, td {{ mso-table-lspace: 0pt; mso-table-rspace: 0pt; }}
+  img {{ -ms-interpolation-mode: bicubic; }}
+</style>
 </head>
-<body style="margin:0; padding:0; width:100%; background-color:{_PAGE_BG};">
+<body style="margin:0; padding:0; width:100%; background-color:{_PAGE_BG}; -webkit-text-size-adjust:100%; text-size-adjust:100%;">
 
 <!-- Preheader: hidden in the email itself, but it is what most inbox list
      views print next to the subject. Without one, clients quote whatever
@@ -256,9 +287,9 @@ def verification_email_html(
 
 <img src="{_e(robot_src)}" width="150" height="150" alt="" style="display:block; width:150px; height:150px; border:0; outline:none; margin:0 auto 22px;" />
 
-<p style="margin:0 0 12px; font-family:{_FONT}; font-size:11px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:#D8F1FF;">{_e(c["eyebrow"])}</p>
+<p style="margin:0 0 12px; font-family:{_FONT}; font-size:11px; line-height:16px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:#D8F1FF;">{_e(c["eyebrow"])}</p>
 
-<h1 style="margin:0 0 14px; font-family:{_FONT_DISPLAY}; font-size:32px; line-height:38px; font-weight:700; letter-spacing:-0.02em; color:#FFFFFF;">{_e(c["hero_title"])}</h1>
+<h1 style="margin:0 0 14px; font-family:{_FONT_DISPLAY}; font-size:32px; line-height:42px; font-weight:700; letter-spacing:-0.02em; color:#FFFFFF;">{_e(c["hero_title"])}</h1>
 
 <p style="margin:0 0 28px; font-family:{_FONT}; font-size:15px; line-height:24px; color:#E4F5FF;">{_e(c["hero_body"])}</p>
 
@@ -276,7 +307,7 @@ def verification_email_html(
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
 
 <tr><td colspan="2">
-<p style="margin:0 0 12px; font-family:{_FONT_DISPLAY}; font-size:17px; font-weight:700; color:{_INK};">{_e(c["greeting"])}</p>
+<p style="margin:0 0 12px; font-family:{_FONT_DISPLAY}; font-size:17px; line-height:24px; font-weight:700; color:{_INK};">{_e(c["greeting"])}</p>
 <p style="margin:0; font-family:{_FONT}; font-size:15px; line-height:24px; color:{_INK_SOFT};">{_e(c["intro"])}</p>
 </td></tr>
 
@@ -310,7 +341,7 @@ def verification_email_html(
 <!-- ============ Footer ============ -->
 <tr>
 <td align="center" style="padding:28px 20px 0;">
-<p style="margin:0 0 6px; font-family:{_FONT_DISPLAY}; font-size:14px; font-weight:700; color:{_INK_SOFT};">{_e(c["footer_tagline"])}</p>
+<p style="margin:0 0 6px; font-family:{_FONT_DISPLAY}; font-size:14px; line-height:20px; font-weight:700; color:{_INK_SOFT};">{_e(c["footer_tagline"])}</p>
 <p style="margin:0; font-family:{_FONT}; font-size:12px; line-height:18px; color:{_MUTED};">{_e(c["footer_copyright"])}</p>
 </td>
 </tr>
