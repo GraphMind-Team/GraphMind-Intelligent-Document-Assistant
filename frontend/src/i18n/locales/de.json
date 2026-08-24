@@ -289,6 +289,28 @@
       "defaultNotice": "GraphMind hat nichts zu dieser Frage anzuzeigen.",
       "refusal": "In deinen Dokumenten wurde kein Beleg für diese Frage gefunden."
     },
+    "sources": {
+      "toggleLabel_one": "{{count}} Quelle",
+      "toggleLabel_other": "{{count}} Quellen",
+      "panelAria": "Quellen für diese Antwort"
+    },
+    "actions": {
+      "copy": "Antwort kopieren",
+      "copied": "Kopiert!",
+      "thumbsUp": "Gute Antwort",
+      "thumbsDown": "Schlechte Antwort",
+      "thumbsUpActive": "Als gute Antwort markiert",
+      "thumbsDownActive": "Als schlechte Antwort markiert"
+    },
+    "followup": {
+      "label": "Mehr fragen:"
+    },
+    "userMessage": {
+      "copy": "Nachricht kopieren",
+      "edit": "Nachricht bearbeiten",
+      "editLabel": "Nachricht bearbeiten",
+      "save": "Speichern"
+    },
     "searchPanel": {
       "title": "Im Chat suchen",
       "placeholder": "Im Chat suchen…",

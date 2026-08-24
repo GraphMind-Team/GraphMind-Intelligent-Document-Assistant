@@ -8,22 +8,15 @@ import { formatDetail } from './authClient'
 // confusing raw network error before the backend ever gets to respond.
 const ASK_TIMEOUT_MS = 130_000
 
-// `authFetch` (from AuthContext) is passed in rather than imported --
-// mirrors documentsClient.js's convention.
-//
-// `sessionId` (multi-session chat): every ask is now scoped to one of the
-// user's chat sessions -- the backend resolves/ownership-checks it
-// server-side (404 on a foreign/nonexistent id), this client just threads
-// it into the URL path.
-//
-// `documentIds` (Story 3.3/FR-11): defaults to `[]`, meaning "search all of
-// the user's documents" -- the same default the backend's `AskRequest`
-// applies, so an omitted fourth argument here and an explicit empty array
-// are indistinguishable to the server on purpose.
-export async function askQuestion(authFetch, sessionId, question, documentIds = []) {
+// Shared by `askQuestion` and `editMessage` below -- both post a question
+// to a session-scoped endpoint and get back the exact same `AskResponse`
+// shape (`edit` is "discard this question and everything after it, then
+// ask fresh" server-side, chat/service.py::edit_message's own docstring),
+// so the request/timeout/error-shape handling only needs writing once.
+async function _postForAnswer(authFetch, url, question, documentIds) {
   let response
   try {
-    response = await authFetch(`/chat/sessions/${sessionId}/ask`, {
+    response = await authFetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question, document_ids: documentIds }),
@@ -68,6 +61,37 @@ export async function askQuestion(authFetch, sessionId, question, documentIds = 
   return data
 }
 
+// `authFetch` (from AuthContext) is passed in rather than imported --
+// mirrors documentsClient.js's convention.
+//
+// `sessionId` (multi-session chat): every ask is now scoped to one of the
+// user's chat sessions -- the backend resolves/ownership-checks it
+// server-side (404 on a foreign/nonexistent id), this client just threads
+// it into the URL path.
+//
+// `documentIds` (Story 3.3/FR-11): defaults to `[]`, meaning "search all of
+// the user's documents" -- the same default the backend's `AskRequest`
+// applies, so an omitted fourth argument here and an explicit empty array
+// are indistinguishable to the server on purpose.
+export async function askQuestion(authFetch, sessionId, question, documentIds = []) {
+  return _postForAnswer(authFetch, `/chat/sessions/${sessionId}/ask`, question, documentIds)
+}
+
+// `POST /chat/sessions/{sessionId}/messages/{messageId}/edit` -- edits one
+// of this account's own past questions in place: the backend discards that
+// question and every turn after it (this session only), then asks the
+// edited question fresh, returning the exact same `AskResponse` shape a
+// brand-new `askQuestion` call would. `(authFetch, ...) => Promise` shape,
+// same convention as `askQuestion`/`getChatHistory`/`setMessageFeedback`.
+export async function editMessage(authFetch, sessionId, messageId, question, documentIds = []) {
+  return _postForAnswer(
+    authFetch,
+    `/chat/sessions/${sessionId}/messages/${messageId}/edit`,
+    question,
+    documentIds,
+  )
+}
+
 // Story 3.4/AD-10: `GET /chat/sessions/{sessionId}/history`, cursor-
 // paginated -- `cursor` is `undefined`/omitted on the initial load (the
 // backend's own "start from the newest message" default), or a prior
@@ -93,6 +117,27 @@ export async function getChatHistory(authFetch, sessionId, { cursor, limit } = {
 
   if (!data || !Array.isArray(data.messages) || typeof data.has_more !== 'boolean') {
     throw new Error('Failed to load conversation history: unexpected response.')
+  }
+
+  return data
+}
+
+// `PUT /chat/messages/{messageId}/feedback` -- `rating` is `'up'`, `'down'`,
+// or `null` to clear a previously-set rating (MessageActions.jsx re-sends
+// the active thumb's own rating to retract it, rather than a separate
+// DELETE). `(authFetch, ...) => Promise` shape, same convention as
+// `askQuestion`/`getChatHistory` above.
+export async function setMessageFeedback(authFetch, messageId, rating) {
+  const response = await authFetch(`/chat/messages/${messageId}/feedback`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rating }),
+  })
+  const data = await response.json().catch(() => null)
+
+  if (!response.ok) {
+    const message = formatDetail(data?.detail)
+    throw new Error(message || `Failed to save feedback (${response.status}).`)
   }
 
   return data

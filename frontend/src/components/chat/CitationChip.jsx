@@ -6,18 +6,18 @@
 // role="button", no tabIndex) -- jump-to-source is explicitly out of v1
 // scope.
 //
-// No font-size of its own: the chip inherits the answer bubble's, so a
-// citation always reads at the same size as the sentence it belongs to.
-// It used to set 11.5px and shrank to noticeably smaller than the answer
-// text; pinning a literal here again would just let the two drift apart
-// the next time the bubble's size moves. Weight and color still separate
-// it from prose.
+// No font-size of its own: the chip inherits its container's, so it never
+// drifts out of sync with a bubble/panel size change elsewhere. `w-fit
+// max-w-full` + `break-words` (rather than the `whitespace-nowrap` this
+// used to carry from its old inline-after-a-sentence days) lets a long
+// filename wrap onto a second line inside CitationSummary's fixed-width
+// panel instead of overflowing past the panel's rounded edge.
 import { useTranslation } from 'react-i18next'
 
 export default function CitationChip({ chapter, documentFilename }) {
   const { t } = useTranslation()
   return (
-    <cite className="not-italic inline-block rounded-[6px] bg-citation px-2 py-0.5 font-bold text-citation-text whitespace-nowrap ml-1">
+    <cite className="not-italic block w-fit max-w-full break-words rounded-[6px] bg-citation px-2 py-1 font-bold text-citation-text">
       {t('chat.citationPrefix')} {chapter}, {documentFilename}
     </cite>
   )

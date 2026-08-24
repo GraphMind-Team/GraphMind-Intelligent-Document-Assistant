@@ -289,6 +289,28 @@
       "defaultNotice": "GraphMind has nothing to show for this question.",
       "refusal": "No supporting evidence found in your documents for this question."
     },
+    "sources": {
+      "toggleLabel_one": "{{count}} source",
+      "toggleLabel_other": "{{count}} sources",
+      "panelAria": "Sources for this answer"
+    },
+    "actions": {
+      "copy": "Copy answer",
+      "copied": "Copied!",
+      "thumbsUp": "Good answer",
+      "thumbsDown": "Bad answer",
+      "thumbsUpActive": "Marked as a good answer",
+      "thumbsDownActive": "Marked as a bad answer"
+    },
+    "followup": {
+      "label": "Ask more:"
+    },
+    "userMessage": {
+      "copy": "Copy your message",
+      "edit": "Edit your message",
+      "editLabel": "Edit your message",
+      "save": "Save"
+    },
     "searchPanel": {
       "title": "Search in chat",
       "placeholder": "Search in chat…",

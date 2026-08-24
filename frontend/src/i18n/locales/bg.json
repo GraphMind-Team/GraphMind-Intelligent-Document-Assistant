@@ -289,6 +289,28 @@
       "defaultNotice": "GraphMind няма какво да покаже за този въпрос.",
       "refusal": "Не е намерено доказателство в документите ви за този въпрос."
     },
+    "sources": {
+      "toggleLabel_one": "{{count}} източник",
+      "toggleLabel_other": "{{count}} източника",
+      "panelAria": "Източници за този отговор"
+    },
+    "actions": {
+      "copy": "Копирай отговора",
+      "copied": "Копирано!",
+      "thumbsUp": "Добър отговор",
+      "thumbsDown": "Лош отговор",
+      "thumbsUpActive": "Отбелязан като добър отговор",
+      "thumbsDownActive": "Отбелязан като лош отговор"
+    },
+    "followup": {
+      "label": "Питай още:"
+    },
+    "userMessage": {
+      "copy": "Копирай съобщението си",
+      "edit": "Редактирай съобщението си",
+      "editLabel": "Редактирай съобщението си",
+      "save": "Запази"
+    },
     "searchPanel": {
       "title": "Търсене в чата",
       "placeholder": "Търсене в чата…",

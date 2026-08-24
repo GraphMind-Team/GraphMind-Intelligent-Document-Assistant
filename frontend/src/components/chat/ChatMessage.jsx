@@ -1,6 +1,8 @@
 import { forwardRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import CitationChip from './CitationChip'
+import CitationSummary from './CitationSummary'
+import MessageActions from './MessageActions'
+import UserMessage from './UserMessage'
 import highlightMatches from './highlightMatches'
 import Icon from '../Icon'
 
@@ -46,22 +48,23 @@ const NOTICE_KEYS = {
 // full-thread index) so the search nav can `scrollIntoView` a specific
 // bubble -- every branch below attaches `ref` to its own root element for
 // that reason.
-const ChatMessage = forwardRef(function ChatMessage({ message, highlight = '', isActiveMatch = false }, ref) {
+const ChatMessage = forwardRef(function ChatMessage(
+  { message, highlight = '', isActiveMatch = false, authFetch, onFollowupClick, onEditMessage },
+  ref,
+) {
   const { t } = useTranslation()
   const activeMatchClass = isActiveMatch ? ' outline outline-2 outline-accent outline-offset-2' : ''
 
   if (message.role === 'user') {
     return (
-      <div
+      <UserMessage
         ref={ref}
-        className={`anim-rise ml-auto max-w-[70%] self-end rounded-[20px_20px_6px_20px] bg-[image:var(--grad-brand)] px-4 py-2.5 text-[14px] text-white shadow-[var(--glow)]${activeMatchClass}`}
-      >
-        {/* Sighted users get the sender cue from alignment/fill/corner
-            (UX-DR5) alone; a screen reader gets none of that, so without
-            this prefix two turns read as one undifferentiated stream. */}
-        <span className="sr-only">{t('chat.message.youPrefix')} </span>
-        {highlightMatches(message.text, highlight)}
-      </div>
+        id={message.id}
+        text={message.text}
+        highlight={highlight}
+        isActiveMatch={isActiveMatch}
+        onEditMessage={onEditMessage}
+      />
     )
   }
 
@@ -135,24 +138,77 @@ const ChatMessage = forwardRef(function ChatMessage({ message, highlight = '', i
   // layers a faint brand-blue ombre over it (the same token `.btn-ghost`
   // uses), so the answer bubble reads as "GraphMind" at a glance without
   // needing a border-color trick.
+  //
+  // Citations used to render as a chip after every segment they belonged
+  // to, which read as cluttered on a multi-segment answer. Deduped here
+  // (by chapter+document, first-seen order) into one flat list and handed
+  // to a single CitationSummary pill below the answer text instead --
+  // "where did this come from" is now one click away rather than several
+  // chips interrupting the prose.
+  const seenCitations = new Set()
+  const citations = []
+  for (const segment of message.segments) {
+    for (const citation of segment.citations) {
+      const key = `${citation.chapter}::${citation.document_filename}`
+      if (seenCitations.has(key)) continue
+      seenCitations.add(key)
+      citations.push({ chapter: citation.chapter, documentFilename: citation.document_filename })
+    }
+  }
+  // Copy needs the answer's plain prose, citations stripped -- same
+  // "citations aren't part of the answer's own text" treatment
+  // `service.py::_pair_messages_into_turns`'s history-threading join
+  // already gives this on the backend side.
+  const answerText = message.segments.map((segment) => segment.text).join(' ')
+
+  // The bubble (bordered/filled) holds only the answer's own text; the
+  // sources pill + actions row sit below it as a separate row, outside
+  // the bubble's border/background -- the ChatGPT/Claude convention,
+  // rather than nested inside the bubble where they used to read as part
+  // of the answer's own content.
   return (
-    <div
-      ref={ref}
-      className={`anim-rise mr-auto max-w-[78%] self-start rounded-[20px_20px_20px_6px] border border-border bg-card-bg bg-[image:var(--grad-brand-soft)] px-4 py-3 text-[14px] leading-[1.6] text-text shadow-card${activeMatchClass}`}
-    >
-      <span className="sr-only">{t('chat.message.assistantPrefix')} </span>
-      {message.segments.map((segment, index) => (
-        <span key={index}>
-          {highlightMatches(segment.text, highlight)}
-          {segment.citations.map((citation, citationIndex) => (
-            <CitationChip
-              key={citationIndex}
-              chapter={citation.chapter}
-              documentFilename={citation.document_filename}
-            />
-          ))}{' '}
-        </span>
-      ))}
+    <div ref={ref} className="anim-rise mr-auto flex max-w-[78%] flex-col items-start gap-1.5 self-start">
+      <div
+        className={`rounded-[20px_20px_20px_6px] border border-border bg-card-bg bg-[image:var(--grad-brand-soft)] px-4 py-3 text-[14px] leading-[1.6] text-text shadow-card${activeMatchClass}`}
+      >
+        <span className="sr-only">{t('chat.message.assistantPrefix')} </span>
+        {message.segments.map((segment, index) => (
+          <span key={index}>{highlightMatches(segment.text, highlight)} </span>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 px-1">
+        <CitationSummary citations={citations} />
+        <MessageActions
+          authFetch={authFetch}
+          messageId={message.id}
+          initialFeedback={message.feedback}
+          answerText={answerText}
+        />
+      </div>
+      {/* Model-suggested next questions (ChatGPT-style "Ask more:" chips) --
+          only ever present on a message from a live turn's own AskResponse
+          (chat/service.py never persists these, see AskResponse
+          .followup_questions' own docstring), so a reloaded/older message
+          simply has none and this renders nothing. Clicking a chip sends it
+          immediately, the same "send, don't just fill the input" behavior
+          the empty-thread welcome's own sample-question chips use. */}
+      {message.followupQuestions?.length > 0 && (
+        <div className="flex flex-col items-start gap-1.5 px-1">
+          <p className="text-[11.5px] font-semibold text-text2">{t('chat.followup.label')}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {message.followupQuestions.map((question) => (
+              <button
+                key={question}
+                type="button"
+                onClick={() => onFollowupClick(question)}
+                className="rounded-full border border-border bg-surface2 px-3 py-1.5 text-[12.5px] text-text hover:border-accent hover:text-accent"
+              >
+                {question}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 })

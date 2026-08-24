@@ -2,8 +2,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
+import { useChatSessions } from '../context/ChatSessionsContext'
 import { ChatScopeProvider, useChatScope } from '../context/ChatScopeContext'
-import { askQuestion, getChatHistory } from '../api/chatClient'
+import { askQuestion, editMessage, getChatHistory } from '../api/chatClient'
 import ChatMessage from '../components/chat/ChatMessage'
 import RobotMascot, { RobotFigure } from '../components/chat/RobotMascot'
 import DocumentsScopePanel from '../components/chat/DocumentsScopePanel'
@@ -39,7 +40,7 @@ const MASCOT_BEAT_HOLD_MS = 2000
 // never a generic "assistant" fallback for either.
 function toUiMessage(row) {
   if (row.role === 'user') {
-    return { role: 'user', text: row.question }
+    return { role: 'user', id: row.id, text: row.question }
   }
   if (row.empty_reason === 'refusal') {
     return { role: 'refusal' }
@@ -47,7 +48,7 @@ function toUiMessage(row) {
   if (row.empty_reason) {
     return { role: 'notice', reason: row.empty_reason }
   }
-  return { role: 'assistant', segments: row.segments ?? [] }
+  return { role: 'assistant', id: row.id, segments: row.segments ?? [], feedback: row.feedback ?? null }
 }
 
 // Every piece of user-visible text in one message, flattened for the
@@ -107,6 +108,7 @@ export default function ChatPage() {
 function ChatPageContent({ sessionId }) {
   const { t } = useTranslation()
   const { authFetch } = useAuth()
+  const { refresh: refreshSessions } = useChatSessions()
   const { selectedDocumentIds, selectAll } = useChatScope()
   // DocumentDetailPage's "Ask about this document" link arrives here with
   // `{ presetDocumentId }` in navigation state -- picked up once below,
@@ -451,8 +453,20 @@ function ChatPageContent({ sessionId }) {
 
   async function handleSubmit(event) {
     event.preventDefault()
-    const trimmed = question.trim()
+    await submitQuestion(question)
+  }
+
+  async function submitQuestion(text) {
+    const trimmed = text.trim()
     if (!trimmed || isAsking) return
+
+    // Session titling (chat/service.py::_persist_turn) sets the backend
+    // session's title from the first question it ever sees, then never
+    // again -- so the sessions list only needs a refetch to pick up the
+    // new title on that first turn. `messages.length === 0` here (before
+    // this turn's own optimistic append below) is exactly that "first
+    // turn" signal.
+    const isFirstTurn = messages.length === 0
 
     // A newly-asked question is exactly the "genuinely new incoming
     // answer" case the live region is reserved for -- re-enable it here,
@@ -462,33 +476,101 @@ function ChatPageContent({ sessionId }) {
     // overwrite it once that fetch finally resolves.
     hasSubmittedLiveQuestionRef.current = true
     setLiveAnnouncementsEnabled(true)
-    setMessages((previous) => [...previous, { role: 'user', text: trimmed }])
+    // `id: null` until the response comes back -- AskResponse only learns
+    // the persisted row's own id once `chat/service.py::_finish` has
+    // actually written it (AskResponse.user_message_id's own docstring).
+    // Kept as the exact object reference `applyTurnResult` below patches
+    // by identity, not by array index: `loadOlderHistory` can prepend
+    // older pages onto `messages` while this request is still in flight,
+    // which would silently invalidate an index captured now.
+    const userMessage = { role: 'user', id: null, text: trimmed }
+    setMessages((previous) => [...previous, userMessage])
     setQuestion('')
     setIsAsking(true)
     setError(null)
 
     try {
       const result = await askQuestion(authFetch, sessionId, trimmed, selectedDocumentIds)
+      if (isFirstTurn) {
+        // Fire-and-forget: the sessions panel's title lagging by a beat
+        // is fine, but blocking this turn's own answer on it is not.
+        refreshSessions()
+      }
+      applyTurnResult(userMessage, result)
+    } catch (err) {
+      setError({ kind: err.isServiceError ? 'service' : 'other', message: err.message })
+    } finally {
+      setIsAsking(false)
+    }
+  }
+
+  // Shared by submitQuestion and handleEditMessage above/below: patches
+  // `userMessage`'s id (by object identity -- see submitQuestion's own
+  // comment on why not an index) once the backend has actually persisted
+  // it, appends the turn's outcome message, and fires the matching
+  // mascot beat. `chat/service.py::edit_message` returns the exact same
+  // `AskResponse` shape `ask_question` does, so one function covers both
+  // callers without duplicating this branching.
+  function applyTurnResult(userMessage, result) {
+    setMessages((previous) => {
+      const patched = previous.map((m) =>
+        m === userMessage ? { ...m, id: result.user_message_id } : m,
+      )
       if (result.empty_reason === 'refusal') {
         // FR-10/UX-DR15: a designed refusal, not an empty-state notice --
         // its own message role so ChatMessage renders a real bubble,
         // never the plain notice paragraph the other two reasons use.
-        // No mascot beat either: AD-6/UX-DR15 already settled that a
-        // refusal is correct behavior, not a failure, so it gets none of
-        // the danger-adjacent treatment the 'noAnswer' beat below uses --
-        // only an actual empty-state notice does.
-        setMessages((previous) => [...previous, { role: 'refusal' }])
-      } else if (result.empty_reason) {
-        setMessages((previous) => [...previous, { role: 'notice', reason: result.empty_reason }])
-        // The mascot's "nothing to show" cue: no documents, an empty
-        // scope, or no matching content -- not a refusal, just the
-        // signal that there was no information to find.
-        triggerMascotBeat('noAnswer')
-      } else {
-        setMessages((previous) => [...previous, { role: 'assistant', segments: result.segments }])
-        // Only a grounded answer earns the idea beat.
-        triggerMascotBeat('idea')
+        return [...patched, { role: 'refusal' }]
       }
+      if (result.empty_reason) {
+        return [...patched, { role: 'notice', reason: result.empty_reason }]
+      }
+      return [
+        ...patched,
+        {
+          role: 'assistant',
+          id: result.message_id,
+          segments: result.segments,
+          feedback: null,
+          followupQuestions: result.followup_questions ?? [],
+        },
+      ]
+    })
+    // No mascot beat either: AD-6/UX-DR15 already settled that a refusal
+    // is correct behavior, not a failure, so it gets none of the danger-
+    // adjacent treatment the 'noAnswer' beat below uses -- only an actual
+    // empty-state notice does.
+    if (result.empty_reason === 'refusal') return
+    // The mascot's "nothing to show" cue: no documents, an empty scope,
+    // or no matching content -- not a refusal, just the signal that
+    // there was no information to find. Otherwise, only a grounded
+    // answer earns the idea beat.
+    triggerMascotBeat(result.empty_reason ? 'noAnswer' : 'idea')
+  }
+
+  // Edits one of this account's own past questions in place: drops it and
+  // every message after it from the local thread (mirrors the backend's
+  // own "discard this question and everything after it" --
+  // chat/service.py::edit_message), then asks the edited text fresh via
+  // the same applyTurnResult tail submitQuestion uses. `messageId == null`
+  // guards the same "request for this message hasn't resolved an id yet"
+  // window MessageActions' feedback buttons already guard against.
+  async function handleEditMessage(messageId, text) {
+    const trimmed = text.trim()
+    if (!trimmed || isAsking || messageId == null) return
+    const index = messages.findIndex((m) => m.role === 'user' && m.id === messageId)
+    if (index === -1) return
+
+    hasSubmittedLiveQuestionRef.current = true
+    setLiveAnnouncementsEnabled(true)
+    const userMessage = { role: 'user', id: null, text: trimmed }
+    setMessages((previous) => [...previous.slice(0, index), userMessage])
+    setIsAsking(true)
+    setError(null)
+
+    try {
+      const result = await editMessage(authFetch, sessionId, messageId, trimmed, selectedDocumentIds)
+      applyTurnResult(userMessage, result)
     } catch (err) {
       setError({ kind: err.isServiceError ? 'service' : 'other', message: err.message })
     } finally {
@@ -628,7 +710,7 @@ function ChatPageContent({ sessionId }) {
                               <button
                                 key={sample}
                                 type="button"
-                                onClick={() => setQuestion(sample)}
+                                onClick={() => submitQuestion(sample)}
                                 className="rounded-full border border-border bg-surface2 px-3.5 py-1.5 text-[12.5px] text-text hover:border-accent hover:text-accent"
                               >
                                 {sample}
@@ -652,6 +734,9 @@ function ChatPageContent({ sessionId }) {
                   message={message}
                   highlight={chatSearchNeedle}
                   isActiveMatch={chatSearchNeedle !== '' && matchedIndices[activeMatchOrdinal] === index}
+                  authFetch={authFetch}
+                  onFollowupClick={submitQuestion}
+                  onEditMessage={handleEditMessage}
                 />
               ))}
               {isAsking && <ChatMessage message={{ role: 'thinking' }} />}

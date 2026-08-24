@@ -117,6 +117,15 @@ def save_message(db: Session, message: ChatMessage) -> ChatMessage:
     return message
 
 
+def get_message_for_user(db: Session, user_id: uuid.UUID, message_id: uuid.UUID) -> ChatMessage | None:
+    """One message by id, scoped to `user_id` via `user_scoped_select`
+    (AD-2) -- `chat/service.py::set_message_feedback` 404s the caller when
+    this returns `None`, the same IDOR-safe convention
+    `sessions_service.get_session` already uses for chat sessions."""
+    stmt = user_scoped_select(ChatMessage, user_id).where(ChatMessage.id == message_id)
+    return db.execute(stmt).scalar_one_or_none()
+
+
 def get_recent_turn_messages(
     db: Session, user_id: uuid.UUID, session_id: uuid.UUID, max_turns: int
 ) -> list[ChatMessage]:
@@ -245,5 +254,61 @@ def delete_messages_for_session(db: Session, user_id: uuid.UUID, session_id: uui
     """
     result = db.execute(
         delete(ChatMessage).where(ChatMessage.session_id == session_id, ChatMessage.user_id == user_id)
+    )
+    return result.rowcount
+
+
+def delete_messages_from(db: Session, user_id: uuid.UUID, session_id: uuid.UUID, from_message: ChatMessage) -> int:
+    """Deletes `from_message` and every message at-or-after it, by the
+    same `(created_at, turn_role_rank, id)` order every other query in
+    this module sorts/paginates on -- the "discard this question and
+    everything that followed it" half of `chat/service.py::edit_message`,
+    run just before that function re-asks the edited question fresh
+    against what's left.
+
+    Two SELECTs plus an `id IN (...)` delete, not a single `_strictly_
+    before`-based WHERE (`chat/service.py::_encode_cursor`/`_decode_
+    cursor`'s own pagination-cursor comparison) -- deliberately, not for
+    style. `_strictly_before` compares `ChatMessage.created_at` against a
+    *Python-side* `datetime` bound as a query parameter; on SQLite (this
+    project's test suite, `tests/conftest.py::db_session`) `DateTime` has
+    no native type and is compared as TEXT, and this column's own
+    `server_default=func.now()` produces a whole-second string with no
+    fractional part while SQLAlchemy's bind processor always renders a
+    Python-side `datetime` WITH one (`...:56` vs `...:56.000000`) -- two
+    equal instants that are, textually, one a strict prefix of the other,
+    so SQLite's string comparison says the *stored* row is "less than"
+    its own re-serialized value. `from_message.created_at` here always
+    came from exactly that server-generated column, so a `_strictly_
+    before`-shaped comparison against it would incorrectly delete-nothing
+    or delete-everything depending on which side of the bug a given row's
+    own values happen to fall on -- verified by hand; the pagination
+    cursor above shares this same latent fragility but never surfaced it,
+    because no existing test compares a cursor against a row tied to the
+    exact same `created_at` second. Ordering by the three columns
+    (comparing stored values against each other, never against a
+    re-serialized Python literal) side-steps the bug entirely, on SQLite
+    and Postgres alike -- this is the one operation in this module that
+    actually needs the comparison to be exactly right, not just usually
+    right, since it drives a delete.
+
+    Does not commit -- caller owns the transaction boundary, same
+    convention as `save_message`/`delete_messages_for_session` above."""
+    stmt = (
+        user_scoped_select(ChatMessage, user_id)
+        .where(ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.created_at, _TURN_ROLE_RANK, ChatMessage.id)
+    )
+    ordered_ids = [row.id for row in db.execute(stmt).scalars().all()]
+    if from_message.id not in ordered_ids:
+        return 0
+    ids_to_delete = ordered_ids[ordered_ids.index(from_message.id) :]
+
+    result = db.execute(
+        delete(ChatMessage).where(
+            ChatMessage.session_id == session_id,
+            ChatMessage.user_id == user_id,
+            ChatMessage.id.in_(ids_to_delete),
+        )
     )
     return result.rowcount

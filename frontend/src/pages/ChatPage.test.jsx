@@ -19,6 +19,10 @@ vi.mock('../components/chat/DocumentsScopePanel', () => ({
 vi.mock('../components/chat/ChatSessionsPanel', () => ({
   default: () => <div>sessions panel stub</div>,
 }))
+// ChatPage itself now also calls useChatSessions() directly (to refresh
+// the sessions list once the first turn's auto-title lands) -- same
+// "no ChatSessionsProvider ancestor here" reason as the panel mock above.
+vi.mock('../context/ChatSessionsContext', () => ({ useChatSessions: () => ({ refresh: vi.fn() }) }))
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -57,6 +61,8 @@ function renderChatPage({ historyPage } = {}) {
 // but a fixture that silently drifts from the API it stands in for stops
 // being evidence of anything.
 const ANSWER_RESULT = {
+  message_id: 'assistant-msg-1',
+  user_message_id: 'user-msg-1',
   segments: [
     {
       text: "TechCorp's refund window is 30 days.",
@@ -82,7 +88,11 @@ describe('ChatPage', () => {
     await user.click(screen.getByRole('button', { name: 'Ask' }))
 
     expect(screen.getByText('What is the refund window?')).toBeInTheDocument()
-    expect(await screen.findByText('Ch. Chapter 4, Vendor_Agreement_2026.pdf')).toBeInTheDocument()
+    // Citations now sit behind a single collapsed "N source(s)" pill
+    // (CitationSummary) instead of rendering inline -- open it before
+    // asserting the citation text underneath.
+    await user.click(await screen.findByRole('button', { name: '1 source' }))
+    expect(screen.getByText('Ch. Chapter 4, Vendor_Agreement_2026.pdf')).toBeInTheDocument()
   })
 
   it('submits via pressing Enter', async () => {
@@ -93,7 +103,8 @@ describe('ChatPage', () => {
     await user.type(screen.getByLabelText(/ask a question/i), 'What is the refund window?{Enter}')
 
     expect(screen.getByText('What is the refund window?')).toBeInTheDocument()
-    expect(await screen.findByText('Ch. Chapter 4, Vendor_Agreement_2026.pdf')).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: '1 source' }))
+    expect(screen.getByText('Ch. Chapter 4, Vendor_Agreement_2026.pdf')).toBeInTheDocument()
   })
 
   it('renders the user message before the assistant reply arrives', async () => {
@@ -121,8 +132,52 @@ describe('ChatPage', () => {
 
     await user.type(screen.getByLabelText(/ask a question/i), 'q{Enter}')
 
-    const chip = await screen.findByText('Ch. Chapter 4, Vendor_Agreement_2026.pdf')
+    await user.click(await screen.findByRole('button', { name: '1 source' }))
+    const chip = screen.getByText('Ch. Chapter 4, Vendor_Agreement_2026.pdf')
     expect(chip.tagName).toBe('CITE')
+  })
+
+  it('renders the model-suggested follow-up questions as clickable chips and sends one immediately on click', async () => {
+    const askSpy = vi.spyOn(chatClient, 'askQuestion').mockResolvedValueOnce({
+      ...ANSWER_RESULT,
+      followup_questions: ['Who else is connected to this project?', 'What is the renewal date?'],
+    })
+    const user = userEvent.setup()
+    renderChatPage()
+
+    await user.type(screen.getByLabelText(/ask a question/i), 'q{Enter}')
+
+    const followupChip = await screen.findByRole('button', { name: 'Who else is connected to this project?' })
+    expect(screen.getByRole('button', { name: 'What is the renewal date?' })).toBeInTheDocument()
+
+    askSpy.mockResolvedValueOnce({ ...ANSWER_RESULT, message_id: 'assistant-msg-2', followup_questions: [] })
+    await user.click(followupChip)
+
+    // Sent immediately -- same "click sends, doesn't just fill the input"
+    // behavior the empty-thread welcome's own sample-question chips use.
+    expect(askSpy).toHaveBeenLastCalledWith(
+      expect.anything(),
+      SESSION_ID,
+      'Who else is connected to this project?',
+      [],
+    )
+    // Two matches now: the still-visible chip on the first answer (a
+    // message's own follow-ups don't disappear once a later turn is
+    // asked) plus the new turn's own user bubble echoing the same text.
+    await waitFor(() =>
+      expect(screen.getAllByText('Who else is connected to this project?')).toHaveLength(2),
+    )
+  })
+
+  it('renders no follow-up section when the response has none', async () => {
+    vi.spyOn(chatClient, 'askQuestion').mockResolvedValue({ ...ANSWER_RESULT, followup_questions: [] })
+    const user = userEvent.setup()
+    renderChatPage()
+
+    await user.type(screen.getByLabelText(/ask a question/i), 'q{Enter}')
+
+    await screen.findByRole('button', { name: '1 source' })
+    expect(screen.queryByText('Ask more:')).not.toBeInTheDocument()
   })
 
   it('renders a distinct service banner for a 503, never as an assistant message', async () => {
@@ -350,6 +405,100 @@ describe('ChatPage', () => {
     expect(askSpy).toHaveBeenCalledTimes(1)
 
     resolveAsk({ segments: [], empty_reason: null })
+  })
+})
+
+// Editing a past question (mirrors chat/service.py::edit_message's own
+// "discard this question and everything after it, then ask fresh"
+// contract): the edited question's own turn plus every later turn must
+// disappear from the thread, replaced by the edited question and its new
+// answer -- not merely appended alongside the old ones.
+describe('ChatPage editing a past question', () => {
+  const HISTORY_TWO_TURNS = {
+    messages: [
+      {
+        id: 'm4',
+        role: 'assistant',
+        question: null,
+        segments: [{ text: 'The warranty is one year.', citations: [] }],
+        empty_reason: null,
+        created_at: '2026-01-01T00:00:04',
+      },
+      {
+        id: 'm3',
+        role: 'user',
+        question: 'What is the warranty period?',
+        segments: null,
+        empty_reason: null,
+        created_at: '2026-01-01T00:00:03',
+      },
+      {
+        id: 'm2',
+        role: 'assistant',
+        question: null,
+        segments: [{ text: 'The refund window is 30 days.', citations: [] }],
+        empty_reason: null,
+        created_at: '2026-01-01T00:00:02',
+      },
+      {
+        id: 'm1',
+        role: 'user',
+        question: 'What is the refund window?',
+        segments: null,
+        empty_reason: null,
+        created_at: '2026-01-01T00:00:01',
+      },
+    ],
+    next_cursor: null,
+    has_more: false,
+  }
+
+  it('replaces the edited turn and discards every later turn with the fresh answer', async () => {
+    renderChatPage({ historyPage: HISTORY_TWO_TURNS })
+    await screen.findByText('What is the warranty period?')
+
+    const editSpy = vi.spyOn(chatClient, 'editMessage').mockResolvedValue({
+      message_id: 'assistant-msg-new',
+      user_message_id: 'user-msg-new',
+      segments: [{ text: 'The refund window is 60 days.', citations: [] }],
+      empty_reason: null,
+      followup_questions: [],
+    })
+    const user = userEvent.setup()
+
+    // Two user messages in this history -- edit the *first* (oldest) one.
+    await user.click(screen.getAllByRole('button', { name: 'Edit your message' })[0])
+    const textarea = screen.getByRole('textbox', { name: 'Edit your message' })
+    await user.clear(textarea)
+    await user.type(textarea, 'What is the refund window, exactly?{Enter}')
+
+    expect(editSpy).toHaveBeenCalledWith(expect.anything(), SESSION_ID, 'm1', 'What is the refund window, exactly?', [])
+
+    // The edited question's own new text renders...
+    expect(await screen.findByText('What is the refund window, exactly?')).toBeInTheDocument()
+    expect(await screen.findByText('The refund window is 60 days.', { exact: false })).toBeInTheDocument()
+    // ...and both the old first-turn text and the entire second turn are gone.
+    expect(screen.queryByText('What is the refund window?')).not.toBeInTheDocument()
+    expect(screen.queryByText('The refund window is 30 days.', { exact: false })).not.toBeInTheDocument()
+    expect(screen.queryByText('What is the warranty period?')).not.toBeInTheDocument()
+    expect(screen.queryByText('The warranty is one year.', { exact: false })).not.toBeInTheDocument()
+  })
+
+  it('Cancel leaves the thread untouched and never calls the backend', async () => {
+    renderChatPage({ historyPage: HISTORY_TWO_TURNS })
+    await screen.findByText('What is the warranty period?')
+    const editSpy = vi.spyOn(chatClient, 'editMessage')
+    const user = userEvent.setup()
+
+    await user.click(screen.getAllByRole('button', { name: 'Edit your message' })[0])
+    const textarea = screen.getByRole('textbox', { name: 'Edit your message' })
+    await user.clear(textarea)
+    await user.type(textarea, 'a discarded draft')
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(editSpy).not.toHaveBeenCalled()
+    expect(screen.getByText('What is the refund window?')).toBeInTheDocument()
+    expect(screen.getByText('What is the warranty period?')).toBeInTheDocument()
   })
 })
 
