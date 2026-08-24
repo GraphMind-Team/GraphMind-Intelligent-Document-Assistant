@@ -2,6 +2,7 @@ import { forwardRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import CitationSummary from './CitationSummary'
 import MessageActions from './MessageActions'
+import UserMessage from './UserMessage'
 import highlightMatches from './highlightMatches'
 import Icon from '../Icon'
 
@@ -48,7 +49,7 @@ const NOTICE_KEYS = {
 // bubble -- every branch below attaches `ref` to its own root element for
 // that reason.
 const ChatMessage = forwardRef(function ChatMessage(
-  { message, highlight = '', isActiveMatch = false, authFetch, onFollowupClick },
+  { message, highlight = '', isActiveMatch = false, authFetch, onFollowupClick, onEditMessage },
   ref,
 ) {
   const { t } = useTranslation()
@@ -56,16 +57,14 @@ const ChatMessage = forwardRef(function ChatMessage(
 
   if (message.role === 'user') {
     return (
-      <div
+      <UserMessage
         ref={ref}
-        className={`anim-rise ml-auto max-w-[70%] self-end rounded-[20px_20px_6px_20px] bg-[image:var(--grad-brand)] px-4 py-2.5 text-[14px] text-white shadow-[var(--glow)]${activeMatchClass}`}
-      >
-        {/* Sighted users get the sender cue from alignment/fill/corner
-            (UX-DR5) alone; a screen reader gets none of that, so without
-            this prefix two turns read as one undifferentiated stream. */}
-        <span className="sr-only">{t('chat.message.youPrefix')} </span>
-        {highlightMatches(message.text, highlight)}
-      </div>
+        id={message.id}
+        text={message.text}
+        highlight={highlight}
+        isActiveMatch={isActiveMatch}
+        onEditMessage={onEditMessage}
+      />
     )
   }
 

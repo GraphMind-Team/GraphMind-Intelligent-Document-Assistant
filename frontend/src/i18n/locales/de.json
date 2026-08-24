@@ -305,6 +305,12 @@
     "followup": {
       "label": "Mehr fragen:"
     },
+    "userMessage": {
+      "copy": "Nachricht kopieren",
+      "edit": "Nachricht bearbeiten",
+      "editLabel": "Nachricht bearbeiten",
+      "save": "Speichern"
+    },
     "searchPanel": {
       "title": "Im Chat suchen",
       "placeholder": "Im Chat suchen…",

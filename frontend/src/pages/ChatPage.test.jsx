@@ -62,6 +62,7 @@ function renderChatPage({ historyPage } = {}) {
 // being evidence of anything.
 const ANSWER_RESULT = {
   message_id: 'assistant-msg-1',
+  user_message_id: 'user-msg-1',
   segments: [
     {
       text: "TechCorp's refund window is 30 days.",
@@ -404,6 +405,100 @@ describe('ChatPage', () => {
     expect(askSpy).toHaveBeenCalledTimes(1)
 
     resolveAsk({ segments: [], empty_reason: null })
+  })
+})
+
+// Editing a past question (mirrors chat/service.py::edit_message's own
+// "discard this question and everything after it, then ask fresh"
+// contract): the edited question's own turn plus every later turn must
+// disappear from the thread, replaced by the edited question and its new
+// answer -- not merely appended alongside the old ones.
+describe('ChatPage editing a past question', () => {
+  const HISTORY_TWO_TURNS = {
+    messages: [
+      {
+        id: 'm4',
+        role: 'assistant',
+        question: null,
+        segments: [{ text: 'The warranty is one year.', citations: [] }],
+        empty_reason: null,
+        created_at: '2026-01-01T00:00:04',
+      },
+      {
+        id: 'm3',
+        role: 'user',
+        question: 'What is the warranty period?',
+        segments: null,
+        empty_reason: null,
+        created_at: '2026-01-01T00:00:03',
+      },
+      {
+        id: 'm2',
+        role: 'assistant',
+        question: null,
+        segments: [{ text: 'The refund window is 30 days.', citations: [] }],
+        empty_reason: null,
+        created_at: '2026-01-01T00:00:02',
+      },
+      {
+        id: 'm1',
+        role: 'user',
+        question: 'What is the refund window?',
+        segments: null,
+        empty_reason: null,
+        created_at: '2026-01-01T00:00:01',
+      },
+    ],
+    next_cursor: null,
+    has_more: false,
+  }
+
+  it('replaces the edited turn and discards every later turn with the fresh answer', async () => {
+    renderChatPage({ historyPage: HISTORY_TWO_TURNS })
+    await screen.findByText('What is the warranty period?')
+
+    const editSpy = vi.spyOn(chatClient, 'editMessage').mockResolvedValue({
+      message_id: 'assistant-msg-new',
+      user_message_id: 'user-msg-new',
+      segments: [{ text: 'The refund window is 60 days.', citations: [] }],
+      empty_reason: null,
+      followup_questions: [],
+    })
+    const user = userEvent.setup()
+
+    // Two user messages in this history -- edit the *first* (oldest) one.
+    await user.click(screen.getAllByRole('button', { name: 'Edit your message' })[0])
+    const textarea = screen.getByRole('textbox', { name: 'Edit your message' })
+    await user.clear(textarea)
+    await user.type(textarea, 'What is the refund window, exactly?{Enter}')
+
+    expect(editSpy).toHaveBeenCalledWith(expect.anything(), SESSION_ID, 'm1', 'What is the refund window, exactly?', [])
+
+    // The edited question's own new text renders...
+    expect(await screen.findByText('What is the refund window, exactly?')).toBeInTheDocument()
+    expect(await screen.findByText('The refund window is 60 days.', { exact: false })).toBeInTheDocument()
+    // ...and both the old first-turn text and the entire second turn are gone.
+    expect(screen.queryByText('What is the refund window?')).not.toBeInTheDocument()
+    expect(screen.queryByText('The refund window is 30 days.', { exact: false })).not.toBeInTheDocument()
+    expect(screen.queryByText('What is the warranty period?')).not.toBeInTheDocument()
+    expect(screen.queryByText('The warranty is one year.', { exact: false })).not.toBeInTheDocument()
+  })
+
+  it('Cancel leaves the thread untouched and never calls the backend', async () => {
+    renderChatPage({ historyPage: HISTORY_TWO_TURNS })
+    await screen.findByText('What is the warranty period?')
+    const editSpy = vi.spyOn(chatClient, 'editMessage')
+    const user = userEvent.setup()
+
+    await user.click(screen.getAllByRole('button', { name: 'Edit your message' })[0])
+    const textarea = screen.getByRole('textbox', { name: 'Edit your message' })
+    await user.clear(textarea)
+    await user.type(textarea, 'a discarded draft')
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(editSpy).not.toHaveBeenCalled()
+    expect(screen.getByText('What is the refund window?')).toBeInTheDocument()
+    expect(screen.getByText('What is the warranty period?')).toBeInTheDocument()
   })
 })
 

@@ -93,6 +93,19 @@ def history(
     return service.get_history(db, current_user, session_id, cursor, limit)
 
 
+@router.post("/sessions/{session_id}/messages/{message_id}/edit", response_model=AskResponse)
+def edit_message(
+    session_id: uuid.UUID,
+    message_id: uuid.UUID,
+    request: AskRequest,
+    db: Session = Depends(get_db_session),
+    current_user: User = Depends(get_current_user),
+) -> AskResponse:
+    return service.edit_message(
+        db, current_user, session_id, message_id, request.question, request.document_ids
+    )
+
+
 @router.put("/messages/{message_id}/feedback", response_model=MessageFeedbackResponse)
 def set_message_feedback(
     message_id: uuid.UUID,

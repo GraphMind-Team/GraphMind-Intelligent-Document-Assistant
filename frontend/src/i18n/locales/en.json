@@ -305,6 +305,12 @@
     "followup": {
       "label": "Ask more:"
     },
+    "userMessage": {
+      "copy": "Copy your message",
+      "edit": "Edit your message",
+      "editLabel": "Edit your message",
+      "save": "Save"
+    },
     "searchPanel": {
       "title": "Search in chat",
       "placeholder": "Search in chat…",

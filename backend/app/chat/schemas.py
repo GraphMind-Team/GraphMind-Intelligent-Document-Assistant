@@ -77,6 +77,11 @@ class AskResponse(BaseModel):
     # (`PUT /chat/messages/{id}/feedback`) to a just-answered turn without
     # a reload/history-refetch first.
     message_id: uuid.UUID | None = None
+    # Same "set by _finish, never None over the wire" story as message_id
+    # above, but for this turn's own question row. Lets the frontend edit
+    # (`POST /chat/sessions/{id}/messages/{id}/edit`) a just-asked question
+    # without a reload first, the same way message_id does for feedback.
+    user_message_id: uuid.UUID | None = None
     segments: list[AnswerSegmentResponse]
     # None when segments is non-empty. Distinguishes four otherwise-
     # identical-looking "nothing to show" cases so the frontend can render
