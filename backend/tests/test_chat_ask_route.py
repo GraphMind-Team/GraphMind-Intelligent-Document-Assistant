@@ -1,8 +1,10 @@
-"""`POST /chat/ask` tests (Stories 3.1, 3.2): auth requirement, Pydantic-level
-question validation (422, not a manual 400), the three distinct empty_reason
-outcomes ("no_documents", "no_answer", "refusal"), the exact 503 point for an
-LLM-wrapper failure, cross-tenant isolation of citation resolution, and a
-full success path resolving real `{chapter, document_filename}` citations.
+"""`POST /chat/sessions/{session_id}/ask` tests (Stories 3.1, 3.2;
+session-nested for multi-session chat): auth requirement, session-ownership
+404s, Pydantic-level question validation (422, not a manual 400), the three
+distinct empty_reason outcomes ("no_documents", "no_answer", "refusal"), the
+exact 503 point for an LLM-wrapper failure, cross-tenant isolation of
+citation resolution, and a full success path resolving real
+`{chapter, document_filename}` citations.
 
 `search_passages`/`generate_answer` are mocked at their
 `app.chat.service`-bound names (the module-level names that module imported
@@ -17,7 +19,10 @@ Story 3.4/FR-17 adds conversational-memory coverage at the bottom of this
 file: persistence round-tripping (and the one documented non-persisted
 path, a 503), history threading into the retrieval query text and into
 `generate_answer`'s `history` param, the empty-history/pre-3.4-identical
-case, the 3-turn/2000-char budget, and scope-change-mid-conversation.
+case, the 3-turn/2000-char budget, and scope-change-mid-conversation --
+every seeded turn there now belongs to the same session the test's own
+`/ask` call targets, so history threading is exercised the same
+session-scoped way production resolves it.
 """
 
 import uuid
@@ -46,6 +51,16 @@ def _auth_headers(token):
     return {"Authorization": f"Bearer {token}"}
 
 
+def _create_session_id(client, token):
+    response = client.post("/chat/sessions", headers=_auth_headers(token))
+    assert response.status_code == 201, response.text
+    return uuid.UUID(response.json()["id"])
+
+
+def _ask_url(session_id):
+    return f"/chat/sessions/{session_id}/ask"
+
+
 def _upload(client, token, filename="report.pdf", content=b"%PDF-1.4 fake pdf bytes"):
     response = client.post(
         "/documents",
@@ -69,11 +84,12 @@ def _passage(
     )
 
 
-def _seed_turn(db_session, user_id, *, question, answer_text, created_at):
+def _seed_turn(db_session, user_id, session_id, *, question, answer_text, created_at):
     """Directly inserts a completed (user, assistant) turn -- bypassing
-    `/chat/ask` entirely -- with an explicit `created_at` on both rows.
+    `/chat/sessions/{id}/ask` entirely -- with an explicit `created_at` on
+    both rows, against the given `session_id`.
 
-    Real successive `/chat/ask` calls within one fast-running test would
+    Real successive `/ask` calls within one fast-running test would
     all tie on SQLite's `CURRENT_TIMESTAMP` (whole-second resolution --
     see `app/chat/repository.py`'s `_TURN_ROLE_RANK` comment for why
     Postgres has the same tie *within* one turn, by design, but not
@@ -83,10 +99,13 @@ def _seed_turn(db_session, user_id, *, question, answer_text, created_at):
     per-transaction timestamps rather than fighting the test DB's clock
     granularity.
     """
-    db_session.add(ChatMessage(user_id=user_id, role="user", question=question, created_at=created_at))
+    db_session.add(
+        ChatMessage(user_id=user_id, session_id=session_id, role="user", question=question, created_at=created_at)
+    )
     db_session.add(
         ChatMessage(
             user_id=user_id,
+            session_id=session_id,
             role="assistant",
             segments=[{"text": answer_text, "citations": []}] if answer_text else [],
             created_at=created_at,
@@ -96,23 +115,37 @@ def _seed_turn(db_session, user_id, *, question, answer_text, created_at):
 
 
 def test_ask_requires_authentication(client):
-    response = client.post("/chat/ask", json={"question": "What is the refund window?"})
+    response = client.post(_ask_url(uuid.uuid4()), json={"question": "What is the refund window?"})
     assert response.status_code == 401
+
+
+def test_ask_unknown_session_returns_404(client):
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-chat-404@example.com", password="password12345"
+    )
+
+    response = client.post(
+        _ask_url(uuid.uuid4()), headers=_auth_headers(token), json={"question": "Anything in my docs?"}
+    )
+
+    assert response.status_code == 404
 
 
 def test_ask_rejects_blank_question_with_422_not_400(client):
     token = _register_and_login(client, full_name="Maria", email="maria-chat-1@example.com", password="password12345")
+    session_id = _create_session_id(client, token)
 
-    response = client.post("/chat/ask", headers=_auth_headers(token), json={"question": "   "})
+    response = client.post(_ask_url(session_id), headers=_auth_headers(token), json={"question": "   "})
 
     assert response.status_code == 422
 
 
 def test_ask_rejects_over_length_question_with_422(client):
     token = _register_and_login(client, full_name="Maria", email="maria-chat-2@example.com", password="password12345")
+    session_id = _create_session_id(client, token)
 
     response = client.post(
-        "/chat/ask", headers=_auth_headers(token), json={"question": "x" * 2001}
+        _ask_url(session_id), headers=_auth_headers(token), json={"question": "x" * 2001}
     )
 
     assert response.status_code == 422
@@ -120,9 +153,10 @@ def test_ask_rejects_over_length_question_with_422(client):
 
 def test_ask_zero_passages_returns_no_documents_reason(client, db_session, monkeypatch):
     token = _register_and_login(client, full_name="Maria", email="maria-chat-3@example.com", password="password12345")
+    session_id = _create_session_id(client, token)
     monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: [])
 
-    response = client.post("/chat/ask", headers=_auth_headers(token), json={"question": "Anything in my docs?"})
+    response = client.post(_ask_url(session_id), headers=_auth_headers(token), json={"question": "Anything in my docs?"})
 
     assert response.status_code == 200
     body = response.json()
@@ -142,6 +176,7 @@ def test_ask_zero_passages_returns_no_documents_reason(client, db_session, monke
 
 def test_ask_generation_producing_no_answerable_segments_returns_no_answer_reason(client, db_session, monkeypatch):
     token = _register_and_login(client, full_name="Maria", email="maria-chat-4@example.com", password="password12345")
+    session_id = _create_session_id(client, token)
     document = _upload(client, token)
     monkeypatch.setattr(
         chat_service_module, "search_passages", lambda *a, **k: [_passage(document["id"])]
@@ -150,7 +185,7 @@ def test_ask_generation_producing_no_answerable_segments_returns_no_answer_reaso
         chat_service_module, "generate_answer", lambda *a, **k: AnswerResult(segments=[])
     )
 
-    response = client.post("/chat/ask", headers=_auth_headers(token), json={"question": "Unanswerable?"})
+    response = client.post(_ask_url(session_id), headers=_auth_headers(token), json={"question": "Unanswerable?"})
 
     assert response.status_code == 200
     body = response.json()
@@ -174,6 +209,7 @@ def test_ask_refuses_when_every_passage_is_below_the_relevance_threshold(client,
     token = _register_and_login(
         client, full_name="Maria", email="maria-chat-refusal-1@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     document = _upload(client, token)
     passages = [
         _passage(document["id"], distance=RELEVANCE_THRESHOLD + 0.2),
@@ -184,7 +220,7 @@ def test_ask_refuses_when_every_passage_is_below_the_relevance_threshold(client,
     monkeypatch.setattr(chat_service_module, "generate_answer", generate_answer_mock)
 
     response = client.post(
-        "/chat/ask", headers=_auth_headers(token), json={"question": "Something unrelated to my documents?"}
+        _ask_url(session_id), headers=_auth_headers(token), json={"question": "Something unrelated to my documents?"}
     )
 
     assert response.status_code == 200
@@ -201,6 +237,7 @@ def test_ask_proceeds_when_at_least_one_passage_clears_the_threshold(client, mon
     token = _register_and_login(
         client, full_name="Maria", email="maria-chat-refusal-2@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     document = _upload(client, token)
     passages = [
         _passage(document["id"], distance=RELEVANCE_THRESHOLD + 0.1),
@@ -216,7 +253,7 @@ def test_ask_proceeds_when_at_least_one_passage_clears_the_threshold(client, mon
     )
 
     response = client.post(
-        "/chat/ask", headers=_auth_headers(token), json={"question": "What does it say?"}
+        _ask_url(session_id), headers=_auth_headers(token), json={"question": "What does it say?"}
     )
 
     assert response.status_code == 200
@@ -229,6 +266,7 @@ def test_ask_treats_exact_threshold_distance_as_relevant(client, monkeypatch):
     token = _register_and_login(
         client, full_name="Maria", email="maria-chat-refusal-3@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     document = _upload(client, token)
     passages = [_passage(document["id"], distance=RELEVANCE_THRESHOLD)]
     monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: passages)
@@ -240,7 +278,7 @@ def test_ask_treats_exact_threshold_distance_as_relevant(client, monkeypatch):
     monkeypatch.setattr(chat_service_module, "generate_answer", generate_answer_mock)
 
     response = client.post(
-        "/chat/ask", headers=_auth_headers(token), json={"question": "What does it say?"}
+        _ask_url(session_id), headers=_auth_headers(token), json={"question": "What does it say?"}
     )
 
     assert response.status_code == 200
@@ -259,6 +297,7 @@ def test_ask_refuses_when_every_passage_has_no_distance_metadata(client, monkeyp
     token = _register_and_login(
         client, full_name="Maria", email="maria-chat-refusal-4@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     document = _upload(client, token)
     passages = [_passage(document["id"], distance=None)]
     monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: passages)
@@ -266,7 +305,7 @@ def test_ask_refuses_when_every_passage_has_no_distance_metadata(client, monkeyp
     monkeypatch.setattr(chat_service_module, "generate_answer", generate_answer_mock)
 
     response = client.post(
-        "/chat/ask", headers=_auth_headers(token), json={"question": "Anything in my docs?"}
+        _ask_url(session_id), headers=_auth_headers(token), json={"question": "Anything in my docs?"}
     )
 
     assert response.status_code == 200
@@ -277,6 +316,7 @@ def test_ask_refuses_when_every_passage_has_no_distance_metadata(client, monkeyp
 
 def test_ask_llm_wrapper_failure_surfaces_as_exactly_503(client, monkeypatch):
     token = _register_and_login(client, full_name="Maria", email="maria-chat-5@example.com", password="password12345")
+    session_id = _create_session_id(client, token)
     document = _upload(client, token)
     monkeypatch.setattr(
         chat_service_module, "search_passages", lambda *a, **k: [_passage(document["id"])]
@@ -287,7 +327,7 @@ def test_ask_llm_wrapper_failure_surfaces_as_exactly_503(client, monkeypatch):
 
     monkeypatch.setattr(chat_service_module, "generate_answer", _raise_chat_completion_error)
 
-    response = client.post("/chat/ask", headers=_auth_headers(token), json={"question": "What is it?"})
+    response = client.post(_ask_url(session_id), headers=_auth_headers(token), json={"question": "What is it?"})
 
     assert response.status_code == 503
     assert "detail" in response.json()
@@ -295,6 +335,7 @@ def test_ask_llm_wrapper_failure_surfaces_as_exactly_503(client, monkeypatch):
 
 def test_ask_success_resolves_real_chapter_and_filename_citations(client, monkeypatch):
     token = _register_and_login(client, full_name="Maria", email="maria-chat-6@example.com", password="password12345")
+    session_id = _create_session_id(client, token)
     document = _upload(client, token, filename="Vendor_Agreement_2026.pdf")
     passages = [_passage(document["id"], chapter="Chapter 4")]
     monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: passages)
@@ -312,7 +353,7 @@ def test_ask_success_resolves_real_chapter_and_filename_citations(client, monkey
     )
 
     response = client.post(
-        "/chat/ask", headers=_auth_headers(token), json={"question": "What is the refund window?"}
+        _ask_url(session_id), headers=_auth_headers(token), json={"question": "What is the refund window?"}
     )
 
     assert response.status_code == 200
@@ -335,6 +376,7 @@ def test_ask_deduplicates_repeated_chapter_and_filename_citations(client, monkey
     passage_number, e.g. [1, 1] -- must render as one citation chip, not
     two identical ones side by side."""
     token = _register_and_login(client, full_name="Maria", email="maria-chat-dedup@example.com", password="password12345")
+    session_id = _create_session_id(client, token)
     document = _upload(client, token, filename="Vendor_Agreement_2026.pdf")
     passages = [
         _passage(document["id"], chapter="Chapter 4", chunk_id="chunk-a", chunk_index=0, text="first chunk"),
@@ -353,7 +395,7 @@ def test_ask_deduplicates_repeated_chapter_and_filename_citations(client, monkey
     )
 
     response = client.post(
-        "/chat/ask", headers=_auth_headers(token), json={"question": "What does it say?"}
+        _ask_url(session_id), headers=_auth_headers(token), json={"question": "What does it say?"}
     )
 
     assert response.status_code == 200
@@ -381,6 +423,7 @@ def test_ask_does_not_duplicate_a_chunk_index_when_the_model_repeats_a_passage_n
     token = _register_and_login(
         client, full_name="Maria", email="maria-chat-repeat@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     document = _upload(client, token, filename="Vendor_Agreement_2026.pdf")
     passages = [_passage(document["id"], chapter="Chapter 4", chunk_index=7)]
     monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: passages)
@@ -394,7 +437,7 @@ def test_ask_does_not_duplicate_a_chunk_index_when_the_model_repeats_a_passage_n
     )
 
     response = client.post(
-        "/chat/ask", headers=_auth_headers(token), json={"question": "What does it say?"}
+        _ask_url(session_id), headers=_auth_headers(token), json={"question": "What does it say?"}
     )
 
     assert response.status_code == 200
@@ -415,6 +458,7 @@ def test_ask_keeps_separate_citations_for_different_chapters_of_one_document(cli
     token = _register_and_login(
         client, full_name="Maria", email="maria-chat-chapters@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     document = _upload(client, token, filename="Vendor_Agreement_2026.pdf")
     passages = [
         _passage(document["id"], chapter="Chapter 4", chunk_id="chunk-a", chunk_index=0),
@@ -431,7 +475,7 @@ def test_ask_keeps_separate_citations_for_different_chapters_of_one_document(cli
     )
 
     response = client.post(
-        "/chat/ask", headers=_auth_headers(token), json={"question": "What does it say?"}
+        _ask_url(session_id), headers=_auth_headers(token), json={"question": "What does it say?"}
     )
 
     assert response.status_code == 200
@@ -475,6 +519,7 @@ def test_ask_scopes_retrieval_to_the_authenticated_users_id(client, monkeypatch)
     )
     assert login_response.status_code == 200, login_response.text
     token = login_response.json()["access_token"]
+    session_id = _create_session_id(client, token)
 
     document = _upload(client, token)
 
@@ -490,7 +535,7 @@ def test_ask_scopes_retrieval_to_the_authenticated_users_id(client, monkeypatch)
     )
 
     response = client.post(
-        "/chat/ask", headers=_auth_headers(token), json={"question": "Anything in my docs?"}
+        _ask_url(session_id), headers=_auth_headers(token), json={"question": "Anything in my docs?"}
     )
 
     assert response.status_code == 200
@@ -507,6 +552,7 @@ def test_ask_passes_document_ids_scope_to_search_passages(client, monkeypatch):
     token = _register_and_login(
         client, full_name="Maria", email="maria-chat-scope-1@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     document = _upload(client, token)
 
     captured = {}
@@ -521,7 +567,7 @@ def test_ask_passes_document_ids_scope_to_search_passages(client, monkeypatch):
     )
 
     response = client.post(
-        "/chat/ask",
+        _ask_url(session_id),
         headers=_auth_headers(token),
         json={"question": "What does this say?", "document_ids": [document["id"]]},
     )
@@ -538,10 +584,11 @@ def test_ask_rejects_oversized_document_ids_with_422(client):
     token = _register_and_login(
         client, full_name="Maria", email="maria-chat-scope-cap@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     oversized_ids = [str(uuid.uuid4()) for _ in range(201)]
 
     response = client.post(
-        "/chat/ask",
+        _ask_url(session_id),
         headers=_auth_headers(token),
         json={"question": "Anything in my docs?", "document_ids": oversized_ids},
     )
@@ -556,6 +603,7 @@ def test_ask_omitted_document_ids_defaults_to_empty_scope_list(client, monkeypat
     token = _register_and_login(
         client, full_name="Maria", email="maria-chat-scope-2@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
 
     captured = {}
 
@@ -566,7 +614,7 @@ def test_ask_omitted_document_ids_defaults_to_empty_scope_list(client, monkeypat
     monkeypatch.setattr(chat_service_module, "search_passages", _fake_search_passages)
 
     response = client.post(
-        "/chat/ask", headers=_auth_headers(token), json={"question": "Anything in my docs?"}
+        _ask_url(session_id), headers=_auth_headers(token), json={"question": "Anything in my docs?"}
     )
 
     assert response.status_code == 200
@@ -584,11 +632,12 @@ def test_ask_scoped_to_documents_with_no_passages_returns_empty_scope_not_no_doc
     token = _register_and_login(
         client, full_name="Maria", email="maria-chat-scope-3@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     document = _upload(client, token)
     monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: [])
 
     response = client.post(
-        "/chat/ask",
+        _ask_url(session_id),
         headers=_auth_headers(token),
         json={"question": "Anything in scope?", "document_ids": [document["id"]]},
     )
@@ -619,6 +668,7 @@ def test_ask_cross_tenant_citation_is_dropped_not_leaked(client, monkeypatch):
     token_b = _register_and_login(
         client, full_name="Account B", email="account-b-chat@example.com", password="password-account-b"
     )
+    session_id_b = _create_session_id(client, token_b)
     document_a = _upload(client, token_a, filename="account-a-only.pdf")
 
     passages = [_passage(document_a["id"])]
@@ -633,7 +683,7 @@ def test_ask_cross_tenant_citation_is_dropped_not_leaked(client, monkeypatch):
     )
 
     response_b = client.post(
-        "/chat/ask", headers=_auth_headers(token_b), json={"question": "What does it say?"}
+        _ask_url(session_id_b), headers=_auth_headers(token_b), json={"question": "What does it say?"}
     )
 
     assert response_b.status_code == 200
@@ -642,6 +692,26 @@ def test_ask_cross_tenant_citation_is_dropped_not_leaked(client, monkeypatch):
     # the segment -- and therefore the whole answer -- is dropped.
     assert body["segments"] == []
     assert body["empty_reason"] == "no_answer"
+
+
+def test_ask_cross_tenant_cannot_ask_into_another_accounts_session(client, monkeypatch):
+    """Naming account A's own `session_id` from account B's token must
+    404, the same IDOR-safe outcome as any other cross-tenant resource
+    access in this codebase -- never a 403 that would confirm the id
+    exists, and never silently answered into A's session."""
+    token_a = _register_and_login(
+        client, full_name="Account A", email="account-a-chat-session@example.com", password="password-account-a"
+    )
+    token_b = _register_and_login(
+        client, full_name="Account B", email="account-b-chat-session@example.com", password="password-account-b"
+    )
+    session_id_a = _create_session_id(client, token_a)
+
+    response = client.post(
+        _ask_url(session_id_a), headers=_auth_headers(token_b), json={"question": "What does it say?"}
+    )
+
+    assert response.status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -702,6 +772,7 @@ def test_ask_persists_user_and_assistant_messages_on_success(client, db_session,
     token = _register_and_login(
         client, full_name="Maria", email="maria-chat-persist-1@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     document = _upload(client, token, filename="Vendor_Agreement_2026.pdf")
     passages = [_passage(document["id"], chapter="Chapter 4")]
     monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: passages)
@@ -715,7 +786,7 @@ def test_ask_persists_user_and_assistant_messages_on_success(client, db_session,
     )
 
     response = client.post(
-        "/chat/ask", headers=_auth_headers(token), json={"question": "What is the refund window?"}
+        _ask_url(session_id), headers=_auth_headers(token), json={"question": "What is the refund window?"}
     )
     assert response.status_code == 200
 
@@ -743,6 +814,7 @@ def test_ask_persists_a_refusal_as_a_message_too(client, db_session, monkeypatch
     token = _register_and_login(
         client, full_name="Maria", email="maria-chat-persist-2@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     document = _upload(client, token)
     passages = [_passage(document["id"], distance=RELEVANCE_THRESHOLD + 0.5)]
     monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: passages)
@@ -750,7 +822,7 @@ def test_ask_persists_a_refusal_as_a_message_too(client, db_session, monkeypatch
     monkeypatch.setattr(chat_service_module, "generate_answer", generate_answer_mock)
 
     response = client.post(
-        "/chat/ask", headers=_auth_headers(token), json={"question": "Something unrelated?"}
+        _ask_url(session_id), headers=_auth_headers(token), json={"question": "Something unrelated?"}
     )
     assert response.status_code == 200
     assert response.json()["empty_reason"] == "refusal"
@@ -768,6 +840,7 @@ def test_ask_does_not_persist_any_message_on_llm_wrapper_failure(client, db_sess
     token = _register_and_login(
         client, full_name="Maria", email="maria-chat-persist-3@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     document = _upload(client, token)
     monkeypatch.setattr(
         chat_service_module, "search_passages", lambda *a, **k: [_passage(document["id"])]
@@ -778,7 +851,7 @@ def test_ask_does_not_persist_any_message_on_llm_wrapper_failure(client, db_sess
 
     monkeypatch.setattr(chat_service_module, "generate_answer", _raise_chat_completion_error)
 
-    response = client.post("/chat/ask", headers=_auth_headers(token), json={"question": "What is it?"})
+    response = client.post(_ask_url(session_id), headers=_auth_headers(token), json={"question": "What is it?"})
 
     assert response.status_code == 503
     assert db_session.query(ChatMessage).count() == 0
@@ -793,6 +866,7 @@ def test_ask_fresh_conversation_retrieves_with_exactly_the_question(client, monk
     token = _register_and_login(
         client, full_name="Maria", email="maria-chat-history-1@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     captured = {}
 
     def _capturing_search(query_text, *a, **k):
@@ -802,7 +876,7 @@ def test_ask_fresh_conversation_retrieves_with_exactly_the_question(client, monk
     monkeypatch.setattr(chat_service_module, "search_passages", _capturing_search)
 
     response = client.post(
-        "/chat/ask", headers=_auth_headers(token), json={"question": "First question ever?"}
+        _ask_url(session_id), headers=_auth_headers(token), json={"question": "First question ever?"}
     )
 
     assert response.status_code == 200
@@ -813,6 +887,7 @@ def test_ask_fresh_conversation_calls_generate_answer_with_falsy_history(client,
     token = _register_and_login(
         client, full_name="Maria", email="maria-chat-history-2@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     document = _upload(client, token)
     monkeypatch.setattr(
         chat_service_module, "search_passages", lambda *a, **k: [_passage(document["id"])]
@@ -826,7 +901,7 @@ def test_ask_fresh_conversation_calls_generate_answer_with_falsy_history(client,
     monkeypatch.setattr(chat_service_module, "generate_answer", generate_answer_mock)
 
     response = client.post(
-        "/chat/ask", headers=_auth_headers(token), json={"question": "First question ever?"}
+        _ask_url(session_id), headers=_auth_headers(token), json={"question": "First question ever?"}
     )
 
     assert response.status_code == 200
@@ -840,10 +915,12 @@ def test_ask_threads_prior_question_into_retrieval_query_text(client, db_session
     token = _register_and_login(
         client, full_name="Maria", email="maria-chat-history-3@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     user_id = uuid.UUID(client.get("/auth/me", headers=_auth_headers(token)).json()["id"])
     _seed_turn(
         db_session,
         user_id,
+        session_id,
         question="Who is the vendor?",
         answer_text="TechCorp is the vendor.",
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
@@ -857,7 +934,7 @@ def test_ask_threads_prior_question_into_retrieval_query_text(client, db_session
     monkeypatch.setattr(chat_service_module, "search_passages", _capturing_search)
 
     response = client.post(
-        "/chat/ask", headers=_auth_headers(token), json={"question": "What about its refund window?"}
+        _ask_url(session_id), headers=_auth_headers(token), json={"question": "What about its refund window?"}
     )
 
     assert response.status_code == 200
@@ -875,10 +952,12 @@ def test_ask_threads_full_prior_turn_into_generate_answer_history(client, db_ses
     token = _register_and_login(
         client, full_name="Maria", email="maria-chat-history-4@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     user_id = uuid.UUID(client.get("/auth/me", headers=_auth_headers(token)).json()["id"])
     _seed_turn(
         db_session,
         user_id,
+        session_id,
         question="Who is the vendor?",
         answer_text="TechCorp is the vendor.",
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
@@ -896,7 +975,7 @@ def test_ask_threads_full_prior_turn_into_generate_answer_history(client, db_ses
     monkeypatch.setattr(chat_service_module, "generate_answer", generate_answer_mock)
 
     response = client.post(
-        "/chat/ask", headers=_auth_headers(token), json={"question": "What about its refund window?"}
+        _ask_url(session_id), headers=_auth_headers(token), json={"question": "What about its refund window?"}
     )
 
     assert response.status_code == 200
@@ -914,12 +993,14 @@ def test_ask_history_window_capped_at_three_turns(client, db_session, monkeypatc
     token = _register_and_login(
         client, full_name="Maria", email="maria-chat-history-5@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     user_id = uuid.UUID(client.get("/auth/me", headers=_auth_headers(token)).json()["id"])
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
     for i in range(5):
         _seed_turn(
             db_session,
             user_id,
+            session_id,
             question=f"Question {i}?",
             answer_text=f"Answer {i}.",
             created_at=base + timedelta(seconds=i),
@@ -937,7 +1018,7 @@ def test_ask_history_window_capped_at_three_turns(client, db_session, monkeypatc
     monkeypatch.setattr(chat_service_module, "generate_answer", generate_answer_mock)
 
     response = client.post(
-        "/chat/ask", headers=_auth_headers(token), json={"question": "A sixth question?"}
+        _ask_url(session_id), headers=_auth_headers(token), json={"question": "A sixth question?"}
     )
 
     assert response.status_code == 200
@@ -956,12 +1037,14 @@ def test_ask_scope_change_mid_conversation_retrieves_only_current_scope(client, 
     token = _register_and_login(
         client, full_name="Maria", email="maria-chat-history-6@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     document_a = _upload(client, token, filename="doc-a.pdf")
     document_b = _upload(client, token, filename="doc-b.pdf", content=b"%PDF-1.4 different bytes entirely")
     user_id = uuid.UUID(client.get("/auth/me", headers=_auth_headers(token)).json()["id"])
     _seed_turn(
         db_session,
         user_id,
+        session_id,
         question="What does document A say?",
         answer_text="Document A says X.",
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
@@ -975,7 +1058,7 @@ def test_ask_scope_change_mid_conversation_retrieves_only_current_scope(client, 
     monkeypatch.setattr(chat_service_module, "search_passages", _fake_search_passages)
 
     response = client.post(
-        "/chat/ask",
+        _ask_url(session_id),
         headers=_auth_headers(token),
         json={"question": "What about it?", "document_ids": [document_b["id"]]},
     )
@@ -999,6 +1082,7 @@ def test_ask_scope_change_with_multiple_prior_turns_still_respects_current_scope
     token = _register_and_login(
         client, full_name="Maria", email="maria-chat-history-multi-scope@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     document_a = _upload(client, token, filename="doc-a-multi.pdf", content=b"%PDF-1.4 doc a multi")
     document_b = _upload(
         client, token, filename="doc-b-multi.pdf", content=b"%PDF-1.4 doc b multi entirely different"
@@ -1008,6 +1092,7 @@ def test_ask_scope_change_with_multiple_prior_turns_still_respects_current_scope
     _seed_turn(
         db_session,
         user_id,
+        session_id,
         question="What does document A say about pricing?",
         answer_text="Document A's price is 100 USD.",
         created_at=base,
@@ -1015,6 +1100,7 @@ def test_ask_scope_change_with_multiple_prior_turns_still_respects_current_scope
     _seed_turn(
         db_session,
         user_id,
+        session_id,
         question="What about delivery?",
         answer_text="Delivery takes 5 days.",
         created_at=base + timedelta(seconds=1),
@@ -1029,7 +1115,7 @@ def test_ask_scope_change_with_multiple_prior_turns_still_respects_current_scope
     monkeypatch.setattr(chat_service_module, "search_passages", _fake_search_passages)
 
     response = client.post(
-        "/chat/ask",
+        _ask_url(session_id),
         headers=_auth_headers(token),
         json={"question": "What about warranty?", "document_ids": [document_b["id"]]},
     )
@@ -1048,6 +1134,44 @@ def test_ask_scope_change_with_multiple_prior_turns_still_respects_current_scope
     assert "What about warranty?" in query_text
 
 
+def test_ask_does_not_thread_another_sessions_history(client, db_session, monkeypatch):
+    """Multi-session chat's core isolation guarantee applied to history
+    threading specifically: a prior turn seeded into a DIFFERENT session
+    of the same account must never appear in this session's retrieval
+    query text or `generate_answer` history, even though both sessions
+    share one `user_id`."""
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-chat-history-isolation@example.com", password="password12345"
+    )
+    other_session_id = _create_session_id(client, token)
+    session_id = _create_session_id(client, token)
+    user_id = uuid.UUID(client.get("/auth/me", headers=_auth_headers(token)).json()["id"])
+    _seed_turn(
+        db_session,
+        user_id,
+        other_session_id,
+        question="Who is the vendor?",
+        answer_text="TechCorp is the vendor.",
+        created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+    captured = {}
+
+    def _capturing_search(query_text, *a, **k):
+        captured["texts"] = [query_text]
+        return []
+
+    monkeypatch.setattr(chat_service_module, "search_passages", _capturing_search)
+
+    response = client.post(
+        _ask_url(session_id), headers=_auth_headers(token), json={"question": "First question in this session?"}
+    )
+
+    assert response.status_code == 200
+    # Exactly the fresh-conversation shape -- the other session's turn
+    # never leaked in.
+    assert captured["texts"] == ["First question in this session?"]
+
+
 def test_ask_with_use_history_false_skips_the_history_read_entirely(client, db_session, monkeypatch):
     """Story 3.4: `use_history=False` (the flag `scripts/eval_harness.py`
     passes so Epic 6's measurement stays single-question, as OD-3's
@@ -1059,10 +1183,12 @@ def test_ask_with_use_history_false_skips_the_history_read_entirely(client, db_s
     token = _register_and_login(
         client, full_name="Maria", email="maria-chat-nohistory@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     user_id = uuid.UUID(client.get("/auth/me", headers=_auth_headers(token)).json()["id"])
     _seed_turn(
         db_session,
         user_id,
+        session_id,
         question="Who is the vendor?",
         answer_text="TechCorp is the vendor.",
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
@@ -1091,7 +1217,7 @@ def test_ask_with_use_history_false_skips_the_history_read_entirely(client, db_s
 
     user = db_session.get(User, user_id)
     response = chat_service_module.ask_question(
-        db_session, user, "What about its refund window?", [], use_history=False
+        db_session, user, session_id, "What about its refund window?", [], use_history=False
     )
 
     assert response.empty_reason is None
@@ -1109,13 +1235,14 @@ def test_ask_still_persists_the_turn_when_use_history_is_false(client, db_sessio
     token = _register_and_login(
         client, full_name="Maria", email="maria-chat-nohistory-2@example.com", password="password12345"
     )
+    session_id = _create_session_id(client, token)
     user_id = uuid.UUID(client.get("/auth/me", headers=_auth_headers(token)).json()["id"])
     monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: [])
 
     from app.shared.models import User
 
     user = db_session.get(User, user_id)
-    chat_service_module.ask_question(db_session, user, "Any documents?", [], use_history=False)
+    chat_service_module.ask_question(db_session, user, session_id, "Any documents?", [], use_history=False)
 
     rows = (
         db_session.query(ChatMessage)

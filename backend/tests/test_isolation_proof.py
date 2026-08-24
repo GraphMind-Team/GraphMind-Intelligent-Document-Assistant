@@ -65,7 +65,13 @@ def test_covered_routes_excludes_exactly_the_public_allowlist():
     covered_paths = {route.path for route in _covered_routes(app)}
     assert covered_paths.isdisjoint(PUBLIC_ALLOWLIST_PATHS)
     # Every protected endpoint named in the spec's Boundaries is present.
-    assert {"/auth/me", "/documents", "/documents/{document_id}", "/chat/ask", "/kg/graph"} <= covered_paths
+    assert {
+        "/auth/me",
+        "/documents",
+        "/documents/{document_id}",
+        "/chat/sessions/{session_id}/ask",
+        "/kg/graph",
+    } <= covered_paths
 
 
 def test_covered_routes_meets_the_minimum_expected_count():
@@ -429,7 +435,14 @@ def test_password_change_check_is_inconclusive_on_rate_limit_and_attempts_no_rev
 class _FakeChatOrGraphClient:
     """Returns fixed response text per bearer token -- enough surface for
     both `_check_chat_ask_no_leak` (`.post`) and `_check_kg_graph_no_leak`
-    (`.get`), since both only ever read `.status_code`/`.text`."""
+    (`.get`), since both only ever read `.status_code`/`.text`.
+
+    Multi-session chat: `_check_chat_ask_no_leak` now creates a session
+    (`POST /chat/sessions`) before its actual leak probe
+    (`POST /chat/sessions/{id}/ask`) -- this fake answers both, keyed by
+    bearer token so a caller's session id is stable across the two calls
+    within one check.
+    """
 
     def __init__(self, text_by_token: dict[str, str], status_code: int = 200):
         self._text_by_token = text_by_token
@@ -439,8 +452,11 @@ class _FakeChatOrGraphClient:
         token = headers["Authorization"].removeprefix("Bearer ")
         return _FakeResponse(self._status_code, text=self._text_by_token[token])
 
-    def post(self, path, json, headers):
-        assert path == "/chat/ask"
+    def post(self, path, headers, json=None):
+        if path == "/chat/sessions":
+            token = headers["Authorization"].removeprefix("Bearer ")
+            return _FakeResponse(201, {"id": f"fake-session-{token}"})
+        assert path.startswith("/chat/sessions/") and path.endswith("/ask")
         return self._response(headers)
 
     def get(self, path, headers):

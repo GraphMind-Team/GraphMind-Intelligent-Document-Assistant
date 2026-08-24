@@ -125,10 +125,10 @@ class ChatHistoryMessageResponse(BaseModel):
 
 
 class ChatHistoryResponse(BaseModel):
-    """`GET /chat/history`'s response (Story 3.4/AD-10): a newest-first
-    page of this account's single ongoing conversation, cursor-paginated
-    -- never the full history as one unbounded blob (AD-10's explicit
-    requirement)."""
+    """`GET /chat/sessions/{session_id}/history`'s response (Story
+    3.4/AD-10; multi-session chat): a newest-first page of one of this
+    account's chat sessions, cursor-paginated -- never the full history
+    as one unbounded blob (AD-10's explicit requirement)."""
 
     messages: list[ChatHistoryMessageResponse]
     # Opaque token (an encoded `(created_at, id)` pair -- see
@@ -137,3 +137,28 @@ class ChatHistoryResponse(BaseModel):
     # page. `None` when there is nothing older to fetch.
     next_cursor: str | None = None
     has_more: bool
+
+
+class ChatSessionUpdateRequest(BaseModel):
+    """`PATCH /chat/sessions/{session_id}` body -- rename only, mirrors
+    `folders/schemas.py::FolderUpdateRequest`'s per-field validation
+    split: length/blankness is checked in `chat/sessions_service.py
+    ::_validate_title`, not here, so a rejected value 400s rather than
+    422s (the spec's I/O matrix)."""
+
+    title: str = Field(min_length=1, max_length=255)
+
+
+class ChatSessionResponse(BaseModel):
+    """One `ChatSession` row (multi-session chat), as rendered by every
+    `/chat/sessions*` endpoint. `title` is `None` until the session's
+    first question is asked (see `ChatSession`'s own docstring on
+    auto-titling) -- the frontend falls back to a placeholder label for
+    that case, never rendered as an empty string here."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    title: str | None
+    created_at: datetime
+    updated_at: datetime

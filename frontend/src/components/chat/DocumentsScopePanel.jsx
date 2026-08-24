@@ -59,7 +59,7 @@ export default function DocumentsScopePanel({ authFetch, onDocumentsLoaded }) {
     // breakpoint would leave the panel as a narrow left-aligned block
     // under the chat column instead of spanning the stacked layout's
     // full width.
-    <aside className="w-full shrink-0 self-start rounded-2xl border border-border bg-card-bg p-5 shadow-card min-[901px]:w-[260px]">
+    <aside className="flex w-full shrink-0 flex-col self-start rounded-2xl border border-border bg-card-bg p-5 shadow-card min-[901px]:w-[260px]">
       <h2 className="mb-2.5 text-[13px] font-bold text-primary">{t('chat.scopePanel.title')}</h2>
       {error && (
         <p role="alert" className="text-xs text-danger">
@@ -104,7 +104,7 @@ export default function DocumentsScopePanel({ authFetch, onDocumentsLoaded }) {
         </>
       )}
 
-      <ul className="list-none space-y-1.5 p-0">
+      <ul className="max-h-[216px] list-none space-y-1.5 overflow-y-auto p-0">
         {visibleDocuments.map((doc) => {
           const isReady = doc.status === 'Ready'
           const inputId = `scope-doc-${doc.id}`

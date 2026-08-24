@@ -11,14 +11,19 @@ const ASK_TIMEOUT_MS = 130_000
 // `authFetch` (from AuthContext) is passed in rather than imported --
 // mirrors documentsClient.js's convention.
 //
+// `sessionId` (multi-session chat): every ask is now scoped to one of the
+// user's chat sessions -- the backend resolves/ownership-checks it
+// server-side (404 on a foreign/nonexistent id), this client just threads
+// it into the URL path.
+//
 // `documentIds` (Story 3.3/FR-11): defaults to `[]`, meaning "search all of
 // the user's documents" -- the same default the backend's `AskRequest`
-// applies, so an omitted third argument here and an explicit empty array
+// applies, so an omitted fourth argument here and an explicit empty array
 // are indistinguishable to the server on purpose.
-export async function askQuestion(authFetch, question, documentIds = []) {
+export async function askQuestion(authFetch, sessionId, question, documentIds = []) {
   let response
   try {
-    response = await authFetch('/chat/ask', {
+    response = await authFetch(`/chat/sessions/${sessionId}/ask`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question, document_ids: documentIds }),
@@ -63,21 +68,22 @@ export async function askQuestion(authFetch, question, documentIds = []) {
   return data
 }
 
-// Story 3.4/AD-10: `GET /chat/history`, cursor-paginated -- `cursor` is
-// `undefined`/omitted on the initial load (the backend's own "start from
-// the newest message" default), or a prior response's own `next_cursor`
-// to fetch the next-older page. `limit` mirrors UX-DR29's two call sites
-// in ChatPage.jsx: 3 on initial load, 10 per scroll-up page.
+// Story 3.4/AD-10: `GET /chat/sessions/{sessionId}/history`, cursor-
+// paginated -- `cursor` is `undefined`/omitted on the initial load (the
+// backend's own "start from the newest message" default), or a prior
+// response's own `next_cursor` to fetch the next-older page. `limit`
+// mirrors UX-DR29's two call sites in ChatPage.jsx: 3 on initial load, 10
+// per scroll-up page.
 //
-// `(authFetch, ...) => Promise` shape, same convention as `askQuestion`
-// above.
-export async function getChatHistory(authFetch, { cursor, limit } = {}) {
+// `(authFetch, sessionId, ...) => Promise` shape, same convention as
+// `askQuestion` above.
+export async function getChatHistory(authFetch, sessionId, { cursor, limit } = {}) {
   const params = new URLSearchParams()
   if (cursor) params.set('cursor', cursor)
   if (limit != null) params.set('limit', String(limit))
   const query = params.toString()
 
-  const response = await authFetch(`/chat/history${query ? `?${query}` : ''}`)
+  const response = await authFetch(`/chat/sessions/${sessionId}/history${query ? `?${query}` : ''}`)
   const data = await response.json().catch(() => null)
 
   if (!response.ok) {

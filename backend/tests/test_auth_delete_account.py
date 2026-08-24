@@ -17,7 +17,7 @@ from unittest.mock import Mock
 import pytest
 
 from app.auth import repository as auth_repository
-from app.shared.models import ChatMessage, Document, User
+from app.shared.models import ChatMessage, ChatSession, Document, User
 
 
 def _register_and_login(client, *, full_name, email, password):
@@ -347,13 +347,15 @@ def test_delete_account_retry_after_partial_failure_is_safe(
 def test_delete_account_with_persisted_chat_messages_removes_them_too(
     client, db_session, _stub_weaviate_delete, _stub_neo4j_delete
 ):
-    """Story 3.4 regression: `chat_messages.user_id` is a `NOT NULL`
-    foreign key into `users.id` with no `ON DELETE CASCADE` -- deleting
-    the `users` row while this account still owns `chat_messages` rows
-    must not surface as an unhandled `IntegrityError`/500 (real Postgres
-    enforces this FK; this project's SQLite test DB doesn't, by default,
-    which is exactly why this needs its own explicit assertion rather
-    than relying on the DB to catch a regression here)."""
+    """Story 3.4 regression, extended for multi-session chat: both
+    `chat_messages.user_id`/`chat_sessions.user_id` and
+    `chat_messages.session_id` are `NOT NULL` foreign keys with no
+    `ON DELETE CASCADE` -- deleting the `users` row while this account
+    still owns `chat_sessions`/`chat_messages` rows must not surface as
+    an unhandled `IntegrityError`/500 (real Postgres enforces these FKs;
+    this project's SQLite test DB doesn't, by default, which is exactly
+    why this needs its own explicit assertion rather than relying on the
+    DB to catch a regression here)."""
     token = _register_and_login(
         client,
         full_name="Maria Ivanova",
@@ -362,9 +364,17 @@ def test_delete_account_with_persisted_chat_messages_removes_them_too(
     )
     me = client.get("/auth/me", headers=_auth_headers(token))
     user_id = uuid.UUID(me.json()["id"])
-    db_session.add(ChatMessage(user_id=user_id, role="user", question="A question?"))
+    session_response = client.post("/chat/sessions", headers=_auth_headers(token))
+    assert session_response.status_code == 201, session_response.text
+    session_id = uuid.UUID(session_response.json()["id"])
+    db_session.add(ChatMessage(user_id=user_id, session_id=session_id, role="user", question="A question?"))
     db_session.add(
-        ChatMessage(user_id=user_id, role="assistant", segments=[{"text": "An answer.", "citations": []}])
+        ChatMessage(
+            user_id=user_id,
+            session_id=session_id,
+            role="assistant",
+            segments=[{"text": "An answer.", "citations": []}],
+        )
     )
     db_session.commit()
 
@@ -373,6 +383,7 @@ def test_delete_account_with_persisted_chat_messages_removes_them_too(
     assert response.status_code == 204
     assert db_session.get(User, user_id) is None
     assert db_session.query(ChatMessage).filter(ChatMessage.user_id == user_id).count() == 0
+    assert db_session.query(ChatSession).filter(ChatSession.user_id == user_id).count() == 0
 
 
 def test_delete_account_with_persisted_folders_removes_them_too(

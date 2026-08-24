@@ -312,6 +312,19 @@
       "label_one": "Du fragst in {{count}} Dokument",
       "label_other": "Du fragst in {{count}} Dokumenten",
       "clearAria": "Stattdessen in allen Dokumenten fragen"
+    },
+    "sessionsPanel": {
+      "title": "Chats",
+      "newChat": "Neuer Chat",
+      "untitled": "Neuer Chat",
+      "loading": "Chats werden geladen…",
+      "empty": "Noch keine Chats.",
+      "deleting": "Wird gelöscht…",
+      "deleteConfirm": "\"{{title}}\" löschen? Dies kann nicht rückgängig gemacht werden.",
+      "renameLabel": "Chat umbenennen",
+      "renamePlaceholder": "Chatname…",
+      "editAria": "{{title}} umbenennen",
+      "deleteAria": "{{title}} löschen"
     }
   },
   "graph": {

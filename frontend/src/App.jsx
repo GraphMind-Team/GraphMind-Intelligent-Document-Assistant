@@ -10,6 +10,8 @@ import LandingPage from './pages/LandingPage'
 import HealthPage from './pages/HealthPage'
 import DocumentsPage from './pages/DocumentsPage'
 import DocumentDetailPage from './pages/DocumentDetailPage'
+import ChatSessionsLayout from './components/ChatSessionsLayout'
+import ChatIndexRedirect from './pages/ChatIndexRedirect'
 import ChatPage from './pages/ChatPage'
 import GraphPage from './pages/GraphPage'
 import SettingsPage from './pages/SettingsPage'
@@ -68,7 +70,18 @@ function App() {
                 item on this URL too (UX-DR1), since NavLink matches
                 descendant paths by default. */}
             <Route path="/documents/:documentId" element={<DocumentDetailPage />} />
-            <Route path="/chat" element={<ChatPage />} />
+            {/* Multi-session chat: `/chat` always resolves to a real
+                session and redirects (ChatIndexRedirect), `/chat/:sessionId`
+                is the real page -- same nested-route reasoning as
+                `/documents/:documentId` above (back button and deep links
+                come for free). Both share one ChatSessionsProvider via the
+                ChatSessionsLayout wrapper, so the redirect and the real
+                page never each mount their own separate sessions-list
+                fetch. */}
+            <Route element={<ChatSessionsLayout />}>
+              <Route path="/chat" element={<ChatIndexRedirect />} />
+              <Route path="/chat/:sessionId" element={<ChatPage />} />
+            </Route>
             <Route path="/graph" element={<GraphPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>

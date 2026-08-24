@@ -173,8 +173,49 @@ class Folder(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
+class ChatSession(Base):
+    """One of a user's separate chat conversations (multi-session chat).
+
+    Supersedes `ChatMessage`'s old "one continuous conversation per user"
+    model (FR-17's original scope boundary) -- every `ChatMessage` now
+    belongs to exactly one `ChatSession` via `session_id`, and a user can
+    have many sessions.
+
+    `title` is nullable: `None` until the session's first question is
+    asked, at which point `chat/service.py::_finish` (via
+    `chat/sessions_repository.py::touch_session`) sets it from that
+    question's own text (auto-titling) -- never overwritten after that
+    first set, so a user's own rename (`chat/sessions_service.py
+    ::rename_session`) always sticks.
+
+    `updated_at` is deliberately *not* driven by an ORM `onupdate=` --
+    `touch_session` bumps it explicitly on every turn (not just on a
+    `ChatSession` row edit, which a new message never causes on its own),
+    so `chat/sessions_repository.py::list_sessions_for_user`'s
+    `ORDER BY updated_at DESC` reflects actual chat activity, matching the
+    "most recently active first" ordering a chat-session sidebar needs.
+    """
+
+    __tablename__ = "chat_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    title: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        # Serves `chat/sessions_repository.py::list_sessions_for_user`'s
+        # `user_id` filter + `updated_at DESC` sort in one index, same
+        # "filter column leads, sort column(s) follow" shape as
+        # `ChatMessage`'s own composite index below.
+        Index("ix_chat_sessions_user_id_updated_at", "user_id", "updated_at"),
+    )
+
+
 class ChatMessage(Base):
-    """One turn of a user's single, ongoing conversation (Story 3.4/FR-17).
+    """One turn of one of a user's chat sessions (Story 3.4/FR-17;
+    multi-session chat).
 
     One row per message, same declarative pattern as `Document` above --
     Uuid PK w/ Python-side default, plain `JSON` (not JSONB) for the same
@@ -182,21 +223,19 @@ class ChatMessage(Base):
     exclusively through `user_scoped_select` (AD-2), never a hand-written
     `select(ChatMessage).where(...)`.
 
-    `user_id` is *not* separately `index=True` the way `Document.user_id`
-    is -- every real query here (`chat/repository.py`'s
-    `get_recent_turn_messages`/`list_messages_for_user`) filters on
-    `user_id` and then sorts on `(created_at, role, id)`, so a plain
-    single-column `user_id` index would only ever serve the filter half
-    and leave the sort to a full pass over that user's rows. The
-    composite index in `__table_args__` below covers both in one index
-    (its leading column still serves a bare `user_id = ...` filter too,
-    making a separate single-column index redundant).
+    `session_id` identifies which of the user's `ChatSession`s a row
+    belongs to -- every real query (`chat/repository.py`'s
+    `get_recent_turn_messages`/`list_messages_for_user`) filters on it
+    first, then sorts on `(created_at, role, id)`; see the composite index
+    in `__table_args__` below. `user_id` is kept as a plain, unindexed-on-
+    its-own column purely for `delete_all_messages_for_user`'s
+    account-deletion bulk delete -- a session's own ownership (checked via
+    `chat_sessions.user_id` before any message query ever runs) is what
+    actually proves a message row is this user's.
 
     Two disjoint row shapes, both fitting this one table (mirrors
-    `AskResponse`'s own "answer OR empty_reason" duality rather than
-    inventing a second table for a per-account conversation that's always
-    exactly one thread -- FR-17 explicitly rules out a multi-conversation
-    model):
+    `AskResponse`'s own "answer OR empty_reason" duality rather than a
+    second table per row-shape):
       - `role="user"`: `question` set, `segments`/`empty_reason` both
         `None`.
       - `role="assistant"`: `segments` (a JSON-serialized list of
@@ -207,17 +246,13 @@ class ChatMessage(Base):
     a DB constraint -- matches this codebase's existing "the writer
     upholds the shape, not the schema" precedent (e.g. `Document
     .failed_reason`, only ever set alongside `status="Failed"`).
-
-    No `conversation_id` -- one continuous conversation per user account,
-    per FR-17's explicit scope boundary (no multi-conversation/switcher
-    concept exists or is being introduced). `user_id` alone is the whole
-    thread's identity.
     """
 
     __tablename__ = "chat_messages"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    session_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("chat_sessions.id"), nullable=False)
     # 'user' | 'assistant' -- a plain string, not a DB enum, matching
     # `Document.status`'s own "vocabulary enforced in code, not schema"
     # precedent.
@@ -234,15 +269,15 @@ class ChatMessage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     __table_args__ = (
-        # Covers every real query this table serves: `user_id` filter,
+        # Covers every real query this table serves: `session_id` filter,
         # then `(created_at, role, id)` sort (see
         # `chat/repository.py`'s `_TURN_ROLE_RANK`/`_strictly_before` --
         # `role` is the literal column here, not the `CASE`-computed rank
         # those use, but for a two-valued column the tied `created_at`
         # group a plain index leaves unsorted is at most a couple of
         # rows, cheap to finish in memory; the win is skipping a full
-        # per-user table scan for the `user_id` filter and the bulk of
-        # the `created_at` ordering, which is the part that actually
+        # per-session table scan for the `session_id` filter and the bulk
+        # of the `created_at` ordering, which is the part that actually
         # grows with conversation length).
-        Index("ix_chat_messages_user_id_created_at_role_id", "user_id", "created_at", "role", "id"),
+        Index("ix_chat_messages_session_id_created_at_role_id", "session_id", "created_at", "role", "id"),
     )

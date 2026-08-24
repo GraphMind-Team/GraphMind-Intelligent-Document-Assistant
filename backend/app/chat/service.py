@@ -13,7 +13,7 @@ from datetime import datetime
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.chat import repository
+from app.chat import repository, sessions_repository, sessions_service
 from app.chat.schemas import (
     AnswerSegmentResponse,
     AskResponse,
@@ -30,7 +30,7 @@ from app.shared.llm_client import (
     bound_chat_history,
     generate_answer,
 )
-from app.shared.models import ChatMessage, User
+from app.shared.models import ChatMessage, ChatSession, User
 
 logger = logging.getLogger(__name__)
 
@@ -45,13 +45,21 @@ _DEFAULT_HISTORY_PAGE_SIZE = 20
 def ask_question(
     db: Session,
     current_user: User,
+    session_id: uuid.UUID,
     question: str,
     document_ids: list[uuid.UUID],
     *,
     use_history: bool = True,
 ) -> AskResponse:
-    """Embed -> search -> (degenerate zero-passage case) -> generate ->
-    resolve -> assemble.
+    """Resolve session -> embed -> search -> (degenerate zero-passage
+    case) -> generate -> resolve -> assemble.
+
+    `session_id` (multi-session chat) is resolved and ownership-checked
+    first, via `sessions_service.get_session` -- a foreign or nonexistent
+    id 404s before any retrieval/generation work happens, the same
+    IDOR-safe, resolve-then-scope convention `folders`/`documents` already
+    use. Every history read/write below is scoped to this one session,
+    never the account's other sessions.
 
     `question` arrives already validated non-blank/length-bounded by
     `AskRequest` (chat/schemas.py) -- no manual check here. `document_ids`
@@ -79,7 +87,7 @@ def ask_question(
 
     History threading (Story 3.4/FR-17): before retrieval, this fetches
     the bounded recent-turn window (`HISTORY_MAX_TURNS`/`HISTORY_MAX_CHARS`,
-    `shared/llm_client`) from this account's own persisted `ChatMessage`
+    `shared/llm_client`) from this session's own persisted `ChatMessage`
     rows and folds it into two places -- the retrieval query text (prior
     *questions* only, per the Boundaries' "keeps the embedding focused on
     topical/entity words" reasoning) and `generate_answer`'s `history`
@@ -136,10 +144,12 @@ def ask_question(
     number -- worth knowing before this is mistaken for a scaling bug
     found the hard way rather than a known, documented limit.
     """
+    session = sessions_service.get_session(db, current_user, session_id)
+
     if use_history:
         history = bound_chat_history(
             _pair_messages_into_turns(
-                repository.get_recent_turn_messages(db, current_user.id, HISTORY_MAX_TURNS)
+                repository.get_recent_turn_messages(db, current_user.id, session_id, HISTORY_MAX_TURNS)
             )
         )
     else:
@@ -174,7 +184,7 @@ def ask_question(
         # relevant enough are distinct outcomes, and the frontend renders
         # all three differently.
         reason = "empty_scope" if scoped_ids else "no_documents"
-        return _finish(db, current_user, question, AskResponse(segments=[], empty_reason=reason))
+        return _finish(db, current_user, session, question, AskResponse(segments=[], empty_reason=reason))
 
     if not any(p.distance is not None and p.distance <= RELEVANCE_THRESHOLD for p in passages):
         # FR-10/OD-2: not one retrieved passage is close enough to trust.
@@ -189,7 +199,7 @@ def ask_question(
             # system. Logged so that failure mode leaves a trace instead
             # of being indistinguishable from "genuinely no evidence."
             logger.warning("Refusing with no distance metadata on any retrieved passage")
-        return _finish(db, current_user, question, AskResponse(segments=[], empty_reason="refusal"))
+        return _finish(db, current_user, session, question, AskResponse(segments=[], empty_reason="refusal"))
 
     try:
         answer = generate_answer(question, passages, history=history)
@@ -273,9 +283,9 @@ def ask_question(
         # The model returned segments: [] outright, or every segment lost
         # its citations above -- either way, a passages-were-found-but-
         # nothing-answerable outcome, distinct from "no_documents".
-        return _finish(db, current_user, question, AskResponse(segments=[], empty_reason="no_answer"))
+        return _finish(db, current_user, session, question, AskResponse(segments=[], empty_reason="no_answer"))
 
-    return _finish(db, current_user, question, AskResponse(segments=segments))
+    return _finish(db, current_user, session, question, AskResponse(segments=segments))
 
 
 def _pair_messages_into_turns(messages: list[ChatMessage]) -> list[ChatHistoryTurn]:
@@ -313,9 +323,12 @@ def _pair_messages_into_turns(messages: list[ChatMessage]) -> list[ChatHistoryTu
     return turns
 
 
-def _finish(db: Session, current_user: User, question: str, response: AskResponse) -> AskResponse:
+def _finish(
+    db: Session, current_user: User, session: ChatSession, question: str, response: AskResponse
+) -> AskResponse:
     """Persists this turn's two rows -- the user's question, then the
-    resulting assistant message -- and returns `response` unchanged.
+    resulting assistant message -- against `session`, and returns
+    `response` unchanged.
 
     Called at every `ask_question` return point that reaches this far,
     which by construction is every path except the `ChatCompletionError`
@@ -328,24 +341,34 @@ def _finish(db: Session, current_user: User, question: str, response: AskRespons
     matching `ChatMessage.segments`' documented shape and exactly what
     `ChatHistoryMessageResponse.model_validate` expects to read back.
 
+    Also touches `session` (multi-session chat's auto-titling, decision
+    #3): `sessions_repository.touch_session` bumps `session.updated_at`
+    unconditionally and sets `session.title` from `question` only the
+    first time, while it's still `None` -- see that function's own
+    docstring. Passing `question` itself (not a pre-truncated slice) here
+    keeps the 80-character truncation decision in one place.
+
     `repository.save_message` flushes but never commits -- `get_db_session`
     (shared/data_access) doesn't auto-commit, so this function commits once
-    after both rows are staged, mirroring `documents/service.py`'s own
-    "service layer owns the transaction boundary" convention (e.g. its
-    `upload_document` commits right after `repository.create_document`).
+    after both rows and the session touch are staged, mirroring
+    `documents/service.py`'s own "service layer owns the transaction
+    boundary" convention (e.g. its `upload_document` commits right after
+    `repository.create_document`).
     """
     repository.save_message(
-        db, ChatMessage(user_id=current_user.id, role="user", question=question)
+        db, ChatMessage(user_id=current_user.id, session_id=session.id, role="user", question=question)
     )
     repository.save_message(
         db,
         ChatMessage(
             user_id=current_user.id,
+            session_id=session.id,
             role="assistant",
             segments=[segment.model_dump() for segment in response.segments],
             empty_reason=response.empty_reason,
         ),
     )
+    sessions_repository.touch_session(db, session, title=question[:80].strip() or None)
     db.commit()
     return response
 
@@ -399,23 +422,30 @@ def _decode_cursor(cursor: str) -> tuple[datetime, int, uuid.UUID]:
 
 
 def get_history(
-    db: Session, current_user: User, cursor: str | None, limit: int | None
+    db: Session, current_user: User, session_id: uuid.UUID, cursor: str | None, limit: int | None
 ) -> ChatHistoryResponse:
-    """`GET /chat/history` (Story 3.4/AD-10): a newest-first, cursor-
-    paginated page of this account's single ongoing conversation.
+    """`GET /chat/sessions/{session_id}/history` (Story 3.4/AD-10;
+    multi-session chat): a newest-first, cursor-paginated page of one of
+    this account's chat sessions.
 
-    `user_id` is `current_user.id`, resolved server-side from the JWT via
-    `get_current_user` (same as `ask_question`) -- never client-supplied,
-    matching this route's own contract in the spec's Boundaries.
+    `session_id` is resolved and ownership-checked first via
+    `sessions_service.get_session` (404 on a foreign/nonexistent id),
+    same as `ask_question`. `user_id` is `current_user.id`, resolved
+    server-side from the JWT via `get_current_user` -- never
+    client-supplied, matching this route's own contract in the spec's
+    Boundaries.
 
     `cursor` is checked with `is not None`, not truthiness -- an empty
     string (`?cursor=`) is a malformed cursor, not "no cursor supplied",
     and must 422 via `_decode_cursor` the same as any other malformed
     value, rather than silently restarting from the newest page.
     """
+    sessions_service.get_session(db, current_user, session_id)
     resolved_limit = limit if limit is not None else _DEFAULT_HISTORY_PAGE_SIZE
     decoded_cursor = _decode_cursor(cursor) if cursor is not None else None
-    rows, has_more = repository.list_messages_for_user(db, current_user.id, decoded_cursor, resolved_limit)
+    rows, has_more = repository.list_messages_for_user(
+        db, current_user.id, session_id, decoded_cursor, resolved_limit
+    )
     next_cursor = _encode_cursor(rows[-1]) if has_more and rows else None
     return ChatHistoryResponse(
         messages=[ChatHistoryMessageResponse.model_validate(row) for row in rows],

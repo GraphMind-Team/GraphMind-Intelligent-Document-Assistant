@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 import { ChatScopeProvider, useChatScope } from '../context/ChatScopeContext'
@@ -8,6 +8,7 @@ import ChatMessage from '../components/chat/ChatMessage'
 import RobotMascot, { RobotFigure } from '../components/chat/RobotMascot'
 import DocumentsScopePanel from '../components/chat/DocumentsScopePanel'
 import ChatSearchPanel from '../components/chat/ChatSearchPanel'
+import ChatSessionsPanel from '../components/chat/ChatSessionsPanel'
 import { useSlowRequestHint } from '../hooks/useSlowRequestHint'
 
 // UX-DR29/Story 3.4: one page size for both the initial load and every
@@ -64,29 +65,46 @@ function messageSearchText(message) {
   return ''
 }
 
-// Chat page (Story 3.1): a two-column grid -- flexible chat window (1fr) +
-// fixed 260px documents-in-scope panel, 20px gutter (UX-DR9). Collapses to
-// a single column below 900px so the fixed-width columns (this page's
-// panel plus Shell's 220px sidebar) can't force horizontal scroll/clipping
-// at 200% browser zoom on a typical laptop viewport (AC2, WCAG 1.4.4,
-// UX-DR28) -- the scope panel already sits second in DOM order, so no CSS
-// `order`/`row-reverse` is needed to make it flow below the chat column
-// (mirrors Shell.jsx's own UX-DR18 convention).
+// Chat page (Story 3.1): a three-column grid -- fixed 260px chats panel +
+// flexible chat window (1fr) + fixed 260px documents-in-scope panel, 20px
+// gutter (UX-DR9). Collapses to a single column below 900px so the
+// fixed-width columns (this page's two panels plus Shell's 220px sidebar)
+// can't force horizontal scroll/clipping at 200% browser zoom on a typical
+// laptop viewport (AC2, WCAG 1.4.4, UX-DR28) -- both side panels keep DOM
+// order == visual order (no CSS `order`/`row-reverse`), mirroring Shell.jsx's
+// own UX-DR18 convention: the chats panel sits first in DOM so it stacks
+// above the chat column, the documents panel sits last so it stacks below.
 //
 // Split into this thin wrapper + ChatPageContent (Story 3.3) because
 // ChatPageContent needs `useChatScope()`, which reads the context this
 // component renders -- a single component can't call a hook that reads a
 // provider it renders itself, that provider isn't mounted yet at the
 // point its own render function runs.
+//
+// Multi-session chat: `sessionId` comes from the route (`/chat/:sessionId`,
+// this page's own App.jsx entry) and is passed to `ChatPageContent` both
+// as a prop and as its React `key`. The `key` is load-bearing, not
+// decorative -- React Router does not remount this element on a
+// param-only navigation (switching sessions via ChatSessionsPanel), but
+// `ChatPageContent` owns close to a dozen pieces of session-scoped local
+// state/refs (`messages`, `historyCursor`, `hasMoreHistory`,
+// `isLoadingHistory`, `historyPrependToken`, `liveAnnouncementsEnabled`,
+// `isLoadingHistoryRef`, `hasSubmittedLiveQuestionRef`,
+// `pendingScrollAdjustmentRef`, `activeMatchOrdinal`) that must all reset
+// to their initial values on every session switch, not carry the
+// previous session's thread over. Keying on `sessionId` forces exactly
+// that clean remount instead of threading a manual reset effect through
+// every one of them.
 export default function ChatPage() {
+  const { sessionId } = useParams()
   return (
     <ChatScopeProvider>
-      <ChatPageContent />
+      <ChatPageContent key={sessionId} sessionId={sessionId} />
     </ChatScopeProvider>
   )
 }
 
-function ChatPageContent() {
+function ChatPageContent({ sessionId }) {
   const { t } = useTranslation()
   const { authFetch } = useAuth()
   const { selectedDocumentIds, selectAll } = useChatScope()
@@ -242,7 +260,7 @@ function ChatPageContent() {
   // `messages` simply stays `[]` until the user asks something new.
   useEffect(() => {
     let cancelled = false
-    getChatHistory(authFetch, { limit: HISTORY_PAGE_LIMIT })
+    getChatHistory(authFetch, sessionId, { limit: HISTORY_PAGE_LIMIT })
       .then((page) => {
         if (cancelled) return
         const seeded = page.messages.slice().reverse().map(toUiMessage)
@@ -284,7 +302,7 @@ function ChatPageContent() {
     return () => {
       cancelled = true
     }
-  }, [authFetch])
+  }, [authFetch, sessionId])
 
   // Keeps the newest message (or the transient "Thinking…" bubble) in
   // view without requiring the user to scroll manually -- a real question
@@ -334,7 +352,7 @@ function ChatPageContent() {
     setIsLoadingHistory(true)
     setError(null)
     try {
-      const page = await getChatHistory(authFetch, { cursor: historyCursor, limit: HISTORY_PAGE_LIMIT })
+      const page = await getChatHistory(authFetch, sessionId, { cursor: historyCursor, limit: HISTORY_PAGE_LIMIT })
       const older = page.messages.slice().reverse().map(toUiMessage)
       const el = messageListRef.current
       if (el) {
@@ -450,7 +468,7 @@ function ChatPageContent() {
     setError(null)
 
     try {
-      const result = await askQuestion(authFetch, trimmed, selectedDocumentIds)
+      const result = await askQuestion(authFetch, sessionId, trimmed, selectedDocumentIds)
       if (result.empty_reason === 'refusal') {
         // FR-10/UX-DR15: a designed refusal, not an empty-state notice --
         // its own message role so ChatMessage renders a real bubble,
@@ -513,7 +531,9 @@ function ChatPageContent() {
         <h1 className="text-page-title text-text">{t('chat.title')}</h1>
       </header>
 
-      <div className="grid grid-cols-[1fr_260px] gap-[20px] max-[900px]:grid-cols-1">
+      <div className="grid grid-cols-[260px_1fr_260px] gap-[20px] max-[900px]:grid-cols-1">
+        <ChatSessionsPanel />
+
         <div
           className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-card-bg shadow-card"
           style={{ minHeight: '520px', height: 'calc(100vh - 140px)' }}

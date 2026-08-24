@@ -312,6 +312,19 @@
       "label_one": "Asking in {{count}} document",
       "label_other": "Asking in {{count}} documents",
       "clearAria": "Ask across all documents instead"
+    },
+    "sessionsPanel": {
+      "title": "Chats",
+      "newChat": "New chat",
+      "untitled": "New chat",
+      "loading": "Loading chats…",
+      "empty": "No chats yet.",
+      "deleting": "Deleting…",
+      "deleteConfirm": "Delete \"{{title}}\"? This can't be undone.",
+      "renameLabel": "Rename chat",
+      "renamePlaceholder": "Chat name…",
+      "editAria": "Rename {{title}}",
+      "deleteAria": "Delete {{title}}"
     }
   },
   "graph": {

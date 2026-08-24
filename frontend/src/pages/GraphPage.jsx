@@ -15,10 +15,10 @@ import GraphScopePanel from '../components/graph/GraphScopePanel'
 // own heading look like part of the visualization and left the graph
 // itself competing for space with prose. Now:
 //   - The page header matches every other page in the app (eyebrow +
-//     display title), sitting on the app's normal ground.
-//   - Three stat tiles state what the graph actually contains, so the
-//     size of it is a fact you can read rather than something you infer
-//     from a picture.
+//     display title), sitting on the app's normal ground. Three compact
+//     stat tiles sit in that same header, to the right of the title/copy,
+//     so the size of the graph is a fact you can read at a glance rather
+//     than something you infer from a picture.
 //   - The canvas and its explorer live in one raised card below that, in
 //     the graph feature's own surface tokens -- it keeps its identity as
 //     its own "room" without swallowing the page chrome.
@@ -34,20 +34,20 @@ import GraphScopePanel from '../components/graph/GraphScopePanel'
 function StatTile({ label, value, hint }) {
   return (
     <div
-      className="rounded-2xl px-5 py-4"
+      className="rounded-xl px-5 py-3 text-center"
       style={{ backgroundColor: 'var(--graph-card-bg)', border: '1px solid var(--graph-card-border)' }}
     >
       <p
-        className="font-display text-[26px] font-bold leading-none"
+        className="font-display text-2xl font-medium leading-none"
         style={{ color: 'var(--graph-ink)' }}
       >
         {value}
       </p>
-      <p className="mt-1.5 text-[12px] font-semibold" style={{ color: 'var(--graph-accent-text)' }}>
+      <p className="mt-1.5 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--graph-accent-text)' }}>
         {label}
       </p>
       {hint && (
-        <p className="mt-0.5 text-[12px]" style={{ color: 'var(--graph-ink2)' }}>
+        <p className="mt-0.5 text-xs" style={{ color: 'var(--graph-ink2)' }}>
           {hint}
         </p>
       )}
@@ -146,14 +146,28 @@ export default function GraphPage() {
   return (
     <div className="flex flex-col gap-6 min-[901px]:flex-row min-[901px]:items-start">
       <div className="min-w-0 flex-1">
-        <header className="mb-6">
-          <p className="text-eyebrow uppercase" style={{ color: 'var(--graph-accent-text)' }}>
-            {t('graph.eyebrow')}
-          </p>
-          <h1 className="text-page-title text-text">{t('graph.title')}</h1>
-          <p className="mt-1 max-w-[62ch] text-sm text-text2">
-            {t('graph.subtitle')}
-          </p>
+        <header className="mb-6 flex flex-wrap items-center justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-eyebrow uppercase" style={{ color: 'var(--graph-accent-text)' }}>
+              {t('graph.eyebrow')}
+            </p>
+            <h1 className="text-page-title text-text">{t('graph.title')}</h1>
+            <p className="mt-1 max-w-[62ch] text-sm text-text2">
+              {t('graph.subtitle')}
+            </p>
+          </div>
+
+          {!error && graph && hasEntities && (
+            <div className="mt-2 flex shrink-0 flex-wrap gap-2">
+              <StatTile
+                label={t('graph.stats.entities')}
+                value={graph.nodes.length}
+                hint={isCapped ? t('graph.stats.ofTotal', { total: graph.total_node_count }) : undefined}
+              />
+              <StatTile label={t('graph.stats.relationships')} value={graph.edges.length} />
+              <StatTile label={t('graph.stats.entityTypes')} value={typeCount} />
+            </div>
+          )}
         </header>
 
         {error && (
@@ -242,16 +256,6 @@ export default function GraphPage() {
 
         {!error && graph && hasEntities && (
           <div aria-busy={isRefetching} className={['transition-opacity', isRefetching ? 'opacity-50' : ''].join(' ')}>
-            <div className="mb-5 grid gap-4 sm:grid-cols-3">
-              <StatTile
-                label={t('graph.stats.entities')}
-                value={graph.nodes.length}
-                hint={isCapped ? t('graph.stats.ofTotal', { total: graph.total_node_count }) : undefined}
-              />
-              <StatTile label={t('graph.stats.relationships')} value={graph.edges.length} />
-              <StatTile label={t('graph.stats.entityTypes')} value={typeCount} />
-            </div>
-
             {isCapped && (
               <p className="mb-4 text-sm" style={{ color: 'var(--graph-ink2)' }}>
                 {t('graph.cappedNote', { shown: graph.nodes.length, total: graph.total_node_count })}
