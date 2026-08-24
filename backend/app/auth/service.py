@@ -27,6 +27,7 @@ from app.documents import repository as documents_repository
 from app.folders import repository as folders_repository
 from app.shared.data_access.session import get_session_factory
 from app.shared.email import send_email
+from app.shared.email.templates import REQUIRED_COPY_KEYS, verification_email_html
 from app.shared.i18n.catalogs import DEFAULT_LANGUAGE, t
 from app.shared.i18n.errors import localized_error
 # Safe import direction (Design Notes): `documents/` never imports `auth/`,
@@ -364,6 +365,43 @@ def _verification_email_body(full_name: str, verify_url: str, language: str) -> 
     )
 
 
+def _verification_email_html(
+    full_name: str, verify_url: str, language: str, frontend_origin: str
+) -> str:
+    """The HTML alternative for the same message `_verification_email_body`
+    renders as plain text -- see `shared/email/templates.py` for the layout
+    itself; this just gathers the translated copy it needs.
+
+    The copy keys come from that module's own `REQUIRED_COPY_KEYS` rather
+    than being listed again here, so adding a section to the template can't
+    leave this function silently passing an incomplete mapping. Both format
+    arguments are passed to every key: none of the other strings contain
+    braces, so the extra kwargs are harmless.
+
+    `robot_src` points at the deployed frontend's static asset:
+    `frontend_origin` is already the one publicly reachable origin this
+    function has on hand (it's how `verify_url` itself is built), and a
+    data: URI big enough to draw the mascot risks the whole message being
+    clipped or spam-flagged by clients that cap inline-image size. It must
+    stay a **PNG** -- Gmail and Outlook refuse to render `<img>` pointing
+    at an SVG, which is what broke the first version of this email.
+    """
+    copy = {
+        key: t(
+            f"verify_email.{key}",
+            language,
+            full_name=full_name,
+            expire_hours=_verification_token_expire_hours(),
+        )
+        for key in REQUIRED_COPY_KEYS
+    }
+    return verification_email_html(
+        verify_url=verify_url,
+        robot_src=f"{frontend_origin}/email-robot.png",
+        copy=copy,
+    )
+
+
 def send_verification_email(
     user_id: uuid.UUID, email: str, full_name: str, language: str = DEFAULT_LANGUAGE
 ) -> None:
@@ -393,6 +431,7 @@ def send_verification_email(
             to=email,
             subject=t("verify_email.subject", language),
             body=_verification_email_body(full_name, verify_url, language),
+            html_body=_verification_email_html(full_name, verify_url, language, frontend_origin),
         )
     except Exception:
         logger.exception("Failed to send verification email to %s", email)
