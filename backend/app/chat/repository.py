@@ -117,6 +117,15 @@ def save_message(db: Session, message: ChatMessage) -> ChatMessage:
     return message
 
 
+def get_message_for_user(db: Session, user_id: uuid.UUID, message_id: uuid.UUID) -> ChatMessage | None:
+    """One message by id, scoped to `user_id` via `user_scoped_select`
+    (AD-2) -- `chat/service.py::set_message_feedback` 404s the caller when
+    this returns `None`, the same IDOR-safe convention
+    `sessions_service.get_session` already uses for chat sessions."""
+    stmt = user_scoped_select(ChatMessage, user_id).where(ChatMessage.id == message_id)
+    return db.execute(stmt).scalar_one_or_none()
+
+
 def get_recent_turn_messages(
     db: Session, user_id: uuid.UUID, session_id: uuid.UUID, max_turns: int
 ) -> list[ChatMessage]:

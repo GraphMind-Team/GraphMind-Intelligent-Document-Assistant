@@ -354,11 +354,15 @@ def _finish(
     `documents/service.py`'s own "service layer owns the transaction
     boundary" convention (e.g. its `upload_document` commits right after
     `repository.create_document`).
+
+    Stamps `response.message_id` with the assistant row's own id before
+    returning -- see `AskResponse.message_id`'s own docstring for why this
+    is always set by the time a response actually reaches the client.
     """
     repository.save_message(
         db, ChatMessage(user_id=current_user.id, session_id=session.id, role="user", question=question)
     )
-    repository.save_message(
+    assistant_message = repository.save_message(
         db,
         ChatMessage(
             user_id=current_user.id,
@@ -370,6 +374,7 @@ def _finish(
     )
     sessions_repository.touch_session(db, session, title=question[:80].strip() or None)
     db.commit()
+    response.message_id = assistant_message.id
     return response
 
 
@@ -452,3 +457,27 @@ def get_history(
         next_cursor=next_cursor,
         has_more=has_more,
     )
+
+
+def set_message_feedback(
+    db: Session, current_user: User, message_id: uuid.UUID, rating: str | None
+) -> ChatMessage:
+    """`PUT /chat/messages/{message_id}/feedback`: sets (or, `rating=None`,
+    clears) the thumbs-up/down rating on one of this account's own
+    assistant messages.
+
+    404s -- not 403 -- on a foreign/nonexistent id, same IDOR-safe
+    convention `sessions_service.get_session` already uses, and also on a
+    `role="user"` id: feedback exists only on the answer half of a turn
+    (`ChatMessage.feedback`'s own docstring), so a question's id is just as
+    "not a feedback-able message" as one that doesn't exist at all -- never
+    a distinct error that would let a caller probe which id belongs to
+    which role.
+    """
+    message = repository.get_message_for_user(db, current_user.id, message_id)
+    if message is None or message.role != "assistant":
+        raise HTTPException(status_code=404, detail="Chat message not found.")
+    message.feedback = rating
+    db.commit()
+    db.refresh(message)
+    return message

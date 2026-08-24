@@ -97,3 +97,24 @@ export async function getChatHistory(authFetch, sessionId, { cursor, limit } = {
 
   return data
 }
+
+// `PUT /chat/messages/{messageId}/feedback` -- `rating` is `'up'`, `'down'`,
+// or `null` to clear a previously-set rating (MessageActions.jsx re-sends
+// the active thumb's own rating to retract it, rather than a separate
+// DELETE). `(authFetch, ...) => Promise` shape, same convention as
+// `askQuestion`/`getChatHistory` above.
+export async function setMessageFeedback(authFetch, messageId, rating) {
+  const response = await authFetch(`/chat/messages/${messageId}/feedback`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rating }),
+  })
+  const data = await response.json().catch(() => null)
+
+  if (!response.ok) {
+    const message = formatDetail(data?.detail)
+    throw new Error(message || `Failed to save feedback (${response.status}).`)
+  }
+
+  return data
+}

@@ -1,6 +1,7 @@
 import { forwardRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import CitationSummary from './CitationSummary'
+import MessageActions from './MessageActions'
 import highlightMatches from './highlightMatches'
 import Icon from '../Icon'
 
@@ -46,7 +47,10 @@ const NOTICE_KEYS = {
 // full-thread index) so the search nav can `scrollIntoView` a specific
 // bubble -- every branch below attaches `ref` to its own root element for
 // that reason.
-const ChatMessage = forwardRef(function ChatMessage({ message, highlight = '', isActiveMatch = false }, ref) {
+const ChatMessage = forwardRef(function ChatMessage(
+  { message, highlight = '', isActiveMatch = false, authFetch },
+  ref,
+) {
   const { t } = useTranslation()
   const activeMatchClass = isActiveMatch ? ' outline outline-2 outline-accent outline-offset-2' : ''
 
@@ -152,6 +156,11 @@ const ChatMessage = forwardRef(function ChatMessage({ message, highlight = '', i
       citations.push({ chapter: citation.chapter, documentFilename: citation.document_filename })
     }
   }
+  // Copy needs the answer's plain prose, citations stripped -- same
+  // "citations aren't part of the answer's own text" treatment
+  // `service.py::_pair_messages_into_turns`'s history-threading join
+  // already gives this on the backend side.
+  const answerText = message.segments.map((segment) => segment.text).join(' ')
 
   return (
     <div
@@ -162,7 +171,15 @@ const ChatMessage = forwardRef(function ChatMessage({ message, highlight = '', i
       {message.segments.map((segment, index) => (
         <span key={index}>{highlightMatches(segment.text, highlight)} </span>
       ))}
-      <CitationSummary citations={citations} />
+      <div className="flex flex-wrap items-center gap-2">
+        <CitationSummary citations={citations} />
+        <MessageActions
+          authFetch={authFetch}
+          messageId={message.id}
+          initialFeedback={message.feedback}
+          answerText={answerText}
+        />
+      </div>
     </div>
   )
 })

@@ -294,6 +294,14 @@
       "toggleLabel_other": "{{count}} източника",
       "panelAria": "Източници за този отговор"
     },
+    "actions": {
+      "copy": "Копирай отговора",
+      "copied": "Копирано!",
+      "thumbsUp": "Добър отговор",
+      "thumbsDown": "Лош отговор",
+      "thumbsUpActive": "Отбелязан като добър отговор",
+      "thumbsDownActive": "Отбелязан като лош отговор"
+    },
     "searchPanel": {
       "title": "Търсене в чата",
       "placeholder": "Търсене в чата…",

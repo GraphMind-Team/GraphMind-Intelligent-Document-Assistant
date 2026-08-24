@@ -294,6 +294,14 @@
       "toggleLabel_other": "{{count}} Quellen",
       "panelAria": "Quellen für diese Antwort"
     },
+    "actions": {
+      "copy": "Antwort kopieren",
+      "copied": "Kopiert!",
+      "thumbsUp": "Gute Antwort",
+      "thumbsDown": "Schlechte Antwort",
+      "thumbsUpActive": "Als gute Antwort markiert",
+      "thumbsDownActive": "Als schlechte Antwort markiert"
+    },
     "searchPanel": {
       "title": "Im Chat suchen",
       "placeholder": "Im Chat suchen…",

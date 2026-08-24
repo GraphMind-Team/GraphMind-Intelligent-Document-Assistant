@@ -48,7 +48,7 @@ function toUiMessage(row) {
   if (row.empty_reason) {
     return { role: 'notice', reason: row.empty_reason }
   }
-  return { role: 'assistant', segments: row.segments ?? [] }
+  return { role: 'assistant', id: row.id, segments: row.segments ?? [], feedback: row.feedback ?? null }
 }
 
 // Every piece of user-visible text in one message, flattened for the
@@ -504,7 +504,10 @@ function ChatPageContent({ sessionId }) {
         // signal that there was no information to find.
         triggerMascotBeat('noAnswer')
       } else {
-        setMessages((previous) => [...previous, { role: 'assistant', segments: result.segments }])
+        setMessages((previous) => [
+          ...previous,
+          { role: 'assistant', id: result.message_id, segments: result.segments, feedback: null },
+        ])
         // Only a grounded answer earns the idea beat.
         triggerMascotBeat('idea')
       }
@@ -671,6 +674,7 @@ function ChatPageContent({ sessionId }) {
                   message={message}
                   highlight={chatSearchNeedle}
                   isActiveMatch={chatSearchNeedle !== '' && matchedIndices[activeMatchOrdinal] === index}
+                  authFetch={authFetch}
                 />
               ))}
               {isAsking && <ChatMessage message={{ role: 'thinking' }} />}

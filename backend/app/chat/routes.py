@@ -23,6 +23,8 @@ from app.chat.schemas import (
     ChatHistoryResponse,
     ChatSessionResponse,
     ChatSessionUpdateRequest,
+    MessageFeedbackRequest,
+    MessageFeedbackResponse,
 )
 from app.shared.data_access import get_db_session
 from app.shared.models import User
@@ -89,3 +91,14 @@ def history(
     current_user: User = Depends(get_current_user),
 ) -> ChatHistoryResponse:
     return service.get_history(db, current_user, session_id, cursor, limit)
+
+
+@router.put("/messages/{message_id}/feedback", response_model=MessageFeedbackResponse)
+def set_message_feedback(
+    message_id: uuid.UUID,
+    data: MessageFeedbackRequest,
+    db: Session = Depends(get_db_session),
+    current_user: User = Depends(get_current_user),
+) -> MessageFeedbackResponse:
+    message = service.set_message_feedback(db, current_user, message_id, data.rating)
+    return MessageFeedbackResponse.model_validate(message)

@@ -61,6 +61,7 @@ function renderChatPage({ historyPage } = {}) {
 // but a fixture that silently drifts from the API it stands in for stops
 // being evidence of anything.
 const ANSWER_RESULT = {
+  message_id: 'assistant-msg-1',
   segments: [
     {
       text: "TechCorp's refund window is 30 days.",

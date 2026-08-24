@@ -266,6 +266,11 @@ class ChatMessage(Base):
     # (mirrors `AskResponse.empty_reason`'s own four-value vocabulary);
     # `None` for a real answer or for any `role="user"` row.
     empty_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    # 'up' | 'down' | `None` (no rating yet) -- same "vocabulary enforced
+    # in code, not schema" precedent as `role` above. Only ever set on a
+    # `role="assistant"` row (`chat/service.py::set_message_feedback`
+    # 404s on a `role="user"` id); always `None` on a `role="user"` row.
+    feedback: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     __table_args__ = (

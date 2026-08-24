@@ -333,7 +333,7 @@ def test_ask_llm_wrapper_failure_surfaces_as_exactly_503(client, monkeypatch):
     assert "detail" in response.json()
 
 
-def test_ask_success_resolves_real_chapter_and_filename_citations(client, monkeypatch):
+def test_ask_success_resolves_real_chapter_and_filename_citations(client, db_session, monkeypatch):
     token = _register_and_login(client, full_name="Maria", email="maria-chat-6@example.com", password="password12345")
     session_id = _create_session_id(client, token)
     document = _upload(client, token, filename="Vendor_Agreement_2026.pdf")
@@ -368,6 +368,11 @@ def test_ask_success_resolves_real_chapter_and_filename_citations(client, monkey
             "chunk_indexes": [0],
         }
     ]
+    # `message_id` round-trips to the persisted assistant row's own id --
+    # see AskResponse.message_id's docstring -- so a feedback PUT can
+    # target this turn's answer without a reload first.
+    assistant_row = db_session.query(ChatMessage).filter_by(role="assistant").one()
+    assert body["message_id"] == str(assistant_row.id)
 
 
 def test_ask_deduplicates_repeated_chapter_and_filename_citations(client, monkeypatch):

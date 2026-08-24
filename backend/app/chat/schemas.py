@@ -65,6 +65,18 @@ class AnswerSegmentResponse(BaseModel):
 
 
 class AskResponse(BaseModel):
+    # Set by `chat/service.py::_finish` once the assistant row this
+    # response describes has actually been persisted (its id is a Python-
+    # side `uuid.uuid4()` default, assigned at `repository.save_message`'s
+    # flush -- see that function's own comment -- so it's known before
+    # `_finish` returns, not only after a later reload). `None` only for
+    # the brief window between an `AskResponse(...)` construction above and
+    # `_finish` setting this -- every response that actually reaches the
+    # client has gone through `_finish` by then, so this is never `None`
+    # over the wire. Lets the frontend attach thumbs-up/down feedback
+    # (`PUT /chat/messages/{id}/feedback`) to a just-answered turn without
+    # a reload/history-refetch first.
+    message_id: uuid.UUID | None = None
     segments: list[AnswerSegmentResponse]
     # None when segments is non-empty. Distinguishes four otherwise-
     # identical-looking "nothing to show" cases so the frontend can render
@@ -121,6 +133,9 @@ class ChatHistoryMessageResponse(BaseModel):
     question: str | None = None
     segments: list[AnswerSegmentResponse] | None = None
     empty_reason: Literal["no_documents", "empty_scope", "no_answer", "refusal"] | None = None
+    # Always `None` on a `role="user"` row; `None` on a `role="assistant"`
+    # row until rated. See `ChatMessage.feedback`'s own docstring.
+    feedback: Literal["up", "down"] | None = None
     created_at: datetime
 
 
@@ -162,3 +177,22 @@ class ChatSessionResponse(BaseModel):
     title: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class MessageFeedbackRequest(BaseModel):
+    """`PUT /chat/messages/{message_id}/feedback` body. `rating: null`
+    clears a previously-set rating -- the same "re-click the active thumb
+    to retract it" affordance the frontend's thumb buttons expose, rather
+    than requiring a click through the opposite rating first."""
+
+    rating: Literal["up", "down"] | None = None
+
+
+class MessageFeedbackResponse(BaseModel):
+    """One `ChatMessage` row's feedback state after a
+    `PUT /chat/messages/{message_id}/feedback` call."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    feedback: Literal["up", "down"] | None = None
