@@ -161,6 +161,8 @@ _FILE_TYPE_TO_MEDIA_TYPE = {
     "pdf": "application/pdf",
     "markdown": "text/markdown",
     "html": "text/html",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 }
 
 

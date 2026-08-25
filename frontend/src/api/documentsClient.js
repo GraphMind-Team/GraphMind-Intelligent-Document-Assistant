@@ -6,7 +6,7 @@ import { API_BASE_URL, formatDetail } from './authClient'
 // file is rejected before any request is sent, per the story's Boundaries
 // ("Validate before any DB write, not after" -- the client-side half of
 // that is never sending the request at all).
-export const ALLOWED_EXTENSIONS = ['.pdf', '.md', '.markdown', '.html', '.htm']
+export const ALLOWED_EXTENSIONS = ['.pdf', '.md', '.markdown', '.html', '.htm', '.docx', '.pptx']
 export const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024
 
 function getExtension(filename) {

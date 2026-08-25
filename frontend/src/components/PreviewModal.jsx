@@ -5,6 +5,15 @@ import { useAuth } from '../context/AuthContext'
 
 const HEADING_ID = 'preview-modal-heading'
 
+// File types with a dedicated inline renderer below (an iframe or a raw
+// text dump). Anything else that reaches `status === 'ready'` -- DOCX,
+// PPTX, or any future format this modal hasn't grown a renderer for --
+// falls through to the generic "not previewable, download instead"
+// branch rather than rendering nothing: a browser has no built-in way to
+// display an Office document inline, so pretending otherwise (an iframe
+// pointed at it) would just trigger a download or a blank frame anyway.
+const INLINE_RENDERABLE_TYPES = new Set(['pdf', 'markdown', 'html'])
+
 // Same diagonal-hatched backdrop as UploadModal.jsx, per DESIGN.md's Modal
 // spec -- shared visual language across every modal in the app, not
 // redefined per component beyond this copy (no shared constants module
@@ -191,6 +200,19 @@ export default function PreviewModal({ documentId, filename, fileType, onClose }
               title={filename}
               className="h-full w-full rounded-md border-0 bg-white"
             />
+          )}
+
+          {status === 'ready' && !INLINE_RENDERABLE_TYPES.has(fileType) && (
+            <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+              <p className="text-sm text-text2">{t('documents.previewModal.notPreviewable')}</p>
+              <a
+                href={objectUrl}
+                download={filename}
+                className="rounded-full border border-border bg-surface2 px-5 py-2 text-sm font-semibold text-primary"
+              >
+                {t('documents.previewModal.download')}
+              </a>
+            </div>
           )}
         </div>
       </div>

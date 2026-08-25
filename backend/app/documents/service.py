@@ -64,6 +64,8 @@ _EXTENSION_TO_FILE_TYPE: Final = {
     ".markdown": "markdown",
     ".html": "html",
     ".htm": "html",
+    ".docx": "docx",
+    ".pptx": "pptx",
 }
 
 # Content-Type sets are permissive by design, not just by extension: real
@@ -82,9 +84,17 @@ _ALLOWED_CONTENT_TYPES: Final = {
     "pdf": {"application/pdf", "application/octet-stream"},
     "markdown": {"text/markdown", "text/x-markdown", "text/plain", "application/octet-stream"},
     "html": {"text/html", "application/xhtml+xml", "application/octet-stream"},
+    "docx": {
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/octet-stream",
+    },
+    "pptx": {
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "application/octet-stream",
+    },
 }
 
-_SUPPORTED_FORMATS_LABEL: Final = ".pdf, .md, .markdown, .html, .htm"
+_SUPPORTED_FORMATS_LABEL: Final = ".pdf, .md, .markdown, .html, .htm, .docx, .pptx"
 
 # Story 2.6: what `upload_document` did with this upload. See that
 # function's docstring for how the route maps each to a status code and

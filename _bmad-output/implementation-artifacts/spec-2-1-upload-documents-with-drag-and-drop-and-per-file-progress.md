@@ -82,6 +82,13 @@ baseline_commit: 'f11102123795405f6352b2081bd06e2a10f89de3'
 - Given uploads finish and the modal closes (Cancel or all-resolved), when it closes, then the Documents list refreshes with the new rows at `Uploaded` status, and any in-flight upload was not cancelled by the close action.
 - Given two test accounts each with uploaded documents, when account B lists documents, then none of account A's documents appear.
 
+## Spec Change Log
+
+- **Trigger:** Direct human request on a later feature branch ("add DOCX and PPTX upload/parsing support"), not an automated review finding. No dedicated spec was written for that work before or after the fact, so this story's frozen intent — the format contract closest to the code, since this story owns the allowlist — went stale with nothing superseding it.
+- **Amended:** The Boundaries' format allowlist (`.pdf`, `.md`, `.markdown`, `.html`, `.htm`) now also accepts `.docx` and `.pptx` (by extension and their matching `application/vnd.openxmlformats-officedocument.wordprocessingml.document` / `...presentationml.presentation` `Content-Type`s) — see `backend/app/documents/service.py`'s `_EXTENSION_TO_FILE_TYPE`/`_ALLOWED_CONTENT_TYPES` for the current, authoritative list. The I/O matrix's "Unsupported format" row citing a `.docx` file as the rejected example is stale; the still-valid claim is "any extension outside the current allowlist is rejected before any request is sent," not that `.docx` specifically is one of them.
+- **Known-bad state avoided:** Without this note, the frozen block flatly contradicts what the code (and the upload modal's `accept` attribute) now does — a reader trusting the frozen intent at face value would believe Word/PowerPoint files are rejected. The same "PDF, Markdown, HTML" claim is restated in `epic-2-context.md`'s Requirements & Constraints and in `spec-2-3`'s parsing acceptance criterion; both carry their own correction. It is *not* corrected in `epics.md`, `prd.md` or the brainstorm records — those are frozen pre-implementation planning intent and are meant to read as of their own date, not to track the code.
+- **KEEP:** Everything else this story built — per-file XHR progress, the 20MB size limit, upload modal a11y, tenancy-scoped list/create — is unaffected; only the format allowlist and the one I/O-matrix example changed.
+
 ## Design Notes
 
 Migration is deliberately minimal — no `content_hash` (2.6), `failed_reason` (2.5), or chapter/passage counts (2.2/2.3); each lands via its own later migration rather than being guessed now. `UploadModal.jsx` fires one `XMLHttpRequest` per queued file concurrently, not a sequential queue — that's what makes "a slow file doesn't block the others" literally true.

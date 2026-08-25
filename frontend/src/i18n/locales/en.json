@@ -157,7 +157,7 @@
     "emptyFiltered": "No documents match this filter.",
     "emptyState": {
       "title": "Upload your first document",
-      "body": "Add a PDF, Markdown or HTML file and GraphMind will read it, extract what matters, and let you ask questions grounded in exactly what it says.",
+      "body": "Add a document and GraphMind will read it, extract what matters, and let you ask questions grounded in exactly what it says.",
       "cta": "Upload a document"
     },
     "deleteAria": "Delete {{filename}}",
@@ -183,7 +183,9 @@
       "all": "Filter: All types",
       "pdf": "PDF",
       "markdown": "Markdown",
-      "html": "HTML"
+      "html": "HTML",
+      "docx": "Word",
+      "pptx": "PowerPoint"
     },
     "search": {
       "label": "Search documents by name",
@@ -233,7 +235,9 @@
     "previewModal": {
       "close": "Close",
       "loading": "Loading preview...",
-      "documentPreview": "Document preview"
+      "documentPreview": "Document preview",
+      "notPreviewable": "This file type can't be previewed in the browser.",
+      "download": "Download"
     }
   },
   "documentDetail": {
@@ -264,7 +268,7 @@
     "ask": "Ask",
     "welcome": {
       "noDocumentsTitle": "Add a document to get started",
-      "noDocumentsBody": "GraphMind answers using only what you upload. Add a PDF, Markdown or HTML file, then come back and ask.",
+      "noDocumentsBody": "GraphMind answers using only what you upload. Add a document, then come back and ask.",
       "noDocumentsCta": "Go to Documents",
       "readyTitle": "Ask your first question",
       "readyBody": "Ask about anything in your documents, or ask for a summary or outline. Every claim comes with a citation back to where it was found.",

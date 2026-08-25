@@ -157,7 +157,7 @@
     "emptyFiltered": "Keine Dokumente entsprechen diesem Filter.",
     "emptyState": {
       "title": "Lade dein erstes Dokument hoch",
-      "body": "Füge eine PDF-, Markdown- oder HTML-Datei hinzu. GraphMind liest sie, extrahiert das Wesentliche und beantwortet Fragen ausschließlich auf Basis ihres Inhalts.",
+      "body": "Füge ein Dokument hinzu. GraphMind liest es, extrahiert das Wesentliche und beantwortet Fragen ausschließlich auf Basis seines Inhalts.",
       "cta": "Dokument hochladen"
     },
     "deleteAria": "{{filename}} löschen",
@@ -183,7 +183,9 @@
       "all": "Filter: Alle Typen",
       "pdf": "PDF",
       "markdown": "Markdown",
-      "html": "HTML"
+      "html": "HTML",
+      "docx": "Word",
+      "pptx": "PowerPoint"
     },
     "search": {
       "label": "Dokumente nach Namen suchen",
@@ -233,7 +235,9 @@
     "previewModal": {
       "close": "Schließen",
       "loading": "Vorschau wird geladen...",
-      "documentPreview": "Dokumentvorschau"
+      "documentPreview": "Dokumentvorschau",
+      "notPreviewable": "Dieser Dateityp kann im Browser nicht angezeigt werden.",
+      "download": "Herunterladen"
     }
   },
   "documentDetail": {
@@ -264,7 +268,7 @@
     "ask": "Fragen",
     "welcome": {
       "noDocumentsTitle": "Lade ein Dokument hoch, um zu starten",
-      "noDocumentsBody": "GraphMind antwortet nur auf Basis deiner hochgeladenen Dokumente. Füge eine PDF-, Markdown- oder HTML-Datei hinzu und komm dann zurück, um Fragen zu stellen.",
+      "noDocumentsBody": "GraphMind antwortet nur auf Basis deiner hochgeladenen Dokumente. Füge ein Dokument hinzu und komm dann zurück, um Fragen zu stellen.",
       "noDocumentsCta": "Zu den Dokumenten",
       "readyTitle": "Stelle deine erste Frage",
       "readyBody": "Frag etwas zu deinen Dokumenten oder bitte um eine Zusammenfassung oder Gliederung. Jede Aussage enthält einen Verweis auf die Fundstelle.",

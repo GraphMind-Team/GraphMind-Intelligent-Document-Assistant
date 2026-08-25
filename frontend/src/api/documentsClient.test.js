@@ -21,15 +21,17 @@ describe('validateFile', () => {
     expect(validateFile(makeFile('report.pdf', 1024))).toBeNull()
   })
 
-  it('accepts .md, .markdown, .html, .htm', () => {
+  it('accepts .md, .markdown, .html, .htm, .docx, .pptx', () => {
     expect(validateFile(makeFile('notes.md', 100))).toBeNull()
     expect(validateFile(makeFile('notes.markdown', 100))).toBeNull()
     expect(validateFile(makeFile('page.html', 100))).toBeNull()
     expect(validateFile(makeFile('page.htm', 100))).toBeNull()
+    expect(validateFile(makeFile('report.docx', 100))).toBeNull()
+    expect(validateFile(makeFile('deck.pptx', 100))).toBeNull()
   })
 
   it('rejects an unsupported format with a reason naming the supported formats', () => {
-    const reason = validateFile(makeFile('resume.docx', 100))
+    const reason = validateFile(makeFile('resume.doc', 100))
     expect(reason).toContain('Unsupported file format')
     expect(reason).toContain('.pdf')
   })

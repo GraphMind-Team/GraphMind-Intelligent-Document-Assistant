@@ -86,6 +86,56 @@ def test_get_content_media_type_matches_markdown_and_html(client):
     assert html_response.content == html_bytes
 
 
+def test_get_content_media_type_matches_docx_and_pptx(client):
+    """Regression: `_FILE_TYPE_TO_MEDIA_TYPE` originally had no docx/pptx
+    entries, so both fell through to `application/octet-stream` -- wrong
+    on its own, and what made the frontend preview modal (which branches
+    on file type, not just on having bytes in hand) receive a type it had
+    no renderer for."""
+    token = _register_and_login(
+        client,
+        full_name="Maria Ivanova",
+        email="maria-content-office@example.com",
+        password="password12345",
+    )
+    docx_bytes = b"PK\x03\x04 fake docx bytes"
+    pptx_bytes = b"PK\x03\x04 fake pptx bytes"
+
+    docx_doc = _upload(
+        client,
+        token,
+        filename="report.docx",
+        content=docx_bytes,
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+    pptx_doc = _upload(
+        client,
+        token,
+        filename="deck.pptx",
+        content=pptx_bytes,
+        content_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    )
+
+    docx_response = client.get(
+        f"/documents/{docx_doc['id']}/content", headers=_auth_headers(token)
+    )
+    pptx_response = client.get(
+        f"/documents/{pptx_doc['id']}/content", headers=_auth_headers(token)
+    )
+
+    assert docx_response.status_code == 200
+    assert docx_response.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    assert docx_response.content == docx_bytes
+
+    assert pptx_response.status_code == 200
+    assert pptx_response.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    )
+    assert pptx_response.content == pptx_bytes
+
+
 def test_get_content_another_accounts_document_is_404_not_403(client):
     token_a = _register_and_login(
         client,

@@ -89,13 +89,13 @@ describe('UploadModal file handling', () => {
     render(<UploadModal onClose={vi.fn()} />)
 
     // Dropped, not selected via the file input: the input's `accept`
-    // attribute is a picker hint the OS honors, so a real .docx would
+    // attribute is a picker hint the OS honors, so a real .doc would
     // never even be offered there -- drag-and-drop is the path that
     // actually reaches this component's own validation.
     const dropzone = screen.getByRole('button', { name: /drag and drop files/i })
-    fireEvent.drop(dropzone, { dataTransfer: { files: [makeFile('resume.docx', 'application/msword')] } })
+    fireEvent.drop(dropzone, { dataTransfer: { files: [makeFile('resume.doc', 'application/msword')] } })
 
-    expect(await screen.findByText('resume.docx')).toBeInTheDocument()
+    expect(await screen.findByText('resume.doc')).toBeInTheDocument()
     expect(screen.getByRole('alert')).toHaveTextContent(/unsupported file format/i)
     expect(uploadSpy).not.toHaveBeenCalled()
   })

@@ -2,6 +2,27 @@
 status, and that `user_id` is resolved only from the caller's token.
 """
 
+import io
+
+from docx import Document as DocxDocument
+from pptx import Presentation
+
+
+def _minimal_docx_bytes() -> bytes:
+    document = DocxDocument()
+    document.add_paragraph("Body text.")
+    buffer = io.BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+def _minimal_pptx_bytes() -> bytes:
+    presentation = Presentation()
+    presentation.slides.add_slide(presentation.slide_layouts[0])
+    buffer = io.BytesIO()
+    presentation.save(buffer)
+    return buffer.getvalue()
+
 
 def _register_and_login(client, *, full_name, email, password):
     register_response = client.post(
@@ -62,6 +83,40 @@ def test_upload_markdown_and_html_accepted(client):
     assert html_response.json()["file_type"] == "html"
 
 
+def test_upload_docx_and_pptx_accepted(client):
+    token = _register_and_login(
+        client, full_name="Maria Ivanova", email="maria-upload2b@example.com", password="password12345"
+    )
+
+    docx_response = client.post(
+        "/documents",
+        headers=_auth_headers(token),
+        files={
+            "file": (
+                "report.docx",
+                _minimal_docx_bytes(),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+    )
+    pptx_response = client.post(
+        "/documents",
+        headers=_auth_headers(token),
+        files={
+            "file": (
+                "deck.pptx",
+                _minimal_pptx_bytes(),
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            )
+        },
+    )
+
+    assert docx_response.status_code == 201, docx_response.text
+    assert docx_response.json()["file_type"] == "docx"
+    assert pptx_response.status_code == 201, pptx_response.text
+    assert pptx_response.json()["file_type"] == "pptx"
+
+
 def test_upload_unsupported_format_rejected(client):
     token = _register_and_login(
         client, full_name="Maria Ivanova", email="maria-upload3@example.com", password="password12345"
@@ -70,7 +125,7 @@ def test_upload_unsupported_format_rejected(client):
     response = client.post(
         "/documents",
         headers=_auth_headers(token),
-        files={"file": ("resume.docx", b"not really a docx", "application/msword")},
+        files={"file": ("resume.doc", b"not really a doc", "application/msword")},
     )
 
     assert response.status_code == 400
@@ -276,7 +331,7 @@ def test_upload_rejected_file_writes_no_row(client, db_session):
     response = client.post(
         "/documents",
         headers=_auth_headers(token),
-        files={"file": ("resume.docx", b"not really a docx", "application/msword")},
+        files={"file": ("resume.doc", b"not really a doc", "application/msword")},
     )
     assert response.status_code == 400
 

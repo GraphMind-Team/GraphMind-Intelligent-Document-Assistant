@@ -165,7 +165,7 @@ function FolderTile({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       className={[
-        'card-lift relative flex h-full w-full flex-col gap-1 rounded-xl border p-2.5',
+        'card-lift relative flex h-full min-h-[5rem] w-full flex-col gap-1 rounded-xl border p-3',
         colorClasses.bg,
         isActive || isDragOver ? 'border-accent ring-2 ring-accent/40' : 'border-transparent',
       ].join(' ')}
@@ -177,10 +177,10 @@ function FolderTile({
         onClick={() => onSelect(folder.id)}
         className="flex h-full w-full flex-col items-start justify-between gap-1 pr-8 text-left"
       >
-        <span className={['line-clamp-2 text-[13px] font-semibold break-words', colorClasses.text].join(' ')}>
+        <span className={['line-clamp-2 text-sm font-semibold break-words', colorClasses.text].join(' ')}>
           {folder.name}
         </span>
-        <span className={['text-[11px]', colorClasses.text, 'opacity-80'].join(' ')}>
+        <span className={['text-xs', colorClasses.text, 'opacity-80'].join(' ')}>
           {t('documents.folderGrid.documentCount', { count })}
         </span>
       </button>
@@ -195,7 +195,7 @@ function FolderTile({
           }}
           className="rounded-lg p-1 text-current hover:bg-black/10"
         >
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
             <path d="M12 20h9" />
             <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
           </svg>
@@ -208,7 +208,7 @@ function FolderTile({
           onClick={openConfirm}
           className="rounded-lg p-1 text-current hover:bg-black/10"
         >
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
             <path d="M3 6h18" />
             <path d="M8 6V4h8v2" />
             <path d="M6 6l1 14h10l1-14" />
@@ -228,12 +228,12 @@ function FixedTile({ label, count, isActive, onSelect }) {
       aria-label={t('documents.folderGrid.tileAria', { name: label, count })}
       onClick={onSelect}
       className={[
-        'card-lift flex h-full w-full flex-col items-start justify-between gap-1 rounded-xl border p-2.5 text-left',
+        'card-lift flex h-full min-h-[5rem] w-full flex-col items-start justify-between gap-1 rounded-xl border p-3 text-left',
         isActive ? 'border-accent bg-surface2' : 'border-border bg-card-bg',
       ].join(' ')}
     >
-      <span className="text-[13px] font-semibold text-text">{label}</span>
-      <span className="text-[11px] text-text2">
+      <span className="text-sm font-semibold text-text">{label}</span>
+      <span className="text-xs text-text2">
         {t('documents.folderGrid.documentCount', { count })}
       </span>
     </button>
@@ -325,7 +325,7 @@ export default function FolderGrid({
   }
 
   return (
-    <div className="w-72 shrink-0 rounded-2xl border border-border bg-card-bg p-3 shadow-card">
+    <div className="w-80 shrink-0 rounded-2xl border border-border bg-card-bg p-3.5 shadow-card">
       {dropError && (
         <p role="alert" className="mb-2 text-xs text-danger">
           {dropError}
@@ -333,16 +333,16 @@ export default function FolderGrid({
       )}
       <ul
         aria-label={t('documents.foldersHeading')}
-        className="grid auto-rows-fr list-none grid-cols-2 gap-2 p-0"
+        className="grid auto-rows-fr list-none grid-cols-2 gap-2.5 p-0"
       >
         <li>
           <button
             type="button"
             onClick={() => setModalState('create')}
-            className="flex h-full min-h-[4.5rem] w-full flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-border p-2.5 text-text2 hover:border-accent hover:text-accent"
+            className="flex h-full min-h-[5rem] w-full flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-border p-3 text-text2 hover:border-accent hover:text-accent"
           >
-            <span aria-hidden="true" className="text-lg leading-none">+</span>
-            <span className="text-[11px] font-semibold">{t('documents.folderGrid.newFolder')}</span>
+            <span aria-hidden="true" className="text-xl leading-none">+</span>
+            <span className="text-xs font-semibold">{t('documents.folderGrid.newFolder')}</span>
           </button>
         </li>
         <li>

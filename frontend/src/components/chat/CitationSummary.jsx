@@ -81,8 +81,12 @@ export default function CitationSummary({ citations }) {
     // less surprising than repositioning it mid-scroll. `capture: true`
     // catches the scroll regardless of which ancestor is the actual
     // scrolling element (the chat thread's own `overflow-y-auto`
-    // container, not `window`).
-    function handleScroll() {
+    // container, not `window`). The panel's own citation list is itself
+    // scrollable (long source lists), so a scroll that originates inside
+    // the panel must be excluded here -- otherwise scrolling the list
+    // closes the panel it's inside of.
+    function handleScroll(event) {
+      if (panelRef.current?.contains(event.target)) return
       setIsOpen(false)
     }
 
@@ -140,9 +144,16 @@ export default function CitationSummary({ citations }) {
             style={{ top: position.top, left: position.left, maxWidth: PANEL_MAX_WIDTH }}
             className="fixed z-50 min-w-[220px] rounded-lg border border-border bg-card-bg py-2 text-[13.5px] shadow-modal"
           >
-            <ul className="m-0 list-none space-y-1.5 p-0 px-3">
+            {/* `snap-y snap-proximity` + each item's `snap-start`: with a
+                fixed max-height and variable-height items (a long
+                filename wraps to a second line via CitationChip's own
+                `break-words`), the list can rest mid-scroll with an item
+                cut off partway -- proximity snapping pulls the nearest
+                item boundary to the top once a scroll/drag ends, so the
+                panel never settles on a half-visible chip. */}
+            <ul className="m-0 max-h-[168px] list-none snap-y snap-proximity space-y-1.5 overflow-y-auto p-0 px-3">
               {citations.map((citation, index) => (
-                <li key={index}>
+                <li key={index} className="snap-start">
                   <CitationChip chapter={citation.chapter} documentFilename={citation.documentFilename} />
                 </li>
               ))}
