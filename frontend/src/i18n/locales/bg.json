@@ -235,7 +235,9 @@
     "previewModal": {
       "close": "Затвори",
       "loading": "Зареждане на визуализация...",
-      "documentPreview": "Преглед на документа"
+      "documentPreview": "Преглед на документа",
+      "notPreviewable": "Този тип файл не може да се визуализира в браузъра.",
+      "download": "Изтегляне"
     }
   },
   "documentDetail": {

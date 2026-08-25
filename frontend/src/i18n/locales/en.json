@@ -235,7 +235,9 @@
     "previewModal": {
       "close": "Close",
       "loading": "Loading preview...",
-      "documentPreview": "Document preview"
+      "documentPreview": "Document preview",
+      "notPreviewable": "This file type can't be previewed in the browser.",
+      "download": "Download"
     }
   },
   "documentDetail": {

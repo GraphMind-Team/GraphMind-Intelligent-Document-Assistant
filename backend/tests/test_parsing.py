@@ -221,6 +221,127 @@ def test_pptx_unparseable_bytes_raise():
 
 
 # ---------------------------------------------------------------------------
+# DOCX / PPTX tables. Previously unread entirely (`document.paragraphs`
+# never visits a table, and a table shape reads as `has_text_frame ==
+# False`), so a document whose content lived only in a table produced zero
+# extractable text -- a hard `UnparseableDocument` failure, not a
+# degradation.
+# ---------------------------------------------------------------------------
+
+
+def test_docx_table_text_is_extracted():
+    def build(document):
+        document.add_paragraph("Intro paragraph.")
+        table = document.add_table(rows=2, cols=2)
+        table.cell(0, 0).text = "Name"
+        table.cell(0, 1).text = "Role"
+        table.cell(1, 0).text = "Alice"
+        table.cell(1, 1).text = "Engineer"
+
+    chunks = parse_document("docx", _docx_bytes(build))
+
+    all_text = " ".join(c.text for c in chunks)
+    assert "Alice" in all_text
+    assert "Engineer" in all_text
+
+
+def test_docx_table_only_document_does_not_fail_to_parse():
+    def build(document):
+        table = document.add_table(rows=1, cols=2)
+        table.cell(0, 0).text = "Name"
+        table.cell(0, 1).text = "Bob"
+
+    chunks = parse_document("docx", _docx_bytes(build))
+
+    assert any("Bob" in c.text for c in chunks)
+
+
+def test_docx_heading_with_no_body_paragraph_is_not_dropped():
+    # A heading directly followed by another heading (a "Part I" divider
+    # before "Chapter 1") used to vanish: the chapter-switch append was
+    # gated on `current_parts` being non-empty, so "Part I" was discarded
+    # before it ever became a chunk.
+    def build(document):
+        document.add_heading("Part I", level=1)
+        document.add_heading("Chapter 1", level=1)
+        document.add_paragraph("Body.")
+
+    chunks = parse_document("docx", _docx_bytes(build))
+
+    assert {c.chapter for c in chunks} == {"Part I", "Chapter 1"}
+    part_one_chunk = next(c for c in chunks if c.chapter == "Part I")
+    assert "Part I" in part_one_chunk.text
+
+
+def test_pptx_table_text_is_extracted():
+    def build(presentation):
+        slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+        graphic_frame = slide.shapes.add_table(2, 2, 0, 0, 100, 100)
+        table = graphic_frame.table
+        table.cell(0, 0).text = "Name"
+        table.cell(0, 1).text = "Role"
+        table.cell(1, 0).text = "Carol"
+        table.cell(1, 1).text = "Designer"
+
+    chunks = parse_document("pptx", _pptx_bytes(build))
+
+    all_text = " ".join(c.text for c in chunks)
+    assert "Carol" in all_text
+    assert "Designer" in all_text
+
+
+def test_pptx_title_only_slide_is_still_indexed():
+    # A section-divider/agenda slide with only a title used to disappear:
+    # its chapter's body text is empty, and `_chunk_chapters` dropped any
+    # chapter with no words -- so a search for "Next Steps" could never
+    # find the slide that says exactly that.
+    def build(presentation):
+        slide = presentation.slides.add_slide(presentation.slide_layouts[5])
+        slide.shapes.title.text = "Next Steps"
+
+    chunks = parse_document("pptx", _pptx_bytes(build))
+
+    assert any(c.chapter == "Next Steps" for c in chunks)
+    assert any("Next Steps" in c.text for c in chunks)
+
+
+# ---------------------------------------------------------------------------
+# DOCX / PPTX zip-bomb guard. Unlike every other supported format,
+# MAX_FILE_SIZE_BYTES only bounds the *compressed* upload -- DEFLATE lets a
+# small archive expand enormously in memory before python-docx/python-pptx
+# get a chance to fail gracefully.
+# ---------------------------------------------------------------------------
+
+import zipfile
+
+
+def _zip_bomb_bytes() -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("word/document.xml", b"A" * 300_000_000)
+    return buffer.getvalue()
+
+
+def test_docx_zip_bomb_is_rejected_before_expanding_in_memory():
+    with pytest.raises(UnparseableDocument):
+        parse_document("docx", _zip_bomb_bytes())
+
+
+def test_pptx_zip_bomb_is_rejected_before_expanding_in_memory():
+    with pytest.raises(UnparseableDocument):
+        parse_document("pptx", _zip_bomb_bytes())
+
+
+def test_legitimate_docx_well_under_the_zip_bomb_cap_still_parses():
+    def build(document):
+        document.add_paragraph("An ordinary paragraph.")
+
+    chunks = parse_document("docx", _docx_bytes(build))
+
+    assert any("An ordinary paragraph." in c.text for c in chunks)
+
+
+# ---------------------------------------------------------------------------
 # Glyph-spaced PDF repair. Some PDFs (design-tool exports especially)
 # position every character individually, so pypdf faithfully returns
 # "К о н т а к т и" for "Контакти". Observed on two real CV PDFs where

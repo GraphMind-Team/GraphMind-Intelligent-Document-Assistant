@@ -15,10 +15,13 @@ bytes are trustworthy for their claimed `file_type`.
 import io
 import re
 from dataclasses import dataclass
+from typing import Final
+from zipfile import BadZipFile, ZipFile
 
 from bs4 import BeautifulSoup, NavigableString
 from bs4.element import PreformattedString
 from docx import Document as DocxDocument
+from docx.table import Table as DocxTable
 from pptx import Presentation
 from pypdf import PdfReader
 
@@ -65,6 +68,30 @@ _MARKDOWN_HEADING_RE = re.compile(r"^#{1,6}\s+(.*)$", re.MULTILINE)
 # -- matched separately so heading detection can skip anything inside one.
 # Non-greedy DOTALL match from an opening ``` line to the next ``` line.
 _MARKDOWN_CODE_FENCE_RE = re.compile(r"^```.*?^```[ \t]*$", re.MULTILINE | re.DOTALL)
+
+# DOCX/PPTX are zip archives -- unlike every other supported format, the
+# 20MB `MAX_FILE_SIZE_BYTES` upload check only bounds the *compressed*
+# size. DEFLATE lets a small archive expand enormously (a few hundred KB
+# of crafted XML can unpack to tens of GB), and python-docx/python-pptx
+# both fully materialize the inflated XML tree in memory before either
+# library gets a chance to fail gracefully -- so this has to be checked
+# against the archive's own declared sizes, before either library opens
+# the file at all. 200MB is generous headroom above what a legitimate
+# multi-hundred-page report or image-heavy deck expands to (embedded
+# images are already compressed inside the zip, close to 1:1), while
+# still bounding a worker's memory use well below a crafted bomb's
+# thousand-to-one ratio.
+_MAX_ZIP_UNCOMPRESSED_BYTES: Final = 200 * 1024 * 1024
+
+
+def _check_zip_bomb(content: bytes) -> None:
+    try:
+        with ZipFile(io.BytesIO(content)) as archive:
+            total_uncompressed = sum(entry.file_size for entry in archive.infolist())
+    except BadZipFile as exc:
+        raise UnparseableDocument("Could not parse archive.") from exc
+    if total_uncompressed > _MAX_ZIP_UNCOMPRESSED_BYTES:
+        raise UnparseableDocument("Document expands to an unreasonable size when decompressed.")
 
 
 @dataclass(frozen=True)
@@ -125,7 +152,20 @@ def _chunk_chapters(chapters: list[tuple[str, str]]) -> list[ParsedChunk]:
     for chapter, text in chapters:
         words = text.split()
         if not words:
-            continue
+            # A heading with nothing under it -- a title-only slide, a
+            # section-divider slide, a DOCX heading immediately followed
+            # by another heading -- would otherwise vanish from the index
+            # entirely rather than degrade to "no body text under this
+            # title". The generic "Full Document" placeholder is the one
+            # exception: that's not a real heading a user wrote, so an
+            # empty one means the document (or this section of it) truly
+            # had no extractable text, not a title worth indexing on its
+            # own.
+            if chapter == _FULL_DOCUMENT_CHAPTER:
+                continue
+            words = chapter.split()
+            if not words:
+                continue
         start = 0
         is_first_chunk_in_chapter = True
         while start < len(words):
@@ -211,7 +251,11 @@ def _parse_html(content: bytes) -> list[tuple[str, str]]:
 
     for element in root.descendants:
         if getattr(element, "name", None) in _HEADING_TAGS:
-            if current_parts:
+            # Same "keep a heading with no body under it" reasoning as
+            # `_parse_docx` -- a heading directly followed by another
+            # heading would otherwise disappear entirely instead of
+            # falling through to `_chunk_chapters`'s empty-body handling.
+            if current_parts or current_title != _FULL_DOCUMENT_CHAPTER:
                 chapters.append((current_title, current_parts))
             current_title = element.get_text(strip=True) or _FULL_DOCUMENT_CHAPTER
             current_parts = []
@@ -231,7 +275,7 @@ def _parse_html(content: bytes) -> list[tuple[str, str]]:
             if piece:
                 current_parts.append(piece)
 
-    if current_parts:
+    if current_parts or current_title != _FULL_DOCUMENT_CHAPTER:
         chapters.append((current_title, current_parts))
 
     return [(title, " ".join(parts)) for title, parts in chapters]
@@ -260,7 +304,25 @@ _DOCX_HEADING_STYLE_IDS = {"Title", "Heading1", "Heading2", "Heading3"}
 _DOCX_HEADING_STYLE_NAMES = {"Title", "Heading 1", "Heading 2", "Heading 3"}
 
 
+def _docx_table_text(table: DocxTable) -> str:
+    """Flattens a table to plain text: one line per row, cells tab-separated.
+
+    A row whose cells are all empty (or a table with none) contributes
+    nothing -- same "skip empty" treatment as a blank paragraph gets
+    below, so an empty table doesn't inject blank lines into a chapter's
+    text.
+    """
+    lines = []
+    for row in table.rows:
+        cell_texts = [cell.text.strip() for cell in row.cells]
+        line = "\t".join(text for text in cell_texts if text)
+        if line:
+            lines.append(line)
+    return "\n".join(lines)
+
+
 def _parse_docx(content: bytes) -> list[tuple[str, str]]:
+    _check_zip_bomb(content)
     try:
         document = DocxDocument(io.BytesIO(content))
     except Exception as exc:
@@ -270,37 +332,65 @@ def _parse_docx(content: bytes) -> list[tuple[str, str]]:
     current_title = _FULL_DOCUMENT_CHAPTER
     current_parts: list[str] = []
 
-    for paragraph in document.paragraphs:
-        text = paragraph.text.strip()
+    # `iter_inner_content()` (not `document.paragraphs`) walks paragraphs
+    # *and* top-level tables together in actual document order -- a table
+    # is exactly as common in a Word document as a paragraph, so reading
+    # only paragraphs silently dropped every table's text, and a document
+    # whose content lived entirely in a table used to fail to parse at
+    # all (zero extractable text).
+    for block in document.iter_inner_content():
+        if isinstance(block, DocxTable):
+            table_text = _docx_table_text(block)
+            if table_text:
+                current_parts.append(table_text)
+            continue
+
+        text = block.text.strip()
         if not text:
             continue
-        style = paragraph.style
+        style = block.style
         is_heading = style is not None and (
             style.style_id in _DOCX_HEADING_STYLE_IDS
             or style.name in _DOCX_HEADING_STYLE_NAMES
         )
         if is_heading:
-            if current_parts:
+            # Appended even when `current_parts` is empty -- a heading
+            # directly followed by another heading (no body paragraph
+            # between them, e.g. a "Part I" divider before "Chapter 1")
+            # otherwise vanished here before it ever reached
+            # `_chunk_chapters`'s own empty-body handling. The initial
+            # placeholder title is the one exception: an empty preamble
+            # before the first real heading isn't a heading a user wrote,
+            # so there's nothing worth keeping a chapter for.
+            if current_parts or current_title != _FULL_DOCUMENT_CHAPTER:
                 chapters.append((current_title, current_parts))
             current_title = text
             current_parts = []
         else:
             current_parts.append(text)
 
-    if current_parts:
+    if current_parts or current_title != _FULL_DOCUMENT_CHAPTER:
         chapters.append((current_title, current_parts))
 
-    # Only `document.paragraphs` (top-level body text) is read -- text
-    # inside tables isn't visited, the same simplification the HTML parser
-    # doesn't need to make but the PDF parser effectively also has (tables
-    # extract as whatever pypdf's positional text happens to produce).
     return [(title, "\n".join(parts)) for title, parts in chapters]
 
 
 # --- PPTX -----------------------------------------------------------------
 
 
+def _pptx_table_text(table) -> str:
+    """Same flattening as `_docx_table_text`, for a slide's table shapes."""
+    lines = []
+    for row in table.rows:
+        cell_texts = [cell.text.strip() for cell in row.cells]
+        line = "\t".join(text for text in cell_texts if text)
+        if line:
+            lines.append(line)
+    return "\n".join(lines)
+
+
 def _parse_pptx(content: bytes) -> list[tuple[str, str]]:
+    _check_zip_bomb(content)
     try:
         presentation = Presentation(io.BytesIO(content))
     except Exception as exc:
@@ -324,12 +414,26 @@ def _parse_pptx(content: bytes) -> list[tuple[str, str]]:
             # for the same underlying slide element.
             if shape.is_placeholder and shape.placeholder_format.idx == 0:
                 continue
+            # Checked before `has_text_frame`: a table shape is a
+            # `GraphicFrame`, which reads as `has_text_frame == False` (it
+            # holds a table, not a text frame), so table slides used to
+            # contribute nothing at all -- the same "tables are as common
+            # as body text" gap `_parse_docx` had.
+            if shape.has_table:
+                table_text = _pptx_table_text(shape.table)
+                if table_text:
+                    parts.append(table_text)
+                continue
             if not shape.has_text_frame:
                 continue
             text = shape.text_frame.text.strip()
             if text:
                 parts.append(text)
 
+        # Appended unconditionally, even when `parts` is empty: a
+        # title-only slide (a section divider, an agenda slide) is still
+        # a real, findable slide -- `_chunk_chapters` falls back to
+        # indexing the title itself when a chapter has no body text.
         chapters.append((title_text or f"Slide {index}", "\n".join(parts)))
 
     return chapters

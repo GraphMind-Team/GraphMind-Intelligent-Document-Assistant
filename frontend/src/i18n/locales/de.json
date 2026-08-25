@@ -235,7 +235,9 @@
     "previewModal": {
       "close": "Schließen",
       "loading": "Vorschau wird geladen...",
-      "documentPreview": "Dokumentvorschau"
+      "documentPreview": "Dokumentvorschau",
+      "notPreviewable": "Dieser Dateityp kann im Browser nicht angezeigt werden.",
+      "download": "Herunterladen"
     }
   },
   "documentDetail": {

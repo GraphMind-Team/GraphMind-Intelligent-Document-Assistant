@@ -180,6 +180,26 @@ describe('PreviewModal content rendering', () => {
     expect(frame).toHaveAttribute('sandbox', '')
   })
 
+  it('shows a download fallback for a file type with no inline renderer (DOCX)', async () => {
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    vi.spyOn(documentsClient, 'getDocumentContent').mockResolvedValue(
+      new Blob(['docx bytes'], {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      }),
+    )
+
+    render(<PreviewModal documentId="doc-1" filename="report.docx" fileType="docx" onClose={vi.fn()} />)
+
+    expect(await screen.findByText(/can't be previewed/i)).toBeInTheDocument()
+    // Regression: the modal used to render nothing at all for docx/pptx --
+    // status flipped to 'ready' with no branch matching the file type, so
+    // it silently showed an empty body.
+    expect(screen.queryByTitle('report.docx')).not.toBeInTheDocument()
+    const downloadLink = screen.getByRole('link', { name: /download/i })
+    expect(downloadLink).toHaveAttribute('href', 'blob:mock-object-url')
+    expect(downloadLink).toHaveAttribute('download', 'report.docx')
+  })
+
   it('shows an alert with the error message when the fetch fails', async () => {
     useAuth.mockReturnValue({ authFetch: vi.fn() })
     vi.spyOn(documentsClient, 'getDocumentContent').mockRejectedValue(
