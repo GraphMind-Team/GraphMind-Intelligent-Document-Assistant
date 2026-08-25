@@ -12,6 +12,7 @@ own failure mode and raise `UnparseableDocument` rather than assume the
 bytes are trustworthy for their claimed `file_type`.
 """
 
+import copy
 import io
 import re
 from dataclasses import dataclass
@@ -75,23 +76,89 @@ _MARKDOWN_CODE_FENCE_RE = re.compile(r"^```.*?^```[ \t]*$", re.MULTILINE | re.DO
 # of crafted XML can unpack to tens of GB), and python-docx/python-pptx
 # both fully materialize the inflated XML tree in memory before either
 # library gets a chance to fail gracefully -- so this has to be checked
-# against the archive's own declared sizes, before either library opens
-# the file at all. 200MB is generous headroom above what a legitimate
-# multi-hundred-page report or image-heavy deck expands to (embedded
-# images are already compressed inside the zip, close to 1:1), while
-# still bounding a worker's memory use well below a crafted bomb's
-# thousand-to-one ratio.
+# before either library opens the file at all. 200MB is generous headroom
+# above what a legitimate multi-hundred-page report or image-heavy deck
+# expands to (embedded images are already compressed inside the zip,
+# close to 1:1), while still bounding a worker's memory use well below a
+# crafted bomb's thousand-to-one ratio.
 _MAX_ZIP_UNCOMPRESSED_BYTES: Final = 200 * 1024 * 1024
+
+# Read (and immediately discard) each entry's decompressed output in
+# fixed-size chunks -- never the whole entry at once -- so the check
+# itself never holds more than one chunk of inflated data in memory
+# regardless of how large the real payload turns out to be.
+_ZIP_READ_CHUNK_SIZE: Final = 1024 * 1024
+
+# Stand-in `ZipInfo.file_size` used only while measuring an entry (see
+# `_check_zip_bomb`), large enough that `zipfile`'s per-read truncation
+# against it can never fire -- the entry's real deflate stream ends long
+# before this, whatever it declared about itself. Not `sys.maxsize`:
+# `zipfile` writes this field back out as a 32/64-bit integer in some
+# paths, so an absurd-but-representable value is the safer stand-in.
+_UNTRUNCATED_ZIP_ENTRY_SIZE: Final = 1 << 62
 
 
 def _check_zip_bomb(content: bytes) -> None:
+    """Raises `UnparseableDocument` if `content` (a DOCX/PPTX zip archive)
+    decompresses to more than `_MAX_ZIP_UNCOMPRESSED_BYTES`.
+
+    Deliberately does *not* trust `ZipInfo.file_size` as a stand-in for
+    this -- that field is read straight from the archive's central
+    directory, which is ordinary attacker-controlled archive data, not a
+    verified measurement of anything. So this runs every entry through
+    the real decompressor instead, in fixed-size chunks, and counts what
+    actually comes out; the check is only ever as trustworthy as the
+    bytes it has itself inflated and counted.
+
+    Streaming the entry is not by itself enough to stop trusting the
+    declared size, because `zipfile` applies that size to the *read* as
+    well: `ZipExtFile` truncates each read to the declared byte count it
+    has left (`data = data[:self._left]`). Reading an entry normally
+    would therefore measure the lie rather than the payload -- an entry
+    declaring 1KB behind a 400MB deflate stream gets counted as 1KB and
+    waved through. Crucially that truncation is applied *after* the
+    inflate, not instead of it, so it bounds what a reader receives but
+    not what decompressing allocated to produce it: `ZipFile.read(name)`
+    (exactly what python-docx/python-pptx call) passes no size, which
+    becomes `max_length = 1 << 31` into the decompressor -- effectively
+    unbounded -- so the full 400MB is materialized and only then sliced
+    back down to the declared 1KB. Measured end to end, a 433KB upload
+    crafted this way peaked at 830MB of heap with the declared size
+    trusted. Forging the entry's CRC-32 to match the truncated prefix
+    isn't even required for that; without it the `BadZipFile` is raised
+    *after* the allocation, so it changes the error message and nothing
+    about the memory.
+
+    Hence `probe.file_size` below: measuring against a copy of the
+    `ZipInfo` whose declared size can't truncate anything is what makes
+    the count reflect the real deflate output. An honest entry is
+    unaffected -- its stream simply ends where it always did, and its
+    CRC-32 still checks out -- while an entry lying downward is now
+    inflated under this function's own bounded chunk reads and rejected
+    on what actually comes out of it.
+    """
     try:
         with ZipFile(io.BytesIO(content)) as archive:
-            total_uncompressed = sum(entry.file_size for entry in archive.infolist())
+            total_uncompressed = 0
+            for info in archive.infolist():
+                # A copy, not `info` itself: `archive.infolist()` hands
+                # out the live `ZipInfo` objects the `ZipFile` keeps for
+                # its own reads, so mutating one here would corrupt the
+                # archive's view of that entry for every later reader.
+                probe = copy.copy(info)
+                probe.file_size = _UNTRUNCATED_ZIP_ENTRY_SIZE
+                with archive.open(probe) as entry:
+                    while True:
+                        chunk = entry.read(_ZIP_READ_CHUNK_SIZE)
+                        if not chunk:
+                            break
+                        total_uncompressed += len(chunk)
+                        if total_uncompressed > _MAX_ZIP_UNCOMPRESSED_BYTES:
+                            raise UnparseableDocument(
+                                "Document expands to an unreasonable size when decompressed."
+                            )
     except BadZipFile as exc:
         raise UnparseableDocument("Could not parse archive.") from exc
-    if total_uncompressed > _MAX_ZIP_UNCOMPRESSED_BYTES:
-        raise UnparseableDocument("Document expands to an unreasonable size when decompressed.")
 
 
 @dataclass(frozen=True)
@@ -304,18 +371,44 @@ _DOCX_HEADING_STYLE_IDS = {"Title", "Heading1", "Heading2", "Heading3"}
 _DOCX_HEADING_STYLE_NAMES = {"Title", "Heading 1", "Heading 2", "Heading 3"}
 
 
-def _docx_table_text(table: DocxTable) -> str:
+def _table_text(table) -> str:
     """Flattens a table to plain text: one line per row, cells tab-separated.
+
+    Shared by both `_parse_docx` and `_parse_pptx` -- a DOCX `Table` and a
+    PPTX `GraphicFrame.table` are unrelated classes from unrelated
+    libraries, but both expose the same `.rows` of cells with a `.text`
+    property, so one function handles either.
 
     A row whose cells are all empty (or a table with none) contributes
     nothing -- same "skip empty" treatment as a blank paragraph gets
     below, so an empty table doesn't inject blank lines into a chapter's
     text.
+
+    Deduped by `id(cell)` before reading `.text`: a horizontally-merged
+    DOCX cell comes back as the *same* `_Cell` instance at every grid
+    column it spans (word represents the merge by grid-column-count, not
+    by a separate cell per column), so reading every column verbatim
+    repeated the merged text once per spanned column ("Merged header
+    Merged header Merged header"). Deduped by identity rather than
+    `dict.fromkeys(row.cells)` because python-pptx's `_Cell` has no
+    `__hash__` of its own (raises `TypeError: unhashable type`) --
+    `id()` needs no cooperation from either library's cell class. PPTX
+    merges work differently anyway -- a spanned cell's own `.text` is
+    already empty -- so this dedup is a harmless no-op there, not a
+    second code path.
     """
     lines = []
     for row in table.rows:
-        cell_texts = [cell.text.strip() for cell in row.cells]
-        line = "\t".join(text for text in cell_texts if text)
+        seen_cell_ids: set[int] = set()
+        cell_texts = []
+        for cell in row.cells:
+            if id(cell) in seen_cell_ids:
+                continue
+            seen_cell_ids.add(id(cell))
+            text = cell.text.strip()
+            if text:
+                cell_texts.append(text)
+        line = "\t".join(cell_texts)
         if line:
             lines.append(line)
     return "\n".join(lines)
@@ -340,7 +433,7 @@ def _parse_docx(content: bytes) -> list[tuple[str, str]]:
     # all (zero extractable text).
     for block in document.iter_inner_content():
         if isinstance(block, DocxTable):
-            table_text = _docx_table_text(block)
+            table_text = _table_text(block)
             if table_text:
                 current_parts.append(table_text)
             continue
@@ -378,17 +471,6 @@ def _parse_docx(content: bytes) -> list[tuple[str, str]]:
 # --- PPTX -----------------------------------------------------------------
 
 
-def _pptx_table_text(table) -> str:
-    """Same flattening as `_docx_table_text`, for a slide's table shapes."""
-    lines = []
-    for row in table.rows:
-        cell_texts = [cell.text.strip() for cell in row.cells]
-        line = "\t".join(text for text in cell_texts if text)
-        if line:
-            lines.append(line)
-    return "\n".join(lines)
-
-
 def _parse_pptx(content: bytes) -> list[tuple[str, str]]:
     _check_zip_bomb(content)
     try:
@@ -420,7 +502,7 @@ def _parse_pptx(content: bytes) -> list[tuple[str, str]]:
             # contribute nothing at all -- the same "tables are as common
             # as body text" gap `_parse_docx` had.
             if shape.has_table:
-                table_text = _pptx_table_text(shape.table)
+                table_text = _table_text(shape.table)
                 if table_text:
                     parts.append(table_text)
                 continue
@@ -434,7 +516,23 @@ def _parse_pptx(content: bytes) -> list[tuple[str, str]]:
         # title-only slide (a section divider, an agenda slide) is still
         # a real, findable slide -- `_chunk_chapters` falls back to
         # indexing the title itself when a chapter has no body text.
-        chapters.append((title_text or f"Slide {index}", "\n".join(parts)))
+        #
+        # `f"Slide {index}"` is a *generated* label, not something a user
+        # wrote -- it must never reach `_chunk_chapters`'s title-as-text
+        # fallback the way a real title does, or an image-only slide (no
+        # title, no text) ends up "indexed" as the literal string "Slide
+        # 1" with nothing behind it. So it's only used when there's real
+        # body text to label; with no title and no body, the chapter
+        # falls back to `_FULL_DOCUMENT_CHAPTER` instead -- the same
+        # sentinel a genuinely empty PDF page produces, which
+        # `_chunk_chapters` already knows to drop rather than index.
+        if title_text:
+            chapter_title = title_text
+        elif parts:
+            chapter_title = f"Slide {index}"
+        else:
+            chapter_title = _FULL_DOCUMENT_CHAPTER
+        chapters.append((chapter_title, "\n".join(parts)))
 
     return chapters
 

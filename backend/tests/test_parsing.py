@@ -3,6 +3,8 @@ that don't need the full upload/ingest flow to reproduce or pin down.
 """
 
 import io
+import zipfile
+import zlib
 
 import pytest
 from docx import Document as DocxDocument
@@ -256,6 +258,26 @@ def test_docx_table_only_document_does_not_fail_to_parse():
     assert any("Bob" in c.text for c in chunks)
 
 
+def test_docx_merged_cell_text_is_not_repeated_per_spanned_column():
+    # `row.cells` hands back the *same* `_Cell` object at every grid
+    # column a horizontal merge spans (word represents the merge by
+    # grid-column-count, not by one cell per column) -- reading each
+    # column verbatim used to repeat the merged text once per spanned
+    # column ("Merged header Merged header Merged header a b c").
+    def build(document):
+        table = document.add_table(rows=2, cols=3)
+        table.cell(0, 0).merge(table.cell(0, 2))
+        table.cell(0, 0).text = "Merged header"
+        table.cell(1, 0).text = "a"
+        table.cell(1, 1).text = "b"
+        table.cell(1, 2).text = "c"
+
+    chunks = parse_document("docx", _docx_bytes(build))
+
+    all_text = " ".join(c.text for c in chunks)
+    assert all_text.count("Merged header") == 1
+
+
 def test_docx_heading_with_no_body_paragraph_is_not_dropped():
     # A heading directly followed by another heading (a "Part I" divider
     # before "Chapter 1") used to vanish: the chapter-switch append was
@@ -305,31 +327,187 @@ def test_pptx_title_only_slide_is_still_indexed():
     assert any("Next Steps" in c.text for c in chunks)
 
 
+def test_pptx_image_only_slide_fails_to_parse_rather_than_indexing_its_placeholder_label():
+    # Regression: `f"Slide {index}"` is a *generated* label, not
+    # something a user wrote. It used to be handed to `_chunk_chapters`
+    # exactly like a real title, so an image-only slide (no title
+    # placeholder, no text anywhere on it) ended up "indexed" as the
+    # literal, contentless string "Slide 1" -- retrievable and citable in
+    # chat with nothing real behind it. `parse_document`'s own contract
+    # (mirroring a scanned/image-only PDF) is that a document with zero
+    # real extractable text must fail, not silently succeed with a
+    # placeholder standing in for content.
+    def build(presentation):
+        presentation.slides.add_slide(presentation.slide_layouts[6])
+        presentation.slides.add_slide(presentation.slide_layouts[6])
+
+    with pytest.raises(UnparseableDocument):
+        parse_document("pptx", _pptx_bytes(build))
+
+
+def test_pptx_slide_with_body_text_but_no_title_still_gets_a_slide_number():
+    # Companion to the image-only case above: a slide with real body text
+    # but no title placeholder must still get its `f"Slide {index}"`
+    # label -- only a slide with *no* real content anywhere falls back to
+    # the "nothing here" sentinel.
+    def build(presentation):
+        presentation.slides.add_slide(presentation.slide_layouts[6])  # no title, no body
+        slide2 = presentation.slides.add_slide(presentation.slide_layouts[6])
+        slide2.shapes.add_textbox(0, 0, 100, 100).text_frame.text = "Real body text."
+
+    chunks = parse_document("pptx", _pptx_bytes(build))
+
+    assert {c.chapter for c in chunks} == {"Slide 2"}
+    assert any("Real body text." in c.text for c in chunks)
+
+
 # ---------------------------------------------------------------------------
 # DOCX / PPTX zip-bomb guard. Unlike every other supported format,
 # MAX_FILE_SIZE_BYTES only bounds the *compressed* upload -- DEFLATE lets a
 # small archive expand enormously in memory before python-docx/python-pptx
 # get a chance to fail gracefully.
+#
+# `_MAX_ZIP_UNCOMPRESSED_BYTES` is monkeypatched down to a tiny cap in
+# every test below rather than actually building a payload past the real
+# 200MB one -- the mechanism being tested (does the guard measure real
+# decompressed bytes and stop the moment the cap is crossed) doesn't
+# depend on the cap's real-world size, and building/holding an
+# honest-to-goodness 200MB+ payload in the test process for every run
+# would be exactly the kind of memory cost this guard exists to avoid.
 # ---------------------------------------------------------------------------
 
-import zipfile
 
-
-def _zip_bomb_bytes() -> bytes:
+def _zip_bomb_bytes(*, size: int) -> bytes:
+    """A single-entry zip archive whose one file inflates to `size` bytes
+    of a single repeated byte -- trivially compressible, so `size` can be
+    made arbitrarily larger than the archive's own compressed byte count."""
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("word/document.xml", b"A" * 300_000_000)
+        archive.writestr("word/document.xml", b"A" * size)
     return buffer.getvalue()
 
 
-def test_docx_zip_bomb_is_rejected_before_expanding_in_memory():
-    with pytest.raises(UnparseableDocument):
-        parse_document("docx", _zip_bomb_bytes())
+def _lie_about_declared_uncompressed_size(archive_bytes: bytes, *, declared: int) -> bytes:
+    """Rewrites a single-entry archive's declared uncompressed size, in
+    both the local file header and the central directory record, to
+    `declared` -- without touching the real compressed data at all.
+
+    Simulates the attack `_check_zip_bomb` has to survive: `ZipInfo
+    .file_size` is read straight from the central directory, which is
+    ordinary attacker-controlled archive data, not a measurement `zipfile`
+    verifies against the actual compressed stream until (if ever) a
+    caller reads the whole entry and its CRC-32 is checked. A crafted
+    archive can carry a real, large deflate stream behind a central
+    directory entry that simply declares a small size.
+    """
+    data = bytearray(archive_bytes)
+    assert data[0:4] == b"PK\x03\x04", "expected a local file header at offset 0"
+    data[22:26] = declared.to_bytes(4, "little")  # local header uncompressed-size field
+    # `rfind`, not `find`: the *real* central directory record is always
+    # the last occurrence of this signature, immediately before the
+    # end-of-central-directory record -- a highly compressible payload
+    # like this one's repeated byte can coincidentally contain the same
+    # 4-byte signature earlier, inside the compressed data itself, and
+    # patching that false match would corrupt the archive instead.
+    central_directory_offset = archive_bytes.rfind(b"PK\x01\x02")
+    assert central_directory_offset != -1, "expected a central directory record"
+    data[central_directory_offset + 24 : central_directory_offset + 28] = declared.to_bytes(
+        4, "little"
+    )  # central directory record's own uncompressed-size field
+    return bytes(data)
 
 
-def test_pptx_zip_bomb_is_rejected_before_expanding_in_memory():
-    with pytest.raises(UnparseableDocument):
-        parse_document("pptx", _zip_bomb_bytes())
+def test_docx_zip_bomb_is_rejected_before_expanding_in_memory(monkeypatch):
+    monkeypatch.setattr(parsing, "_MAX_ZIP_UNCOMPRESSED_BYTES", 1_000)
+
+    with pytest.raises(UnparseableDocument, match="unreasonable size"):
+        parse_document("docx", _zip_bomb_bytes(size=5_000))
+
+
+def test_pptx_zip_bomb_is_rejected_before_expanding_in_memory(monkeypatch):
+    monkeypatch.setattr(parsing, "_MAX_ZIP_UNCOMPRESSED_BYTES", 1_000)
+
+    with pytest.raises(UnparseableDocument, match="unreasonable size"):
+        parse_document("pptx", _zip_bomb_bytes(size=5_000))
+
+
+def test_zip_bomb_guard_rejects_rather_than_trusts_a_lying_declared_size(monkeypatch):
+    # The regression this guards against: the guard's first version
+    # summed `ZipInfo.file_size` -- trusting the archive's own metadata,
+    # which is attacker-controlled -- rather than reading any actual
+    # bytes. This archive's central directory *under*-declares its real
+    # decompressed size (claims 10 bytes; the real payload is 5000,
+    # unchanged), which is exactly what that first version would have
+    # been fooled by.
+    #
+    # Streaming the entry is necessary but was not sufficient on its own:
+    # `zipfile` applies the declared size to the *read* too
+    # (`ZipExtFile` truncates each read to the byte count it has left),
+    # so a guard that reads the entry normally measures the lie -- 10
+    # bytes, comfortably under the cap -- and waves the archive through.
+    # Reading against a `ZipInfo` copy whose declared size can't truncate
+    # anything is what makes the count reflect the real 5000, so the size
+    # error fires here rather than the archive being accepted as "10
+    # bytes, safely under the cap".
+    monkeypatch.setattr(parsing, "_MAX_ZIP_UNCOMPRESSED_BYTES", 1_000)
+    honest_archive = _zip_bomb_bytes(size=5_000)
+    lying_archive = _lie_about_declared_uncompressed_size(honest_archive, declared=10)
+
+    with pytest.raises(UnparseableDocument, match="unreasonable size"):
+        parse_document("docx", lying_archive)
+
+
+def test_zip_bomb_guard_rejects_a_lying_size_whose_crc_was_forged_to_match_it(monkeypatch):
+    # The one way to keep the archive internally consistent while lying
+    # about the size: forge the CRC-32 to match only the *declared*
+    # (small) prefix of the real data, so a reader that stops at the
+    # declared size sees a checksum that agrees with what it got.
+    #
+    # That lie is worth defending against because the truncation it
+    # exploits bounds what a reader *receives*, not what inflating
+    # allocated to produce it -- `ZipFile.read(name)`, which is what
+    # python-docx/python-pptx call, passes no size and so decompresses
+    # with an effectively unbounded `max_length`, materializing the whole
+    # payload before slicing it back down. A guard fooled here would hand
+    # those libraries an archive that peaks at hundreds of MB of heap
+    # (measured: 830MB from a 433KB upload) on its way to failing.
+    #
+    # Reading past the declared size is what exposes it: the forged CRC
+    # only matches the prefix, so a full read of the real payload no
+    # longer agrees with it and `zipfile` itself rejects the entry -- the
+    # forgery that hides the size is what makes the checksum fail. Which
+    # of the two rejections lands depends only on scale: this payload is
+    # small enough that one chunk read reaches the end of the entry (and
+    # so its CRC check) first, while a real bomb crosses the size cap
+    # chunks before the decompressor ever reaches eof.
+    monkeypatch.setattr(parsing, "_MAX_ZIP_UNCOMPRESSED_BYTES", 1_000)
+    honest_archive = bytearray(_zip_bomb_bytes(size=5_000))
+    declared = 10
+    forged_crc = zlib.crc32(b"A" * declared)
+    honest_archive[14:18] = forged_crc.to_bytes(4, "little")  # local header CRC-32
+    central_directory_offset = bytes(honest_archive).rfind(b"PK\x01\x02")
+    honest_archive[central_directory_offset + 16 : central_directory_offset + 20] = (
+        forged_crc.to_bytes(4, "little")
+    )  # central directory record's own CRC-32
+    lying_archive = _lie_about_declared_uncompressed_size(bytes(honest_archive), declared=declared)
+
+    with pytest.raises(UnparseableDocument, match="Could not parse archive"):
+        parse_document("docx", lying_archive)
+
+
+def test_zip_bomb_guard_leaves_the_archives_own_entry_metadata_untouched():
+    # The guard measures against a *copy* of each `ZipInfo` -- the ones
+    # `infolist()` returns are the live objects the `ZipFile` uses for
+    # its own reads, so overwriting `file_size` on them to defeat
+    # truncation would corrupt the archive's view of every entry for
+    # readers that come after (python-docx, immediately after this).
+    archive_bytes = _zip_bomb_bytes(size=5_000)
+
+    parsing._check_zip_bomb(archive_bytes)
+
+    with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+        assert [info.file_size for info in archive.infolist()] == [5_000]
+        assert archive.read("word/document.xml") == b"A" * 5_000
 
 
 def test_legitimate_docx_well_under_the_zip_bomb_cap_still_parses():
