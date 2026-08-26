@@ -38,6 +38,7 @@ from app.shared.llm_client import (
     generate_answer,
     resolve_question,
 )
+from app.shared.i18n.errors import localized_error
 from app.shared.models import ChatMessage, ChatSession, Document, User
 
 logger = logging.getLogger(__name__)
@@ -220,7 +221,14 @@ def ask_question(
         )
 
     return _answer_factual(
-        db, current_user, session, question, plan.search_query, scoped_ids, history
+        db,
+        current_user,
+        session,
+        question,
+        plan.search_query,
+        scoped_ids,
+        history,
+        routing_failure=plan.routing_failure,
     )
 
 
@@ -232,6 +240,8 @@ def _answer_factual(
     search_query: str,
     scoped_ids: list[str],
     history: list[ChatHistoryTurn],
+    *,
+    routing_failure: str | None = None,
 ) -> AskResponse:
     """The `"factual"` branch (Story 3.1/3.2/3.3, `search_query` rewrite
     added Story 3.5): embed -> search -> refusal short-circuit -> generate
@@ -242,6 +252,13 @@ def _answer_factual(
     resolve or was skipped); `question` itself is what `generate_answer`
     is called with (so the answer's phrasing/language matches what the
     user actually typed, not the rewritten form) and what gets persisted.
+
+    `routing_failure` (see `QuestionPlan.routing_failure`) is set only
+    when no router actually ran, so this branch was reached by fallback
+    rather than by classification. It changes exactly one thing: what a
+    *refusal* means. Retrieval and generation are unaffected -- searching
+    the raw question is still the right thing to do with a question
+    nobody could classify.
     """
     passages = search_passages(
         search_query, str(current_user.id), limit=TOP_K_PASSAGES, document_ids=scoped_ids or None
@@ -261,6 +278,35 @@ def _answer_factual(
         return _finish(db, current_user, session, question, AskResponse(segments=[], empty_reason=reason))
 
     if not any(p.distance is not None and p.distance <= RELEVANCE_THRESHOLD for p in passages):
+        # A refusal asserts something specific and user-visible: "your
+        # documents don't support this question." That claim is only
+        # honest if the question was actually routed here. When the router
+        # never ran, an overview request ("summarize every chapter")
+        # arrives as a nearest-match search that nothing can clear the
+        # threshold for -- so the refusal would be an artifact of the
+        # outage, blaming the user's library for it. This is the observed
+        # production failure, not a hypothetical: the provider's free tier
+        # hit its daily cap, every routing call 429'd, and users were told
+        # their documents contained no supporting evidence.
+        #
+        # Raised rather than returned, deliberately: this joins the
+        # existing `ChatCompletionError` -> 503 path, which the story's I/O
+        # matrix already exempts from persistence. A turn that failed for
+        # an upstream reason must not be written into the conversation as
+        # though it were an answer, or a reload would replay it as history.
+        if routing_failure is not None:
+            key = (
+                "error.chat_rate_limited"
+                if routing_failure == "rate_limited"
+                else "error.chat_unavailable"
+            )
+            logger.warning(
+                "Suppressing a refusal for an unrouted question (routing_failure=%s) -- "
+                "the retrieval miss is not evidence about the user's documents",
+                routing_failure,
+            )
+            raise localized_error(503, key, current_user.language)
+
         # FR-10/OD-2: not one retrieved passage is close enough to trust.
         # `distance is None` can't be verified as relevant, so it never
         # counts toward clearing the bar -- the only path through which an

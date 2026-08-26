@@ -740,7 +740,12 @@ def test_resolve_question_never_raises_on_a_5xx_response(monkeypatch):
 
     plan = resolve_question("a question", [])
 
-    assert plan == QuestionPlan(intent="factual", search_query="a question", reply=None)
+    assert plan == QuestionPlan(
+        intent="factual",
+        search_query="a question",
+        reply=None,
+        routing_failure="unavailable",
+    )
 
 
 def test_resolve_question_never_raises_on_a_timeout(monkeypatch):
@@ -751,7 +756,12 @@ def test_resolve_question_never_raises_on_a_timeout(monkeypatch):
 
     plan = resolve_question("a question", [])
 
-    assert plan == QuestionPlan(intent="factual", search_query="a question", reply=None)
+    assert plan == QuestionPlan(
+        intent="factual",
+        search_query="a question",
+        reply=None,
+        routing_failure="unavailable",
+    )
 
 
 def test_resolve_question_never_raises_when_api_key_missing(monkeypatch):
@@ -759,7 +769,12 @@ def test_resolve_question_never_raises_when_api_key_missing(monkeypatch):
 
     plan = resolve_question("a question", [])
 
-    assert plan == QuestionPlan(intent="factual", search_query="a question", reply=None)
+    assert plan == QuestionPlan(
+        intent="factual",
+        search_query="a question",
+        reply=None,
+        routing_failure="unavailable",
+    )
 
 
 def test_resolve_question_is_never_retried(monkeypatch):
@@ -1008,3 +1023,42 @@ def test_select_overview_passages_within_budget_samples_across_the_whole_list_wh
     # sample looks like and a tail-drop-style selection never would.
     indices = sorted(int(p.chunk_id.split("-")[1]) for p in selected)
     assert indices != list(range(len(indices)))
+
+
+def test_resolve_question_records_a_429_as_rate_limited(monkeypatch):
+    """A quota exhaustion is the one routing failure a user can act on
+    ("this resets") rather than merely be told about, so it is recorded
+    distinctly from a generic outage -- `chat/service.py` picks different
+    copy for the two. This is the failure this project actually hit: the
+    provider's free tier caps at 50 requests/day across the whole key.
+    """
+    monkeypatch.setattr(
+        llm_client_module.httpx,
+        "post",
+        lambda *a, **k: _openrouter_response(429, content="rate limited"),
+    )
+
+    plan = resolve_question("a question", [])
+
+    assert plan.routing_failure == "rate_limited"
+    # Routing itself still degrades exactly as before -- only the reason
+    # is new, so retrieval behaviour is untouched.
+    assert plan.intent == "factual"
+    assert plan.search_query == "a question"
+
+
+def test_a_router_that_answered_records_no_routing_failure(monkeypatch):
+    """The flag means "no router ran", not "the plan needed correcting":
+    a response this module had to fall back on per-field (a blank
+    search_query, say) still came from a router that considered the
+    question, so a later refusal is a real one about the user's documents.
+    """
+    monkeypatch.setattr(
+        llm_client_module.httpx,
+        "post",
+        lambda *a, **k: _openrouter_response(200, content=_router_content(search_query="   ")),
+    )
+
+    plan = resolve_question("a question", [])
+
+    assert plan.routing_failure is None

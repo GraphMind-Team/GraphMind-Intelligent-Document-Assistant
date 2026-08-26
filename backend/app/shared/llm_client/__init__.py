@@ -25,7 +25,7 @@ import json
 import logging
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal
 
 import httpx
@@ -843,11 +843,31 @@ class QuestionPlan:
     one prose segment, without any retrieval or generation call. Always
     `None` for every other intent -- there is nothing for a factual/
     overview branch to do with a canned reply.
+
+    `routing_failure` -- `None` when the router actually ran and returned
+    this plan. Otherwise it names why it didn't, and `intent` is the
+    `"factual"` fallback rather than a classification anyone made.
+
+    That distinction is load-bearing, not diagnostic. Falling back to
+    `factual` is the right *retrieval* behaviour, but it silently turns an
+    overview request ("summarize every chapter") into a nearest-match
+    search, which nothing can clear `RELEVANCE_THRESHOLD` for -- so the
+    caller answered `empty_reason="refusal"`, whose copy blames the user's
+    documents for what was actually an upstream outage. Observed in
+    production: the provider's free tier hit its daily cap, every routing
+    call 429'd, and the app told users their documents contained no
+    supporting evidence. Without this field `chat/service.py` cannot tell
+    "the router considered this and said factual" from "no router ran",
+    which are the same plan and very different truths.
     """
 
     intent: Literal["greeting", "document_overview", "factual"]
     search_query: str
     reply: str | None = None
+    # "rate_limited" is split out from "unavailable" because it is the one
+    # failure a user can act on ("this resets", not "something broke"), and
+    # it is the one this project actually hits.
+    routing_failure: Literal["rate_limited", "unavailable"] | None = None
 
 
 class _RouterCallError(Exception):
@@ -855,11 +875,19 @@ class _RouterCallError(Exception):
     failed -- transport error, timeout, non-2xx status, or a response
     missing `choices[0].message.content`. Never raised past
     `resolve_question`, which catches this uniformly and returns the
-    `factual` fallback (see that function's own docstring for why every
-    failure mode here degrades to the exact same outcome rather than being
-    distinguished the way `_RetryableChatError`/`_RetryableExtractionError`
-    are -- this call is never retried, so there is no retry-vs-give-up
-    decision for the distinction to inform)."""
+    `factual` fallback.
+
+    Every failure mode still produces the same *routing* outcome (this
+    call is never retried, so there is no retry-vs-give-up decision for a
+    distinction to inform). `status_code` exists for a different consumer:
+    `QuestionPlan.routing_failure`, which the service layer uses to pick
+    what to tell the user when the fallback plan then dead-ends in a
+    refusal. `None` for a transport error or timeout, where no HTTP status
+    was ever received."""
+
+    def __init__(self, message: str, *, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def resolve_question(question: str, history: list[ChatHistoryTurn] | None = None) -> QuestionPlan:
@@ -890,7 +918,17 @@ def resolve_question(question: str, history: list[ChatHistoryTurn] | None = None
         content = _call_openrouter_for_router(question, history)
     except _RouterCallError as exc:
         logger.warning("resolve_question: router call failed, falling back to factual: %s", exc)
-        return fallback
+        # Same routing outcome as before, now carrying *why* -- see
+        # `QuestionPlan.routing_failure` for why the caller needs to tell
+        # this apart from a router that ran and genuinely said "factual".
+        return replace(
+            fallback,
+            routing_failure="rate_limited" if exc.status_code == 429 else "unavailable",
+        )
+    # A router that answered, even with a value this module had to correct
+    # (`_parse_and_validate_plan`'s per-field fallbacks), is not a routing
+    # *failure*: the call succeeded, so `routing_failure` stays `None` and
+    # a resulting refusal is a real one about the user's documents.
     return _parse_and_validate_plan(content, question, fallback)
 
 
@@ -935,11 +973,14 @@ def _call_openrouter_for_router(question: str, history: list[ChatHistoryTurn] | 
         raise _RouterCallError(f"OpenRouter router request failed: {exc}") from exc
 
     if response.status_code >= 400:
-        # Every failure status is treated alike -- unlike chat/extraction,
-        # this call is never retried (see `_ROUTER_TIMEOUT_SECONDS`'s own
-        # comment), so a 429's `Retry-After` has nothing to inform here.
+        # Every failure status still routes alike -- this call is never
+        # retried (see `_ROUTER_TIMEOUT_SECONDS`'s own comment), so a 429's
+        # `Retry-After` has nothing to inform here. The status is carried
+        # anyway, for the user-facing message the service layer picks when
+        # this fallback dead-ends; see `QuestionPlan.routing_failure`.
         raise _RouterCallError(
-            f"OpenRouter returned {response.status_code} for routing: {response.text[:500]}"
+            f"OpenRouter returned {response.status_code} for routing: {response.text[:500]}",
+            status_code=response.status_code,
         )
 
     try:
