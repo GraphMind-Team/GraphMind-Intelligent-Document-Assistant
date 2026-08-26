@@ -18,6 +18,7 @@ process at all -- not just unused.
 """
 
 import os
+from types import SimpleNamespace
 
 import pytest
 
@@ -119,13 +120,13 @@ def _fresh_rate_limiters(client):
     """Overrides every module-level limiter singleton (login, register,
     upload rate, upload concurrency) with fresh instances per test, so
     counts from one test -- or from an earlier test file in the same run
-    -- never leak into the next. Depends on `client` (not standalone) so
-    it composes correctly with the `client` fixture above, which clears
-    `app.dependency_overrides` in its own `finally` block on teardown.
-    Autouse + defined here (not per test file) because every test that
-    hits `/auth/register`, `/auth/login`, or `POST /documents` -- not just
-    the limit-specific tests -- would otherwise share one process-wide
-    budget across the whole test run."""
+    -- never leak into the next. Depends on `client`
+    (not standalone) so it composes correctly with the `client` fixture
+    above, which clears `app.dependency_overrides` in its own `finally`
+    block on teardown. Autouse + defined here (not per test file) because
+    every test that hits `/auth/register`, `/auth/login`, or
+    `POST /documents` -- not just the limit-specific tests -- would
+    otherwise share one process-wide budget across the whole test run."""
     from app.auth.rate_limiter import (
         get_change_password_rate_limiter,
         get_login_rate_limiter,
@@ -173,14 +174,19 @@ def _fresh_rate_limiters(client):
     app.dependency_overrides[get_resend_verification_ip_rate_limiter] = lambda: resend_verification_ip_limiter
     app.dependency_overrides[get_upload_rate_limiter] = lambda: upload_rate_limiter
     app.dependency_overrides[get_upload_concurrency_limiter] = lambda: upload_concurrency_limiter
-    yield (
-        login_limiter,
-        register_limiter,
-        change_password_limiter,
-        resend_verification_limiter,
-        resend_verification_ip_limiter,
-        upload_rate_limiter,
-        upload_concurrency_limiter,
+    # A namespace, not the positional tuple this used to yield: consumers
+    # unpacked it as `_, _, _, _, _, upload_rate_limiter, _`, so adding a
+    # limiter here broke every one of them at once, with an arity error
+    # that names nothing about what actually changed. Attribute access
+    # makes the next limiter added a no-op for existing tests.
+    yield SimpleNamespace(
+        login=login_limiter,
+        register=register_limiter,
+        change_password=change_password_limiter,
+        resend_verification=resend_verification_limiter,
+        resend_verification_ip=resend_verification_ip_limiter,
+        upload_rate=upload_rate_limiter,
+        upload_concurrency=upload_concurrency_limiter,
     )
     for dependency in (
         get_login_rate_limiter,
