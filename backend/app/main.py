@@ -39,14 +39,39 @@ logger = logging.getLogger(__name__)
 
 REQUIRED_ENV_VARS = ["DATABASE_URL", "JWT_SECRET"]
 
+# RFC 7518 section 3.2: an HMAC-SHA256 key must be at least as long as the
+# hash output, i.e. 256 bits / 32 bytes. Shorter secrets are not rejected
+# by PyJWT -- it signs and verifies with them perfectly happily, only
+# emitting an `InsecureKeyLengthWarning` that nothing in a deployed process
+# is watching -- so a weak `JWT_SECRET` is silently accepted and every
+# token in the system inherits its strength. Checked here because this
+# function already exists to turn exactly this class of misconfiguration
+# into a loud failure at boot rather than a quiet weakness in production.
+_MIN_JWT_SECRET_BYTES = 32
+
 
 def _validate_env() -> None:
-    """Fail fast at startup if a required environment variable is absent."""
+    """Fail fast at startup if a required environment variable is absent,
+    or if `JWT_SECRET` is present but too weak to sign HS256 tokens with."""
     missing = [name for name in REQUIRED_ENV_VARS if not os.environ.get(name, "").strip()]
     if missing:
         raise RuntimeError(
             "Missing required environment variable(s): "
             f"{', '.join(missing)}. See backend/.env.example."
+        )
+
+    # Length in *bytes*, not characters: a non-ASCII secret encodes to more
+    # bytes than it has characters, and the byte string is what actually
+    # keys the HMAC. Never logs or echoes the value itself -- only its
+    # length -- since a startup traceback is one of the easier things to
+    # end up in a shared log.
+    secret_bytes = len(os.environ["JWT_SECRET"].strip().encode("utf-8"))
+    if secret_bytes < _MIN_JWT_SECRET_BYTES:
+        raise RuntimeError(
+            f"JWT_SECRET is too short: {secret_bytes} bytes, minimum "
+            f"{_MIN_JWT_SECRET_BYTES} (RFC 7518 section 3.2 for HS256). "
+            "Generate one with: python -c \"import secrets; "
+            'print(secrets.token_urlsafe(32))"'
         )
 
 
