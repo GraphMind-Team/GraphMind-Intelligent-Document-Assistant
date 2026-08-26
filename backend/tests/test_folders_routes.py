@@ -9,6 +9,8 @@ exists.
 
 import uuid
 
+from app.folders import service as folders_service
+
 
 def _register_and_login(client, *, full_name, email, password):
     register_response = client.post(
@@ -364,3 +366,80 @@ def test_folder_malformed_id_is_422(client):
     )
 
     assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Per-account folder cap. `POST /folders` was the one user-facing creation
+# path with nothing bounding it: `documents` is bounded by the upload
+# limiters and the unique (user_id, content_hash) index, and `chat_sessions`
+# by create_session's reuse of an existing blank session, but folders
+# inserted unconditionally.
+# ---------------------------------------------------------------------------
+
+
+def _make_folder(client, token, name):
+    return client.post(
+        "/folders",
+        headers=_auth_headers(token),
+        json={"name": name, "color": "rose"},
+    )
+
+
+def test_creating_a_folder_past_the_cap_is_refused(client, monkeypatch):
+    monkeypatch.setattr(folders_service, "MAX_FOLDERS_PER_USER", 3)
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-folder-cap@example.com", password="password12345"
+    )
+
+    for i in range(3):
+        assert _make_folder(client, token, f"Folder {i}").status_code == 201
+
+    refused = _make_folder(client, token, "One too many")
+    assert refused.status_code == 409
+    assert "limit of 3 folders" in refused.json()["detail"]
+
+
+def test_the_cap_is_per_account(client, monkeypatch):
+    monkeypatch.setattr(folders_service, "MAX_FOLDERS_PER_USER", 2)
+    first = _register_and_login(
+        client, full_name="Maria", email="maria-folder-scope@example.com", password="password12345"
+    )
+    for i in range(2):
+        _make_folder(client, first, f"Folder {i}")
+    assert _make_folder(client, first, "Over").status_code == 409
+
+    second = _register_and_login(
+        client, full_name="Ivan", email="ivan-folder-scope@example.com", password="password12345"
+    )
+    assert _make_folder(client, second, "My first folder").status_code == 201
+
+
+def test_deleting_a_folder_frees_a_slot(client, monkeypatch):
+    """The 409 tells the user to delete one to make room -- that has to be
+    true, so the count must reflect deletions rather than being a
+    high-water mark."""
+    monkeypatch.setattr(folders_service, "MAX_FOLDERS_PER_USER", 2)
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-folder-free@example.com", password="password12345"
+    )
+    first = _make_folder(client, token, "Keep").json()
+    _make_folder(client, token, "Discard")
+    assert _make_folder(client, token, "Over").status_code == 409
+
+    assert client.delete(f"/folders/{first['id']}", headers=_auth_headers(token)).status_code == 204
+    assert _make_folder(client, token, "Now it fits").status_code == 201
+
+
+def test_a_malformed_request_at_the_cap_still_reports_the_field(client, monkeypatch):
+    """Field validation runs first on purpose: reporting the cap for a
+    blank name would send the user deleting folders to satisfy a request
+    that would fail anyway."""
+    monkeypatch.setattr(folders_service, "MAX_FOLDERS_PER_USER", 1)
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-folder-order@example.com", password="password12345"
+    )
+    _make_folder(client, token, "Only one")
+
+    response = _make_folder(client, token, "   ")
+    assert response.status_code == 400
+    assert "blank" in response.json()["detail"]

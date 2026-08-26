@@ -12,7 +12,7 @@ ship without it by omission.
 
 import uuid
 
-from sqlalchemy import delete
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.shared.data_access.tenancy import user_scoped_select
@@ -32,6 +32,24 @@ def create_folder(db: Session, folder: Folder) -> Folder:
 def list_folders_for_user(db: Session, user_id: uuid.UUID) -> list[Folder]:
     stmt = user_scoped_select(Folder, user_id).order_by(Folder.created_at)
     return list(db.execute(stmt).scalars().all())
+
+
+def count_folders_for_user(db: Session, user_id: uuid.UUID) -> int:
+    """How many folders `user_id` owns (`service.create_folder`'s cap).
+
+    A `COUNT(*)`, not `len(list_folders_for_user(...))` -- the caller only
+    needs the number, and materializing every `Folder` row into ORM
+    objects to then throw them away is work that grows with exactly the
+    thing the cap exists to bound.
+
+    Built through `user_scoped_select` like every other query here, rather
+    than a hand-written `select(func.count()).where(...)`: the tenancy
+    filter belongs in one place (this module's own docstring), and a count
+    that quietly spanned all users would make the cap global instead of
+    per-account without looking wrong at the call site.
+    """
+    stmt = select(func.count()).select_from(user_scoped_select(Folder, user_id).subquery())
+    return db.execute(stmt).scalar_one()
 
 
 def get_folder_for_user(db: Session, user_id: uuid.UUID, folder_id: uuid.UUID) -> Folder | None:
