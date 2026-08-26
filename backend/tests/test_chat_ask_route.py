@@ -50,18 +50,36 @@ def _no_real_router_calls(monkeypatch):
     would make a real `httpx.post` to OpenRouter using whatever real
     `OPENROUTER_API_KEY` `backend/.env` provides (loaded by `app.main`'s
     own `load_dotenv()` at import time, same as `test_chat_generation.py`'s
-    own `_openrouter_api_key` fixture has to guard against). Unsetting the
-    key here means `resolve_question` hits its own documented, real
-    fallback path (`_call_openrouter_for_router` raises immediately for a
-    missing key, before any network call) rather than skipping the
-    router's code entirely -- every pre-3.5 test in this file keeps
-    getting `QuestionPlan(intent="factual", search_query=question,
-    reply=None)`, exactly its old, router-less behaviour, without a
-    single existing test needing to mock `resolve_question` itself.
+    own `_openrouter_api_key` fixture has to guard against).
+
+    This used to work by unsetting the key alone, letting
+    `resolve_question` take its real *failure* path to reach the factual
+    fallback. That conflated two things that are not the same: "no router
+    is configured here" and "the router ran and said factual". They
+    produced an identical `QuestionPlan` only because the plan carried no
+    record of which had happened -- and once `routing_failure` made that
+    distinction real, three refusal tests in this file turned out to have
+    been exercising the masked-outage path all along rather than the
+    routed refusal they describe.
+
+    So the plan is stubbed directly now, which is what the fixture name
+    says anyway: every pre-3.5 test gets `QuestionPlan(intent="factual",
+    search_query=question, reply=None)` with `routing_failure=None` --
+    genuinely "the router considered this and said factual". The
+    `delenv` stays as belt-and-braces so nothing here can reach the
+    network even if a future test bypasses the stub.
+
     Tests that care about routing (greeting/document_overview branches,
-    or the router's rewrite feeding retrieval) mock `resolve_question`
-    directly instead."""
+    the router's rewrite feeding retrieval, or a routing *failure*) mock
+    `resolve_question` directly instead."""
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setattr(
+        chat_service_module,
+        "resolve_question",
+        lambda question, history: QuestionPlan(
+            intent="factual", search_query=question, reply=None
+        ),
+    )
 
 
 def _register_and_login(client, *, full_name, email, password):
@@ -1644,3 +1662,145 @@ def test_ask_answer_with_prose_lead_in_and_grounded_claim_renders_both(client, m
     assert body["segments"][0] == {"text": "Sure, here's what I found:", "citations": [], "kind": "prose"}
     assert body["segments"][1]["kind"] == "grounded"
     assert body["segments"][1]["citations"][0]["document_filename"] == "Vendor_Agreement.pdf"
+
+
+# ---------------------------------------------------------------------------
+# Routing-failure honesty: a refusal must never absorb an upstream outage.
+#
+# Observed in production: OpenRouter's free tier hit its daily cap, every
+# routing call 429'd, `resolve_question` fell back to `factual` (by design,
+# and correct for retrieval), and an overview question -- "summarize every
+# chapter across all of my documents" -- became a nearest-match search that
+# nothing could clear `RELEVANCE_THRESHOLD` for. The user was told their
+# documents contained no supporting evidence. They contained plenty; the
+# provider was simply out of quota.
+# ---------------------------------------------------------------------------
+
+
+def _unrouted_plan(failure):
+    def _resolve(question, history):
+        return QuestionPlan(
+            intent="factual", search_query=question, reply=None, routing_failure=failure
+        )
+    return _resolve
+
+
+@pytest.mark.parametrize(
+    "failure, expected_fragment",
+    [
+        ("rate_limited", "daily request limit"),
+        ("unavailable", "temporarily unavailable"),
+    ],
+)
+def test_a_refusal_is_suppressed_when_no_router_ever_ran(
+    client, monkeypatch, failure, expected_fragment
+):
+    token = _register_and_login(
+        client, full_name="Maria", email=f"maria-unrouted-{failure}@example.com", password="password12345"
+    )
+    session_id = _create_session_id(client, token)
+    document = _upload(client, token)
+    monkeypatch.setattr(chat_service_module, "resolve_question", _unrouted_plan(failure))
+    monkeypatch.setattr(
+        chat_service_module,
+        "search_passages",
+        lambda *a, **k: [_passage(document["id"], distance=RELEVANCE_THRESHOLD + 0.3)],
+    )
+
+    response = client.post(
+        _ask_url(session_id),
+        headers=_auth_headers(token),
+        json={"question": "Summarize every chapter across all of my documents."},
+    )
+
+    assert response.status_code == 503
+    detail = response.json()["detail"].lower()
+    assert expected_fragment in detail
+    # The whole point: it must not claim anything about the user's library.
+    assert "no supporting evidence" not in detail
+    assert "your documents" not in detail
+
+
+def test_the_suppressed_turn_is_not_persisted(client, monkeypatch):
+    """Mirrors the existing `ChatCompletionError` -> 503 exemption: a turn
+    that failed upstream must not be written into the conversation, or a
+    reload replays it as though it had been answered."""
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-unrouted-persist@example.com", password="password12345"
+    )
+    session_id = _create_session_id(client, token)
+    document = _upload(client, token)
+    monkeypatch.setattr(chat_service_module, "resolve_question", _unrouted_plan("rate_limited"))
+    monkeypatch.setattr(
+        chat_service_module,
+        "search_passages",
+        lambda *a, **k: [_passage(document["id"], distance=RELEVANCE_THRESHOLD + 0.3)],
+    )
+
+    client.post(
+        _ask_url(session_id),
+        headers=_auth_headers(token),
+        json={"question": "Summarize everything."},
+    )
+
+    history = client.get(
+        f"/chat/sessions/{session_id}/history?limit=10", headers=_auth_headers(token)
+    )
+    assert history.status_code == 200
+    assert history.json()["messages"] == []
+
+
+def test_a_routed_refusal_is_still_a_refusal(client, monkeypatch):
+    """The guard is scoped to `routing_failure`, not to refusals at large:
+    when the router actually ran and said factual, a below-threshold
+    retrieval is a real, correct refusal and must stay one."""
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-routed-refusal@example.com", password="password12345"
+    )
+    session_id = _create_session_id(client, token)
+    document = _upload(client, token)
+    monkeypatch.setattr(chat_service_module, "resolve_question", _unrouted_plan(None))
+    monkeypatch.setattr(
+        chat_service_module,
+        "search_passages",
+        lambda *a, **k: [_passage(document["id"], distance=RELEVANCE_THRESHOLD + 0.3)],
+    )
+
+    response = client.post(
+        _ask_url(session_id),
+        headers=_auth_headers(token),
+        json={"question": "Something unrelated to my documents?"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["empty_reason"] == "refusal"
+
+
+def test_a_routing_failure_does_not_block_an_answerable_question(client, monkeypatch):
+    """Retrieval and generation are deliberately untouched by the guard --
+    searching the raw question is still right for one nobody classified.
+    Only a *refusal* changes meaning, so a question that clears the
+    threshold answers normally even with the router down."""
+    token = _register_and_login(
+        client, full_name="Maria", email="maria-unrouted-ok@example.com", password="password12345"
+    )
+    session_id = _create_session_id(client, token)
+    document = _upload(client, token)
+    monkeypatch.setattr(chat_service_module, "resolve_question", _unrouted_plan("rate_limited"))
+    passage = _passage(document["id"], distance=RELEVANCE_THRESHOLD - 0.05)
+    monkeypatch.setattr(chat_service_module, "search_passages", lambda *a, **k: [passage])
+    monkeypatch.setattr(
+        chat_service_module,
+        "generate_answer",
+        lambda *a, **k: AnswerResult(
+            segments=[AnswerSegment(text="An answer.", passage_numbers=[1])],
+            included_passages=[passage],
+        ),
+    )
+
+    response = client.post(
+        _ask_url(session_id), headers=_auth_headers(token), json={"question": "A real question?"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["segments"][0]["text"] == "An answer."

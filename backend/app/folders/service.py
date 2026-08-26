@@ -35,6 +35,24 @@ FOLDER_COLORS: Final = {"rose", "peach", "sun", "mint", "sky", "lilac"}
 # rejections on the `HTTPException(400)` path, never a 422 envelope.
 MAX_NAME_LENGTH: Final = 255
 
+# Nothing else bounds how many folders one account can create: `POST
+# /folders` inserts unconditionally, so a loop against it grows the table
+# indefinitely. That is not true of the app's other user-created rows --
+# `documents` is bounded by the upload rate/concurrency limiters and by
+# the per-user unique `(user_id, content_hash)` index, and `chat_sessions`
+# by `sessions_service.create_session`'s reuse of an existing blank
+# session (a repeated "New chat" returns the same row rather than adding
+# one) plus the /ask limiters gating when a session becomes non-blank.
+# Folders were simply the one creation path with no equivalent.
+#
+# 100 is well past any plausible real use -- folders group a library, and
+# a user with a hundred of them has more folders than most have documents
+# -- while still being a real ceiling. Deliberately generous rather than
+# tight: the cost of being wrong upward is a table with a few hundred
+# tiny rows, and the cost of being wrong downward is a legitimate user
+# unable to organize their own library.
+MAX_FOLDERS_PER_USER: Final = 100
+
 
 def _validate_name(name: str) -> str:
     stripped = name.strip()
@@ -75,8 +93,28 @@ def get_folder(db: Session, current_user: User, folder_id: uuid.UUID) -> Folder:
 
 
 def create_folder(db: Session, current_user: User, data: FolderCreateRequest) -> Folder:
+    """Raises `HTTPException(409)` once this account already owns
+    `MAX_FOLDERS_PER_USER` folders -- 409, not 400, because nothing is
+    wrong with the request itself (`_validate_name`/`_validate_color`'s
+    400s are for that): it is the account's current state that forbids it,
+    the same distinction `documents/service.py::delete_document` already
+    draws with its own 409 for a still-processing document.
+
+    Checked after the field validation above, so a request that is both
+    malformed and over the cap still reports the malformed field -- that
+    is the one the caller can actually fix, and reporting the cap instead
+    would send them off deleting folders to satisfy a request that would
+    fail anyway.
+    """
     name = _validate_name(data.name)
     color = _validate_color(data.color)
+
+    if repository.count_folders_for_user(db, current_user.id) >= MAX_FOLDERS_PER_USER:
+        raise HTTPException(
+            status_code=409,
+            detail=f"You've reached the limit of {MAX_FOLDERS_PER_USER} folders. "
+            "Delete one to make room.",
+        )
 
     folder = Folder(
         id=uuid.uuid4(),

@@ -39,15 +39,74 @@ logger = logging.getLogger(__name__)
 
 REQUIRED_ENV_VARS = ["DATABASE_URL", "JWT_SECRET"]
 
+# RFC 7518 section 3.2: an HMAC-SHA256 key must be at least as long as the
+# hash output, i.e. 256 bits / 32 bytes. Shorter secrets are not rejected
+# by PyJWT -- it signs and verifies with them perfectly happily, only
+# emitting an `InsecureKeyLengthWarning` that nothing in a deployed process
+# is watching -- so a weak `JWT_SECRET` is silently accepted and every
+# token in the system inherits its strength. Checked here because this
+# function already exists to turn exactly this class of misconfiguration
+# into a loud failure at boot rather than a quiet weakness in production.
+_MIN_JWT_SECRET_BYTES = 32
+
+# Optional, unlike REQUIRED_ENV_VARS above: absent is fine, since both have
+# defaults in `auth/service.py`. What is not fine is a value that is present
+# but cannot be honoured, because both become a JWT lifetime.
+#
+# Zero or negative mints a token already expired when issued: login answers
+# 200 and `/auth/me` immediately 401s, an endless sign-in loop with nothing
+# in the logs naming the cause. `int()` accepts "0" and "-30" without
+# complaint, so the `ValueError` guard those getters already had never saw
+# them.
+#
+# Unparseable is rejected here too, rather than left to the silent fallback.
+# `ACCESS_TOKEN_EXPIRE_MINUTES=1440m` quietly yielding 60 is a session
+# twenty-four times shorter than the operator configured, with no signal
+# that anything was ignored -- the same silent-wrongness this check exists
+# to end, just wearing a different value.
+_POSITIVE_INT_ENV_VARS = ("ACCESS_TOKEN_EXPIRE_MINUTES", "EMAIL_VERIFICATION_TOKEN_EXPIRE_HOURS")
+
 
 def _validate_env() -> None:
-    """Fail fast at startup if a required environment variable is absent."""
+    """Fail fast at startup if a required environment variable is absent,
+    or if `JWT_SECRET` is present but too weak to sign HS256 tokens with."""
     missing = [name for name in REQUIRED_ENV_VARS if not os.environ.get(name, "").strip()]
     if missing:
         raise RuntimeError(
             "Missing required environment variable(s): "
             f"{', '.join(missing)}. See backend/.env.example."
         )
+
+    # Length in *bytes*, not characters: a non-ASCII secret encodes to more
+    # bytes than it has characters, and the byte string is what actually
+    # keys the HMAC. Never logs or echoes the value itself -- only its
+    # length -- since a startup traceback is one of the easier things to
+    # end up in a shared log.
+    secret_bytes = len(os.environ["JWT_SECRET"].strip().encode("utf-8"))
+    if secret_bytes < _MIN_JWT_SECRET_BYTES:
+        raise RuntimeError(
+            f"JWT_SECRET is too short: {secret_bytes} bytes, minimum "
+            f"{_MIN_JWT_SECRET_BYTES} (RFC 7518 section 3.2 for HS256). "
+            "Generate one with: python -c \"import secrets; "
+            'print(secrets.token_urlsafe(32))"'
+        )
+
+    for name in _POSITIVE_INT_ENV_VARS:
+        raw = os.environ.get(name, "").strip()
+        if not raw:
+            continue  # absent or blank -- the code default applies, which is fine
+        try:
+            value = int(raw)
+        except ValueError:
+            raise RuntimeError(
+                f"{name} must be a positive whole number of "
+                f"{'minutes' if name.endswith('MINUTES') else 'hours'}; got {raw!r}."
+            ) from None
+        if value <= 0:
+            raise RuntimeError(
+                f"{name} must be positive; got {value}. A zero or negative lifetime "
+                "issues tokens that are already expired when they are created."
+            )
 
 
 _validate_env()

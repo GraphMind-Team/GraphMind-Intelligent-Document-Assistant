@@ -150,24 +150,46 @@ def _jwt_secret() -> str:
     return os.environ["JWT_SECRET"]
 
 
-def _access_token_expire_minutes() -> int:
-    raw = os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES")
+def _positive_int_env(name: str, default: int) -> int:
+    """`name`'s value as a positive integer, or `default` when it is
+    absent, blank, unparseable, or not positive.
+
+    The "not positive" half is the part worth stating. Both callers below
+    feed a `timedelta` that becomes a JWT `exp`, so a zero or negative
+    value mints a token that is already expired at the instant it is
+    issued -- `POST /auth/login` answers 200 with a token `/auth/me` then
+    rejects as a 401, an endless sign-in loop with nothing in the logs
+    naming the cause. `int()` parses "0" and "-30" perfectly happily, so
+    catching `ValueError` alone never saw them.
+
+    `app.main._validate_env` already refuses to boot on such a value, so
+    in a deployed process this fallback is unreachable. It exists so this
+    function is correct standing alone -- called from a test, a script, or
+    any future entry point that doesn't run that check -- rather than
+    depending on a guarantee made in another module.
+    """
+    raw = os.environ.get(name)
     if not raw:
-        return _DEFAULT_ACCESS_TOKEN_EXPIRE_MINUTES
+        return default
     try:
-        return int(raw)
+        value = int(raw)
     except ValueError:
-        return _DEFAULT_ACCESS_TOKEN_EXPIRE_MINUTES
+        logger.warning("%s is not an integer (%r) -- falling back to %s", name, raw, default)
+        return default
+    if value <= 0:
+        logger.warning("%s must be positive (got %s) -- falling back to %s", name, value, default)
+        return default
+    return value
+
+
+def _access_token_expire_minutes() -> int:
+    return _positive_int_env("ACCESS_TOKEN_EXPIRE_MINUTES", _DEFAULT_ACCESS_TOKEN_EXPIRE_MINUTES)
 
 
 def _verification_token_expire_hours() -> int:
-    raw = os.environ.get("EMAIL_VERIFICATION_TOKEN_EXPIRE_HOURS")
-    if not raw:
-        return _DEFAULT_VERIFICATION_TOKEN_EXPIRE_HOURS
-    try:
-        return int(raw)
-    except ValueError:
-        return _DEFAULT_VERIFICATION_TOKEN_EXPIRE_HOURS
+    return _positive_int_env(
+        "EMAIL_VERIFICATION_TOKEN_EXPIRE_HOURS", _DEFAULT_VERIFICATION_TOKEN_EXPIRE_HOURS
+    )
 
 
 def create_access_token(user_id: uuid.UUID) -> str:

@@ -26,7 +26,7 @@ see request-body fields itself). Tests substitute fresh instances via
 import itertools
 import threading
 import time
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from contextlib import contextmanager
 
 from fastapi import HTTPException
@@ -49,7 +49,12 @@ class RateLimiter:
         self._window_seconds = window_seconds
         self._detail = detail
         self._lock = threading.Lock()
-        self._attempts: dict[tuple[str, ...], list[float]] = defaultdict(list)
+        # Ordered least-recently-checked first -- see `_prune_locked` for
+        # why that ordering is what makes the bounded sweep actually reach
+        # stale keys. An `OrderedDict`, not a plain `dict`, purely for
+        # `move_to_end`: plain dicts preserve insertion order but offer no
+        # O(1) way to re-order one key without deleting and reinserting it.
+        self._attempts: OrderedDict[tuple[str, ...], list[float]] = OrderedDict()
 
     def _prune_locked(self, now: float) -> None:
         """Drops empty/expired keys so the dict doesn't grow unbounded
@@ -59,7 +64,22 @@ class RateLimiter:
         Counting only stale hits (the old approach) degenerates into a
         full O(n) scan whenever every key is fresh (e.g. an attacker
         rotating emails so nothing is ever stale), on a dict that grows by
-        one entry per unique key."""
+        one entry per unique key.
+
+        The bound alone is not enough, though, and this is what the
+        `move_to_end` in `check` exists for: `islice` always starts from
+        the dict's head, so with a plain insertion-ordered dict the sweep
+        re-examines the same first `_MAX_KEYS_SWEPT_PER_CHECK` keys on
+        every call. Any key parked at the head that keeps being refreshed
+        -- 50 active accounts is enough -- permanently shadows everything
+        behind it, and the rotating keys this function exists to reclaim
+        accumulate forever, unreached. Measured before the fix: 50 hot
+        keys plus 200 one-shot keys left all 200 stale entries retained
+        indefinitely.
+        `check` moves each key it touches to the *back*, so the head is
+        always the least-recently-checked end -- precisely where stale
+        keys collect -- and a hot key can never sit in front of the sweep.
+        """
         window_start = now - self._window_seconds
         stale_keys = [
             key
@@ -79,12 +99,20 @@ class RateLimiter:
         with self._lock:
             self._prune_locked(now)
             window_start = now - self._window_seconds
-            attempts = [t for t in self._attempts[key] if t > window_start]
+            # `.get`, not a `defaultdict` read: an over-limit key below
+            # raises without ever needing the entry to have been created,
+            # and this keeps "was this key present" honest for the
+            # `move_to_end` bookkeeping.
+            attempts = [t for t in self._attempts.get(key, []) if t > window_start]
             if len(attempts) >= self._max_attempts:
                 self._attempts[key] = attempts
+                self._attempts.move_to_end(key)
                 raise HTTPException(status_code=429, detail=self._detail)
             attempts.append(now)
             self._attempts[key] = attempts
+            # Keeps this key out of the sweep window above until every
+            # other key has been considered -- see `_prune_locked`.
+            self._attempts.move_to_end(key)
 
     def reset(self, *key_parts: str) -> None:
         """Clears `key_parts`'s attempt history -- called after a

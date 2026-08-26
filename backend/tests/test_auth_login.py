@@ -1,3 +1,10 @@
+import uuid
+
+import pytest
+
+from app.auth import service as auth_service
+
+
 def _valid_register_payload(**overrides):
     payload = {
         "full_name": "Maria Ivanova",
@@ -193,3 +200,51 @@ def test_login_success_resets_rate_limit_counter(client):
     # (which would have been blocked without the reset) succeeds instead.
     response = client.post("/auth/login", json=_login_payload())
     assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Token-lifetime env parsing. `app.main._validate_env` refuses to boot on a
+# non-positive value, so in a deployed process these fallbacks are
+# unreachable -- they exist so the getters are correct standing alone, called
+# from a test, a script, or any entry point that doesn't run that check.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "getter, var, default",
+    [
+        (auth_service._access_token_expire_minutes, "ACCESS_TOKEN_EXPIRE_MINUTES", 60),
+        (auth_service._verification_token_expire_hours, "EMAIL_VERIFICATION_TOKEN_EXPIRE_HOURS", 24),
+    ],
+)
+@pytest.mark.parametrize("raw", ["0", "-1", "-30", "abc", "1440m", "", "   "])
+def test_an_unusable_lifetime_value_falls_back_to_the_default(
+    monkeypatch, getter, var, default, raw
+):
+    monkeypatch.setenv(var, raw)
+    assert getter() == default
+
+
+@pytest.mark.parametrize(
+    "getter, var",
+    [
+        (auth_service._access_token_expire_minutes, "ACCESS_TOKEN_EXPIRE_MINUTES"),
+        (auth_service._verification_token_expire_hours, "EMAIL_VERIFICATION_TOKEN_EXPIRE_HOURS"),
+    ],
+)
+def test_a_positive_lifetime_value_is_honoured(monkeypatch, getter, var):
+    monkeypatch.setenv(var, "120")
+    assert getter() == 120
+
+
+def test_a_zero_lifetime_does_not_mint_an_already_expired_token(monkeypatch):
+    """The bug this guards: `int()` parses "0" happily, so the getters'
+    original `ValueError`-only guard let it through, and the resulting
+    token was rejected by `decode_access_token` the instant it was
+    issued -- login answering 200 with a credential that never worked."""
+    monkeypatch.setenv("ACCESS_TOKEN_EXPIRE_MINUTES", "0")
+    user_id = uuid.uuid4()
+
+    token = auth_service.create_access_token(user_id)
+
+    assert auth_service.decode_access_token(token) == user_id

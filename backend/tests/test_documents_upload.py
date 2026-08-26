@@ -216,7 +216,7 @@ def test_upload_ignores_client_supplied_user_id_form_field(client):
 
 
 def test_upload_rate_limit_returns_429_past_the_window_budget(client, _fresh_rate_limiters):
-    _, _, _, _, _, upload_rate_limiter, _ = _fresh_rate_limiters
+    upload_rate_limiter = _fresh_rate_limiters.upload_rate
     token = _register_and_login(
         client, full_name="Maria Ivanova", email="maria-ratelimit@example.com", password="password12345"
     )
@@ -282,7 +282,7 @@ def test_upload_concurrency_limiter_rejects_past_max_in_flight(_fresh_rate_limit
     import pytest as _pytest
     from fastapi import HTTPException
 
-    _, _, _, _, _, _, limiter = _fresh_rate_limiters
+    limiter = _fresh_rate_limiters.upload_concurrency
     user_key = "some-user-id"
 
     with limiter.slot(user_key), limiter.slot(user_key), limiter.slot(user_key), limiter.slot(
@@ -302,7 +302,7 @@ def test_upload_concurrency_limiter_rejects_past_max_in_flight(_fresh_rate_limit
 
 
 def test_upload_concurrency_limiter_releases_slot_on_exception(_fresh_rate_limiters):
-    _, _, _, _, _, _, limiter = _fresh_rate_limiters
+    limiter = _fresh_rate_limiters.upload_concurrency
     user_key = "erroring-user"
 
     try:

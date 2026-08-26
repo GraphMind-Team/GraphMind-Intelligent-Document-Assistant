@@ -17,6 +17,11 @@ from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_user
 from app.chat import service, sessions_service
+from app.chat.rate_limiter import (
+    get_ask_concurrency_limiter,
+    get_ask_daily_rate_limiter,
+    get_ask_rate_limiter,
+)
 from app.chat.schemas import (
     AskRequest,
     AskResponse,
@@ -28,6 +33,7 @@ from app.chat.schemas import (
 )
 from app.shared.data_access import get_db_session
 from app.shared.models import User
+from app.shared.rate_limiter import ConcurrencyLimiter, RateLimiter
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -74,8 +80,24 @@ def ask(
     request: AskRequest,
     db: Session = Depends(get_db_session),
     current_user: User = Depends(get_current_user),
+    rate_limiter: RateLimiter = Depends(get_ask_rate_limiter),
+    daily_rate_limiter: RateLimiter = Depends(get_ask_daily_rate_limiter),
+    concurrency_limiter: ConcurrencyLimiter = Depends(get_ask_concurrency_limiter),
 ) -> AskResponse:
-    return service.ask_question(db, current_user, session_id, request.question, request.document_ids)
+    # Keyed by account, and sharing one budget with `edit_message` below --
+    # see `chat/rate_limiter.py` for why this route needs both a rate and a
+    # concurrency bound. The concurrency slot wraps the whole service call,
+    # not just a part of it: unlike upload (where only the body read holds
+    # the scarce resource), the scarce resource here is the threadpool
+    # worker, which is held for the entire retrieval-plus-generation span.
+    # Released via context manager even if generation raises mid-request.
+    user_key = str(current_user.id)
+    rate_limiter.check(user_key)
+    daily_rate_limiter.check(user_key)
+    with concurrency_limiter.slot(user_key):
+        return service.ask_question(
+            db, current_user, session_id, request.question, request.document_ids
+        )
 
 
 @router.get("/sessions/{session_id}/history", response_model=ChatHistoryResponse)
@@ -100,10 +122,22 @@ def edit_message(
     request: AskRequest,
     db: Session = Depends(get_db_session),
     current_user: User = Depends(get_current_user),
+    rate_limiter: RateLimiter = Depends(get_ask_rate_limiter),
+    daily_rate_limiter: RateLimiter = Depends(get_ask_daily_rate_limiter),
+    concurrency_limiter: ConcurrencyLimiter = Depends(get_ask_concurrency_limiter),
 ) -> AskResponse:
-    return service.edit_message(
-        db, current_user, session_id, message_id, request.question, request.document_ids
-    )
+    # The same three limiters, and deliberately the same shared budgets,
+    # as `ask` above -- `service.edit_message` re-runs `ask_question` end
+    # to end, so this is not the cheaper route it might look like, and a
+    # separate allowance would just be a second way to spend the same
+    # upstream quota and threadpool workers.
+    user_key = str(current_user.id)
+    rate_limiter.check(user_key)
+    daily_rate_limiter.check(user_key)
+    with concurrency_limiter.slot(user_key):
+        return service.edit_message(
+            db, current_user, session_id, message_id, request.question, request.document_ids
+        )
 
 
 @router.put("/messages/{message_id}/feedback", response_model=MessageFeedbackResponse)

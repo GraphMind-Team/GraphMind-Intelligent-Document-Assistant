@@ -68,6 +68,8 @@ _MESSAGES: Final[dict[str, dict[str, str]]] = {
         "error.invalid_verification_link": "This verification link is invalid or has expired.",
         "error.current_password_incorrect": "Current password is incorrect.",
         "error.document_still_processing": "Document is still being processed and can't be deleted yet.",
+        "error.chat_rate_limited": "The daily request limit has been reached. Answers will work again after it resets.",
+        "error.chat_unavailable": "Answering is temporarily unavailable. Please try again.",
     },
     "bg": {
         "verify_email.subject": "Потвърдете своя имейл адрес в GraphMind",
@@ -117,6 +119,8 @@ _MESSAGES: Final[dict[str, dict[str, str]]] = {
         "error.invalid_verification_link": "Този линк за потвърждение е невалиден или е изтекъл.",
         "error.current_password_incorrect": "Текущата парола е грешна.",
         "error.document_still_processing": "Документът все още се обработва и не може да бъде изтрит все още.",
+        "error.chat_rate_limited": "Дневният лимит на заявките е достигнат. Отговорите ще работят отново след нулирането му.",
+        "error.chat_unavailable": "Отговарянето е временно недостъпно. Моля, опитайте отново.",
     },
     "de": {
         "verify_email.subject": "Bestätige deine GraphMind-E-Mail-Adresse",
@@ -167,6 +171,8 @@ _MESSAGES: Final[dict[str, dict[str, str]]] = {
         "error.invalid_verification_link": "Dieser Bestätigungslink ist ungültig oder abgelaufen.",
         "error.current_password_incorrect": "Das aktuelle Passwort ist falsch.",
         "error.document_still_processing": "Das Dokument wird noch verarbeitet und kann noch nicht gelöscht werden.",
+        "error.chat_rate_limited": "Das tägliche Anfragelimit ist erreicht. Antworten funktionieren wieder, sobald es zurückgesetzt wird.",
+        "error.chat_unavailable": "Die Beantwortung ist vorübergehend nicht verfügbar. Bitte versuche es erneut.",
     },
 }
 

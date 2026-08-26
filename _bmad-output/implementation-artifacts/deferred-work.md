@@ -696,3 +696,31 @@
     (e.g. Story 2.7's unguarded post-write `db.commit()`, Story 3.4's account-deletion race) rather
     than a new pattern. Worth a dedicated `IntegrityError` -> 404 fix with a concurrency test if it's
     ever observed in practice.
+
+- source_spec: `frontend/src/components/PreviewModal.jsx`
+  summary: >
+    The PDF preview iframe cannot be sandboxed, and the attempt was reverted -- do not retry it as
+    written. The frame is same-origin with the app (a `blob:` URL inherits the creating document's
+    origin), and uploads are validated by extension and Content-Type only, never by magic bytes
+    (`backend/app/documents/parsing.py`'s own module docstring), so `file_type == "pdf"` is a claim
+    about the bytes rather than a fact. HTML bytes uploaded as `.pdf` therefore render in a frame
+    that can read `parent.localStorage`, where the access token lives. The neighbouring HTML branch
+    is already safe -- it carries `sandbox=""` -- which is what makes the PDF branch look like a
+    simple oversight. It isn't: the two values that could apply here are mutually exclusive with
+    rendering. Measured in Chrome against the running app:
+      * `sandbox="allow-scripts"` -- isolates correctly (`SecurityError` on parent access,
+        `frameElement` unreachable) but Chrome's built-in PDF viewer refuses to start and the frame
+        shows a broken-document icon. Verified visually; not a subtle degradation.
+      * `sandbox="allow-scripts allow-same-origin"` -- renders, but the frame both reads
+        `parent.localStorage` and can see and rewrite its own `sandbox` attribute. Strictly worse
+        than no sandbox at all, since it reads as protection while providing none.
+    The real fix is serving user-uploaded bytes from a separate origin (a distinct hostname, or a
+    signed short-lived URL off an object store) so the frame is cross-origin by construction rather
+    than by attribute. That is an infrastructure change, not a one-line one.
+  evidence: Security review of the `security-check-and-upgrade` branch. Severity is bounded: tenancy
+    scoping means a user can only open their own documents, so the exploit path is self-XSS -- an
+    attacker must persuade a victim to upload the attacker's own file and preview it. That bound is
+    what makes this deferrable rather than urgent; it is not a reason to consider it fixed. The
+    backend already sends `X-Content-Type-Options: nosniff` and `Cache-Control: private, no-store`
+    on `GET /documents/{id}/content` (see `documents/routes.py`), which is defence for the direct
+    navigation case but does not travel with a `blob:` URL.

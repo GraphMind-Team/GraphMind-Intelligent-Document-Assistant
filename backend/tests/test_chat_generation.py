@@ -740,7 +740,12 @@ def test_resolve_question_never_raises_on_a_5xx_response(monkeypatch):
 
     plan = resolve_question("a question", [])
 
-    assert plan == QuestionPlan(intent="factual", search_query="a question", reply=None)
+    assert plan == QuestionPlan(
+        intent="factual",
+        search_query="a question",
+        reply=None,
+        routing_failure="unavailable",
+    )
 
 
 def test_resolve_question_never_raises_on_a_timeout(monkeypatch):
@@ -751,7 +756,12 @@ def test_resolve_question_never_raises_on_a_timeout(monkeypatch):
 
     plan = resolve_question("a question", [])
 
-    assert plan == QuestionPlan(intent="factual", search_query="a question", reply=None)
+    assert plan == QuestionPlan(
+        intent="factual",
+        search_query="a question",
+        reply=None,
+        routing_failure="unavailable",
+    )
 
 
 def test_resolve_question_never_raises_when_api_key_missing(monkeypatch):
@@ -759,7 +769,12 @@ def test_resolve_question_never_raises_when_api_key_missing(monkeypatch):
 
     plan = resolve_question("a question", [])
 
-    assert plan == QuestionPlan(intent="factual", search_query="a question", reply=None)
+    assert plan == QuestionPlan(
+        intent="factual",
+        search_query="a question",
+        reply=None,
+        routing_failure="unavailable",
+    )
 
 
 def test_resolve_question_is_never_retried(monkeypatch):
@@ -1008,3 +1023,124 @@ def test_select_overview_passages_within_budget_samples_across_the_whole_list_wh
     # sample looks like and a tail-drop-style selection never would.
     indices = sorted(int(p.chunk_id.split("-")[1]) for p in selected)
     assert indices != list(range(len(indices)))
+
+
+def test_resolve_question_records_a_429_as_rate_limited(monkeypatch):
+    """A quota exhaustion is the one routing failure a user can act on
+    ("this resets") rather than merely be told about, so it is recorded
+    distinctly from a generic outage -- `chat/service.py` picks different
+    copy for the two. This is the failure this project actually hit: the
+    provider's free tier caps at 50 requests/day across the whole key.
+    """
+    monkeypatch.setattr(
+        llm_client_module.httpx,
+        "post",
+        lambda *a, **k: _openrouter_response(429, content="rate limited"),
+    )
+
+    plan = resolve_question("a question", [])
+
+    assert plan.routing_failure == "rate_limited"
+    # Routing itself still degrades exactly as before -- only the reason
+    # is new, so retrieval behaviour is untouched.
+    assert plan.intent == "factual"
+    assert plan.search_query == "a question"
+
+
+def test_a_router_that_answered_records_no_routing_failure(monkeypatch):
+    """The flag means "no router ran", not "the plan needed correcting":
+    a response this module had to fall back on per-field (a blank
+    search_query, say) still came from a router that considered the
+    question, so a later refusal is a real one about the user's documents.
+    """
+    monkeypatch.setattr(
+        llm_client_module.httpx,
+        "post",
+        lambda *a, **k: _openrouter_response(200, content=_router_content(search_query="   ")),
+    )
+
+    plan = resolve_question("a question", [])
+
+    assert plan.routing_failure is None
+
+
+# ---------------------------------------------------------------------------
+# Follow-up chips must not leak the prompt's internal passage numbering.
+#
+# The prompt renders passages as "Passage 3 (Chapter: ...): ..." so the model
+# can cite them in `passage_numbers`. Observed in production: it carried that
+# numbering into a rendered chip instead -- "Колко баскетбол часа има в
+# passage 3?" -- where "passage 3" names nothing the reader can see.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "leaked",
+    [
+        "Колко баскетбол часа има в passage 3?",   # the observed case, verbatim
+        "How many hours are in Passage 5?",
+        "Was steht in Abschnitt 2?",
+        "Какво пише в пасаж 7?",
+        "See passage #12 for details?",
+    ],
+)
+def test_generate_answer_drops_followups_leaking_passage_numbering(monkeypatch, leaked):
+    content = json.dumps(
+        {
+            "segments": [{"text": "The course runs 63 hours.", "passage_numbers": [1]}],
+            "followup_questions": [leaked, "Who teaches the course?"],
+        }
+    )
+    monkeypatch.setattr(llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content=content))
+
+    result = generate_answer("How many hours?", [_passage()])
+
+    assert result.followup_questions == ["Who teaches the course?"]
+
+
+def test_generate_answer_keeps_followups_that_merely_contain_the_word_passage(monkeypatch):
+    """The guard is narrow on purpose -- a passage word followed by a
+    number, not the word alone. An ordinary question that happens to say
+    "passage" is a perfectly good suggestion and must survive."""
+    content = json.dumps(
+        {
+            "segments": [{"text": "The refund window is 30 days.", "passage_numbers": [1]}],
+            "followup_questions": ["What does the passage about refunds say?"],
+        }
+    )
+    monkeypatch.setattr(llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content=content))
+
+    result = generate_answer("What is the refund window?", [_passage()])
+
+    assert result.followup_questions == ["What does the passage about refunds say?"]
+
+
+def test_dropping_every_followup_leaves_the_answer_intact(monkeypatch):
+    """An empty follow-up list is already a valid, unremarkable outcome,
+    so discarding leaked ones never costs the answer itself."""
+    content = json.dumps(
+        {
+            "segments": [{"text": "The course runs 63 hours.", "passage_numbers": [1]}],
+            "followup_questions": ["What is in passage 3?", "And in passage 5?"],
+        }
+    )
+    monkeypatch.setattr(llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content=content))
+
+    result = generate_answer("How many hours?", [_passage()])
+
+    assert result.followup_questions == []
+    assert result.segments[0].text == "The course runs 63 hours."
+
+
+def test_both_prompt_templates_forbid_leaking_passage_numbers():
+    """The code guard above covers follow-ups, which are safely
+    discardable. A segment's own text is not -- dropping it would lose the
+    answer, and rewriting the sentence around a removed reference produces
+    broken grammar -- so for `text` the prompt instruction is the only
+    control there is, and it must exist in both templates."""
+    for template in (
+        llm_client_module._CHAT_SYSTEM_PROMPT_TEMPLATE,
+        llm_client_module._OVERVIEW_SYSTEM_PROMPT_TEMPLATE,
+    ):
+        assert "passage numbering below is internal" in template
+        assert 'never repeat them inside any segment\'s "text"' in template
