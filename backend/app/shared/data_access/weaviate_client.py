@@ -17,7 +17,6 @@ fastembed model was removed.
 """
 
 import logging
-import os
 import threading
 
 import weaviate

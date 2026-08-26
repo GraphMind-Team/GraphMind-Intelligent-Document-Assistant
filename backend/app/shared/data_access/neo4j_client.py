@@ -22,7 +22,6 @@ whether Neo4j is configured).
 """
 
 import logging
-import os
 import re
 import threading
 
