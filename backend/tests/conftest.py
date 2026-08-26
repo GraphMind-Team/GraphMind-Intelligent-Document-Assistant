@@ -118,21 +118,35 @@ def client(db_session, monkeypatch):
 @pytest.fixture(autouse=True)
 def _fresh_rate_limiters(client):
     """Overrides every module-level limiter singleton (login, register,
-    upload rate, upload concurrency) with fresh instances per test, so
-    counts from one test -- or from an earlier test file in the same run
-    -- never leak into the next. Depends on `client`
+    upload rate, upload concurrency, chat ask rate/concurrency) with fresh
+    instances per test, so counts from one test -- or from an earlier test
+    file in the same run -- never leak into the next. Depends on `client`
     (not standalone) so it composes correctly with the `client` fixture
     above, which clears `app.dependency_overrides` in its own `finally`
     block on teardown. Autouse + defined here (not per test file) because
-    every test that hits `/auth/register`, `/auth/login`, or
-    `POST /documents` -- not just the limit-specific tests -- would
-    otherwise share one process-wide budget across the whole test run."""
+    every test that hits `/auth/register`, `/auth/login`, `POST /documents`,
+    or `POST /chat/sessions/{id}/ask` -- not just the limit-specific tests
+    -- would otherwise share one process-wide budget across the whole test
+    run.
+
+    The chat limiters are given a deliberately huge `max_attempts` rather
+    than the real 15: several files here drive a long scripted conversation
+    through `/ask` inside a single test, which is exactly the shape the
+    production limit is meant to stop and exactly the shape a test needs to
+    be able to perform. The limit's own behaviour is covered by a dedicated
+    test that overrides it with a small budget of its own, rather than by
+    leaving every unrelated chat test one question away from a spurious
+    429."""
     from app.auth.rate_limiter import (
         get_change_password_rate_limiter,
         get_login_rate_limiter,
         get_register_rate_limiter,
         get_resend_verification_ip_rate_limiter,
         get_resend_verification_rate_limiter,
+    )
+    from app.chat.rate_limiter import (
+        get_ask_concurrency_limiter,
+        get_ask_rate_limiter,
     )
     from app.documents.rate_limiter import (
         get_upload_concurrency_limiter,
@@ -166,6 +180,10 @@ def _fresh_rate_limiters(client):
         max_attempts=30, window_seconds=60.0, detail="Too many uploads. Try again in a minute."
     )
     upload_concurrency_limiter = ConcurrencyLimiter(max_concurrent=5)
+    ask_rate_limiter = RateLimiter(
+        max_attempts=10_000, window_seconds=60.0, detail="Too many questions. Try again in a minute."
+    )
+    ask_concurrency_limiter = ConcurrencyLimiter(max_concurrent=10_000)
 
     app.dependency_overrides[get_login_rate_limiter] = lambda: login_limiter
     app.dependency_overrides[get_register_rate_limiter] = lambda: register_limiter
@@ -174,6 +192,8 @@ def _fresh_rate_limiters(client):
     app.dependency_overrides[get_resend_verification_ip_rate_limiter] = lambda: resend_verification_ip_limiter
     app.dependency_overrides[get_upload_rate_limiter] = lambda: upload_rate_limiter
     app.dependency_overrides[get_upload_concurrency_limiter] = lambda: upload_concurrency_limiter
+    app.dependency_overrides[get_ask_rate_limiter] = lambda: ask_rate_limiter
+    app.dependency_overrides[get_ask_concurrency_limiter] = lambda: ask_concurrency_limiter
     # A namespace, not the positional tuple this used to yield: consumers
     # unpacked it as `_, _, _, _, _, upload_rate_limiter, _`, so adding a
     # limiter here broke every one of them at once, with an arity error
@@ -187,6 +207,8 @@ def _fresh_rate_limiters(client):
         resend_verification_ip=resend_verification_ip_limiter,
         upload_rate=upload_rate_limiter,
         upload_concurrency=upload_concurrency_limiter,
+        ask_rate=ask_rate_limiter,
+        ask_concurrency=ask_concurrency_limiter,
     )
     for dependency in (
         get_login_rate_limiter,
@@ -196,6 +218,8 @@ def _fresh_rate_limiters(client):
         get_resend_verification_ip_rate_limiter,
         get_upload_rate_limiter,
         get_upload_concurrency_limiter,
+        get_ask_rate_limiter,
+        get_ask_concurrency_limiter,
     ):
         app.dependency_overrides.pop(dependency, None)
 
