@@ -94,3 +94,65 @@ def test_the_error_never_echoes_the_secret_itself(monkeypatch):
     with pytest.raises(RuntimeError) as excinfo:
         _validate_env()
     assert "hunter2" not in str(excinfo.value)
+
+
+# ---------------------------------------------------------------------------
+# Optional token-lifetime vars. Absent is fine (the code has defaults); a
+# value that cannot be honoured is not. Both feed a JWT `exp`, so zero or
+# negative issues a token already expired when created -- login answers 200
+# and /auth/me immediately 401s, an endless sign-in loop with nothing in the
+# logs naming the cause. `int()` accepts "0" and "-30", so the ValueError
+# guard the getters already had never caught them.
+# ---------------------------------------------------------------------------
+
+LIFETIME_VARS = ["ACCESS_TOKEN_EXPIRE_MINUTES", "EMAIL_VERIFICATION_TOKEN_EXPIRE_HOURS"]
+
+
+@pytest.mark.parametrize("name", LIFETIME_VARS)
+def test_an_absent_lifetime_var_is_fine(monkeypatch, name):
+    _set_valid_env(monkeypatch)
+    monkeypatch.delenv(name, raising=False)
+
+    _validate_env()  # does not raise -- the code default applies
+
+
+@pytest.mark.parametrize("name", LIFETIME_VARS)
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_a_blank_lifetime_var_is_fine(monkeypatch, name, blank):
+    _set_valid_env(monkeypatch)
+    monkeypatch.setenv(name, blank)
+
+    _validate_env()  # treated as absent, not as zero
+
+
+@pytest.mark.parametrize("name", LIFETIME_VARS)
+@pytest.mark.parametrize("bad", ["0", "-1", "-30"])
+def test_a_non_positive_lifetime_refuses_to_boot(monkeypatch, name, bad):
+    _set_valid_env(monkeypatch)
+    monkeypatch.setenv(name, bad)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        _validate_env()
+    assert name in str(excinfo.value)
+    assert "positive" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("name", LIFETIME_VARS)
+def test_an_unparseable_lifetime_refuses_to_boot(monkeypatch, name):
+    """Rejected rather than silently defaulted: `1440m` quietly yielding 60
+    is a lifetime twenty-four times shorter than configured, with no signal
+    that anything was ignored."""
+    _set_valid_env(monkeypatch)
+    monkeypatch.setenv(name, "1440m")
+
+    with pytest.raises(RuntimeError) as excinfo:
+        _validate_env()
+    assert name in str(excinfo.value)
+
+
+@pytest.mark.parametrize("name", LIFETIME_VARS)
+def test_a_positive_lifetime_boots(monkeypatch, name):
+    _set_valid_env(monkeypatch)
+    monkeypatch.setenv(name, "120")
+
+    _validate_env()  # does not raise

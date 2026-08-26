@@ -49,6 +49,23 @@ REQUIRED_ENV_VARS = ["DATABASE_URL", "JWT_SECRET"]
 # into a loud failure at boot rather than a quiet weakness in production.
 _MIN_JWT_SECRET_BYTES = 32
 
+# Optional, unlike REQUIRED_ENV_VARS above: absent is fine, since both have
+# defaults in `auth/service.py`. What is not fine is a value that is present
+# but cannot be honoured, because both become a JWT lifetime.
+#
+# Zero or negative mints a token already expired when issued: login answers
+# 200 and `/auth/me` immediately 401s, an endless sign-in loop with nothing
+# in the logs naming the cause. `int()` accepts "0" and "-30" without
+# complaint, so the `ValueError` guard those getters already had never saw
+# them.
+#
+# Unparseable is rejected here too, rather than left to the silent fallback.
+# `ACCESS_TOKEN_EXPIRE_MINUTES=1440m` quietly yielding 60 is a session
+# twenty-four times shorter than the operator configured, with no signal
+# that anything was ignored -- the same silent-wrongness this check exists
+# to end, just wearing a different value.
+_POSITIVE_INT_ENV_VARS = ("ACCESS_TOKEN_EXPIRE_MINUTES", "EMAIL_VERIFICATION_TOKEN_EXPIRE_HOURS")
+
 
 def _validate_env() -> None:
     """Fail fast at startup if a required environment variable is absent,
@@ -73,6 +90,23 @@ def _validate_env() -> None:
             "Generate one with: python -c \"import secrets; "
             'print(secrets.token_urlsafe(32))"'
         )
+
+    for name in _POSITIVE_INT_ENV_VARS:
+        raw = os.environ.get(name, "").strip()
+        if not raw:
+            continue  # absent or blank -- the code default applies, which is fine
+        try:
+            value = int(raw)
+        except ValueError:
+            raise RuntimeError(
+                f"{name} must be a positive whole number of "
+                f"{'minutes' if name.endswith('MINUTES') else 'hours'}; got {raw!r}."
+            ) from None
+        if value <= 0:
+            raise RuntimeError(
+                f"{name} must be positive; got {value}. A zero or negative lifetime "
+                "issues tokens that are already expired when they are created."
+            )
 
 
 _validate_env()
