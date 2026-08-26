@@ -146,6 +146,7 @@ def _fresh_rate_limiters(client):
     )
     from app.chat.rate_limiter import (
         get_ask_concurrency_limiter,
+        get_ask_daily_rate_limiter,
         get_ask_rate_limiter,
     )
     from app.documents.rate_limiter import (
@@ -183,6 +184,11 @@ def _fresh_rate_limiters(client):
     ask_rate_limiter = RateLimiter(
         max_attempts=10_000, window_seconds=60.0, detail="Too many questions. Try again in a minute."
     )
+    ask_daily_rate_limiter = RateLimiter(
+        max_attempts=10_000,
+        window_seconds=60.0 * 60 * 24,
+        detail="You've reached today's question limit. It resets tomorrow.",
+    )
     ask_concurrency_limiter = ConcurrencyLimiter(max_concurrent=10_000)
 
     app.dependency_overrides[get_login_rate_limiter] = lambda: login_limiter
@@ -193,6 +199,7 @@ def _fresh_rate_limiters(client):
     app.dependency_overrides[get_upload_rate_limiter] = lambda: upload_rate_limiter
     app.dependency_overrides[get_upload_concurrency_limiter] = lambda: upload_concurrency_limiter
     app.dependency_overrides[get_ask_rate_limiter] = lambda: ask_rate_limiter
+    app.dependency_overrides[get_ask_daily_rate_limiter] = lambda: ask_daily_rate_limiter
     app.dependency_overrides[get_ask_concurrency_limiter] = lambda: ask_concurrency_limiter
     # A namespace, not the positional tuple this used to yield: consumers
     # unpacked it as `_, _, _, _, _, upload_rate_limiter, _`, so adding a
@@ -208,6 +215,7 @@ def _fresh_rate_limiters(client):
         upload_rate=upload_rate_limiter,
         upload_concurrency=upload_concurrency_limiter,
         ask_rate=ask_rate_limiter,
+        ask_daily_rate=ask_daily_rate_limiter,
         ask_concurrency=ask_concurrency_limiter,
     )
     for dependency in (
@@ -219,6 +227,7 @@ def _fresh_rate_limiters(client):
         get_upload_rate_limiter,
         get_upload_concurrency_limiter,
         get_ask_rate_limiter,
+        get_ask_daily_rate_limiter,
         get_ask_concurrency_limiter,
     ):
         app.dependency_overrides.pop(dependency, None)
