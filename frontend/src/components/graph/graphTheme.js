@@ -132,6 +132,17 @@ export function entityTypeLabelFor(t, type) {
   return key ? t(key) : type
 }
 
+// OD-1's closed entity vocabulary, in the order the colour ramp below
+// steps through it (deep ocean -> pale sky), which is also the order it
+// is written down in the decision itself. Exported so the legend can show
+// the whole vocabulary rather than only the types a given graph happens
+// to contain: a key listing four types with no indication that a fifth
+// exists reads as an arbitrary set, which is exactly how it was read in
+// review ("why these four?"). Mirrors `ENTITY_TYPES` in
+// backend/app/shared/llm_client -- the write path is what actually
+// enforces the set; this is only how it is presented.
+export const ENTITY_TYPE_ORDER = ['Person', 'Organization', 'Project', 'Product', 'Location']
+
 // One five-step sky ramp, deep ocean (Person) to pale sky (Location) --
 // the types are peers, not a hierarchy of importance, but one shared hue
 // family reads as one coherent system where five unrelated hues would

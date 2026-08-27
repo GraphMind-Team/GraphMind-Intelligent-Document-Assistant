@@ -8,7 +8,14 @@ import fromKapsule from 'react-kapsule'
 import { forceCollide } from 'd3-force-3d'
 import { useTheme } from '../../context/ThemeContext'
 import GraphSummary from './GraphSummary'
-import { badgeFor, entityTypeLabelFor, paletteFor, relationshipLabelFor, typeColorFor } from './graphTheme'
+import {
+  ENTITY_TYPE_ORDER,
+  badgeFor,
+  entityTypeLabelFor,
+  paletteFor,
+  relationshipLabelFor,
+  typeColorFor,
+} from './graphTheme'
 
 // Built directly from `force-graph` (the vanilla 2D engine) and
 // `react-kapsule` (the same wrapper `react-force-graph`'s own
@@ -407,10 +414,24 @@ export default function GraphCanvas({ graph }) {
   const minDegree = degrees.length ? Math.min(...degrees) : 0
   const maxDegree = degrees.length ? Math.max(...degrees) : 0
 
-  const presentTypes = useMemo(
-    () => [...new Set(nodes.map((node) => node.type))].sort((a, b) => a.localeCompare(b)),
-    [nodes],
-  )
+  // The whole closed vocabulary, each entry flagged with whether this
+  // particular graph actually contains it -- not just the types present.
+  // Showing only what was found made the set look arbitrary (raised in
+  // review: "why these four?", on a graph whose documents happened to
+  // contain no Project). A type is a fact about the extraction vocabulary,
+  // not about one upload, so the key states all five and marks the absent
+  // ones instead of hiding them.
+  //
+  // A type outside the vocabulary can only appear here if the write path's
+  // own validation changes (same reachability note as `badgeFor`), but if
+  // one ever does it is by definition present, so it is appended rather
+  // than dropped -- the canvas would otherwise draw a node the key never
+  // explains.
+  const legendTypes = useMemo(() => {
+    const present = new Set(nodes.map((node) => node.type))
+    const extras = [...present].filter((type) => !ENTITY_TYPE_ORDER.includes(type)).sort((a, b) => a.localeCompare(b))
+    return [...ENTITY_TYPE_ORDER, ...extras].map((type) => ({ type, isPresent: present.has(type) }))
+  }, [nodes])
 
   const radiusFor = useCallback(
     (node) => diameterFor(node.degree, minDegree, maxDegree) / 2,
@@ -938,24 +959,37 @@ export default function GraphCanvas({ graph }) {
   )
 
   // The badge drawn inside each circle is two letters -- unreadable
-  // as a type name on its own. This spells out only the types
-  // actually on the canvas, so it stays short. v2 makes each entry
-  // its own pill (rather than one long tinted bar) so the key reads
-  // as a row of the same chips used everywhere else in this
-  // feature.
+  // as a type name on its own. This spells out the whole closed
+  // vocabulary (see `legendTypes`), with the types this graph doesn't
+  // contain shown muted. v2 makes each entry its own pill (rather than
+  // one long tinted bar) so the key reads as a row of the same chips
+  // used everywhere else in this feature.
+  //
+  // "Muted" is a swap to already-contrast-checked tokens, never a blanket
+  // opacity: the label drops to `ink2` (the defined secondary ink) and the
+  // badge trades its type colour for the same bordered-chip treatment the
+  // pill itself uses. Reduced opacity over the type fill would have put
+  // the two palest ramp steps (Product, Location) under 3:1 and the label
+  // under 4.5:1 -- see graphTheme.js's PALETTE/TYPE_COLORS comments. The
+  // absent state is also carried by `sr-only` text, not by colour alone
+  // (AC6/UX-DR28, the same rule the two-letter badges exist for).
   const legendBlock = (
     <ul
       aria-label={t('graph.canvas.entityTypeKey')}
       className="mt-3 flex list-none flex-wrap items-center gap-2 text-sm"
       style={{ color: palette.ink }}
     >
-      {presentTypes.map((type) => {
+      {legendTypes.map(({ type, isPresent }) => {
         const typeColor = typeColorFor(theme, type)
         return (
           <li
             key={type}
             className="flex items-center gap-1.5 rounded-full py-1 pl-1 pr-3"
-            style={{ backgroundColor: palette.chipBg, border: `1px solid ${palette.chipBorder}` }}
+            style={{
+              backgroundColor: palette.chipBg,
+              border: `1px solid ${palette.chipBorder}`,
+              color: isPresent ? palette.ink : palette.ink2,
+            }}
           >
             {/* The badge sits on its own colour, so the key shows the
                 same pairing the canvas does. aria-hidden because the
@@ -964,16 +998,31 @@ export default function GraphCanvas({ graph }) {
             <span
               aria-hidden="true"
               className="inline-flex h-5 w-7 items-center justify-center rounded-full text-[11px] font-bold"
-              style={{ backgroundColor: typeColor.fill, color: typeColor.text }}
+              style={
+                isPresent
+                  ? { backgroundColor: typeColor.fill, color: typeColor.text }
+                  : { border: `1px solid ${palette.chipBorder}`, color: palette.ink2 }
+              }
             >
               {badgeFor(type)}
             </span>
             <span className="sr-only">{badgeFor(type)}</span>{' '}
             <span className="text-[13px] font-semibold">{entityTypeLabelFor(t, type)}</span>
+            {!isPresent && <span className="sr-only"> {t('graph.canvas.typeNotFound')}</span>}
           </li>
         )
       })}
     </ul>
+  )
+
+  // The muted chips above say "this graph has no Project"; they can't say
+  // why there is no sixth type at all. That's the half of the review
+  // question ("why these four?") a visual treatment cannot answer, so it
+  // is stated in words -- once, quietly, under the key.
+  const legendNote = (
+    <p className="mt-2 text-[12px]" style={{ color: palette.ink2 }}>
+      {t('graph.canvas.vocabularyNote')}
+    </p>
   )
 
   return (
@@ -995,12 +1044,14 @@ export default function GraphCanvas({ graph }) {
           >
             {canvasBlock}
             {legendBlock}
+            {legendNote}
           </div>
         </div>
       ) : (
         <>
           {canvasBlock}
           {legendBlock}
+          {legendNote}
         </>
       )}
 

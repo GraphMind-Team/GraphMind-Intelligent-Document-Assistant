@@ -214,9 +214,26 @@ export default function GraphSummary({ nodes, edges, theme }) {
                   <span className="font-semibold" style={{ color: palette.ink }}>
                     {entityTypeLabelFor(t, type)}
                   </span>
-                  <span className="text-[12px]" style={{ color: palette.accentText }}>
+                  {/* The count used to be a bare numeral butted straight
+                      against the type name ("Organization 3"), which read as
+                      a stray number rather than as a count. A hyphen is all
+                      it needed -- spelling out the unit ("3 entities") was
+                      tried and rejected as both wordy and jargon; the cards
+                      directly below already show what is being counted.
+                      The screen-reader copy still names the unit, since
+                      "Organization, 3" alone is genuinely ambiguous when
+                      the layout that disambiguates it isn't there. */}
+                  <span aria-hidden="true" style={{ color: palette.ink2 }}>
+                    -
+                  </span>
+                  {/* Inherits the heading's own size rather than pinning one:
+                      at 12px the count read as a footnote to the type name,
+                      and any hardcoded value lands just off whatever `text-sm`
+                      resolves to (15.4px here) and drifts if that ever moves. */}
+                  <span aria-hidden="true" className="font-semibold" style={{ color: palette.accentText }}>
                     {typeNodes.length}
                   </span>
+                  <span className="sr-only">{t('graph.summary.entityCount', { count: typeNodes.length })}</span>
                 </div>
 
                 <ul className="mt-2.5 grid list-none grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-2 p-0">

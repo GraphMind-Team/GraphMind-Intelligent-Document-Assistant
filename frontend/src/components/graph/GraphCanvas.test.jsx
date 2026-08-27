@@ -700,15 +700,58 @@ describe('GraphCanvas', () => {
     expect(props.linkCurvature(props.graphData.links[0])).toBe(0)
   })
 
-  it('spells out each two-letter type badge in a legend, for the types on the canvas', async () => {
+  it('spells out each two-letter type badge in a legend, for the whole closed vocabulary', async () => {
     render(<GraphCanvas graph={GRAPH} />)
     await screen.findByTestId('force-graph-stub')
 
     const legend = screen.getByRole('list', { name: /entity type key/i })
     expect(legend).toHaveTextContent(/PE\s+Person/)
     expect(legend).toHaveTextContent(/OR\s+Organization/)
-    // Only types actually present -- no dictionary dump.
-    expect(legend).not.toHaveTextContent(/Location/)
+    // Reverses this legend's original "only what's on the canvas, no
+    // dictionary dump" rule. That kept the key short but made the type set
+    // look arbitrary -- review asked "why these four?" of a graph whose
+    // documents simply contained no Project. The vocabulary is a fixed
+    // property of extraction, so all five are always listed.
+    expect(legend).toHaveTextContent(/PJ\s+Project/)
+    expect(legend).toHaveTextContent(/PD\s+Product/)
+    expect(legend).toHaveTextContent(/LO\s+Location/)
+  })
+
+  it('marks the types this graph does not contain, in text and not by colour alone', async () => {
+    render(<GraphCanvas graph={GRAPH} />)
+    await screen.findByTestId('force-graph-stub')
+
+    const legend = screen.getByRole('list', { name: /entity type key/i })
+    const entries = within(legend).getAllByRole('listitem')
+    const present = entries.find((entry) => entry.textContent.includes('Person'))
+    const absent = entries.find((entry) => entry.textContent.includes('Location'))
+
+    expect(absent).toHaveTextContent(/not found in these documents/i)
+    expect(present).not.toHaveTextContent(/not found in these documents/i)
+  })
+
+  it('says in words that the five types are the fixed set extraction looks for', async () => {
+    render(<GraphCanvas graph={GRAPH} />)
+    await screen.findByTestId('force-graph-stub')
+
+    // The muted chips can say "no Project here"; only prose can say why
+    // there is no sixth type at all -- the other half of the review question.
+    expect(screen.getByText(/always looks for these five entity types/i)).toBeInTheDocument()
+  })
+
+  it('still lists a type outside the vocabulary when the graph contains one', async () => {
+    // Only reachable if the write path's own validation changes -- but a
+    // node the canvas draws must never be missing from the key.
+    const graph = {
+      nodes: [{ id: 'Event:Launch', name: 'Launch', type: 'Event', degree: 0 }],
+      edges: [],
+      total_node_count: 1,
+    }
+    render(<GraphCanvas graph={graph} />)
+    await screen.findByTestId('force-graph-stub')
+
+    const legend = screen.getByRole('list', { name: /entity type key/i })
+    expect(legend).toHaveTextContent(/EV\s+Event/)
   })
 
   it('renders GraphSummary alongside the canvas', async () => {
