@@ -408,7 +408,9 @@
       "fit": "Fit",
       "expand": "Show graph larger",
       "collapse": "Exit large view",
-      "entityTypeKey": "Entity type key"
+      "entityTypeKey": "Entity type key",
+      "typeNotFound": "(not found in these documents)",
+      "vocabularyNote": "GraphMind always looks for these five entity types. Muted ones weren't found in your documents."
     },
     "summary": {
       "entityCount_one": "{{count}} entity",

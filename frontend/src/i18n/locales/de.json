@@ -408,7 +408,9 @@
       "fit": "Einpassen",
       "expand": "Graph groß anzeigen",
       "collapse": "Großansicht verlassen",
-      "entityTypeKey": "Legende der Entitätstypen"
+      "entityTypeKey": "Legende der Entitätstypen",
+      "typeNotFound": "(in diesen Dokumenten nicht gefunden)",
+      "vocabularyNote": "GraphMind sucht immer nach diesen fünf Entitätstypen. Die abgeblendeten wurden in deinen Dokumenten nicht gefunden."
     },
     "summary": {
       "entityCount_one": "{{count}} Entität",
