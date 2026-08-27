@@ -135,7 +135,7 @@ const UserMessage = forwardRef(function UserMessage(
   return (
     <div ref={ref} className="anim-rise ml-auto flex max-w-[70%] flex-col items-end gap-1.5 self-end">
       <div
-        className={`rounded-[20px_20px_6px_20px] bg-[image:var(--grad-brand)] px-4 py-2.5 text-[14px] text-white shadow-[var(--glow)]${activeMatchClass}`}
+        className={`chat-bubble-user rounded-[20px_20px_6px_20px] bg-[image:var(--grad-brand)] px-4 py-2.5 text-[14px] text-white shadow-[var(--glow)]${activeMatchClass}`}
       >
         {/* Sighted users get the sender cue from alignment/fill/corner
             (UX-DR5) alone; a screen reader gets none of that, so without

@@ -609,6 +609,42 @@ _PASSAGE_REFERENCE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Scripts no answer in this app's three UI languages ever writes in:
+# Hangul, CJK, kana, Arabic, Hebrew, Thai, Devanagari. Their mere presence
+# is NOT the signal (a document could legitimately quote any of them) --
+# see `_has_scrambled_word` for the actual test.
+_FAR_SCRIPT_RE = re.compile(
+    r"[가-힯ᄀ-ᇿ㄰-㆏"  # Hangul
+    r"一-鿿㐀-䶿"  # CJK
+    r"぀-ヿ"  # kana
+    r"؀-ۿ֐-׿฀-๿ऀ-ॿ]"  # Arabic/Hebrew/Thai/Devanagari
+)
+# Latin (incl. accented), Cyrillic, Greek -- the alphabets the UI languages
+# and their documents actually use.
+_EUROPEAN_SCRIPT_RE = re.compile(r"[A-Za-zÀ-ɏЀ-ӿͰ-Ͽ]")
+
+
+def _has_scrambled_word(text: str) -> bool:
+    """True if any single whitespace-delimited word glues a far-script
+    character to a Latin/Cyrillic/Greek one.
+
+    This is token-level corruption, not multilingual text: the free-tier
+    models this app runs on (see `DEFAULT_MODEL`) have been observed
+    emitting "genet 다양ността" mid-Bulgarian, where Hangul sits welded
+    inside a Cyrillic word. A document that genuinely quotes Korean or
+    Chinese produces those characters as *their own words*, which this
+    deliberately does not flag -- only the welding does.
+
+    Latin-inside-Cyrillic is excluded by construction (both are in
+    `_EUROPEAN_SCRIPT_RE`): Bulgarian routinely inflects Latin brand names
+    in place ("PDF-ът", "iPhone-а"), so treating that as damage would drop
+    perfectly good questions.
+    """
+    return any(
+        _FAR_SCRIPT_RE.search(word) and _EUROPEAN_SCRIPT_RE.search(word)
+        for word in text.split()
+    )
+
 # {history} is Story 3.4's addition -- always the empty string on a fresh
 # conversation (see `_build_history_block` below), which keeps this
 # template's rendered output byte-identical to pre-3.4 in that case (the
@@ -1654,6 +1690,17 @@ def _parse_and_validate_answer(
                     "Dropping follow-up question leaking internal passage numbering: %r",
                     candidate,
                 )
+                continue
+            if _has_scrambled_word(candidate):
+                # Token-level generation damage (see `_has_scrambled_word`).
+                # A chip is a suggestion, so dropping one costs nothing --
+                # but offering it costs a great deal: the observed case was
+                # a user clicking "Как се разчита genet 다양ността ..." and
+                # getting only "could not generate an answer", because a
+                # scrambled question retrieves nothing and answers nothing.
+                # The dead end was never the answering path; it was this
+                # question ever being offered.
+                logger.warning("Dropping scrambled follow-up question: %r", candidate)
                 continue
             followup_questions.append(candidate.strip())
     else:

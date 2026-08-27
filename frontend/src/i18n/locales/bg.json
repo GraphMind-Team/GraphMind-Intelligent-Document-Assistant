@@ -322,7 +322,7 @@
       "title": "Търсене в чата",
       "placeholder": "Търсене в чата…",
       "noMatches": "Няма заредени съвпадащи съобщения.",
-      "matchStatus": "Съвпадение {{active}} от {{result}} ({{total}} заредени).",
+      "matchStatus": "{{active}} от {{result}}",
       "prevMatch": "Предишно съвпадение",
       "nextMatch": "Следващо съвпадение"
     },

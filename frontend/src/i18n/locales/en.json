@@ -322,7 +322,7 @@
       "title": "Search in chat",
       "placeholder": "Search in chat…",
       "noMatches": "No matching messages loaded.",
-      "matchStatus": "Match {{active}} of {{result}} ({{total}} loaded).",
+      "matchStatus": "{{active}} of {{result}}",
       "prevMatch": "Previous match",
       "nextMatch": "Next match"
     },

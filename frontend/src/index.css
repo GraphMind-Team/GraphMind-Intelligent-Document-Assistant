@@ -576,6 +576,18 @@ input:focus, textarea:focus, select:focus {
   padding: 0 2px;
 }
 
+/* The currentColor wash above reads fine on the assistant bubble's light
+   fill, but on the user bubble's brand gradient currentColor is the
+   bubble's own white text -- a white-on-white-ish wash barely clears the
+   fill at all. Same fix as the fixed --on-primary/text-white choice this
+   bubble already makes elsewhere: an opaque chip, independent of the
+   currentColor trick and of light/dark theme (the gradient itself is
+   already theme-invariant here), high-contrast against the blue in both. */
+.chat-bubble-user .chat-mark {
+  background-color: rgba(255, 255, 255, 0.92);
+  color: #062033;
+}
+
 /* ============================================================
    Keyframes. Declared unconditionally (a @keyframes block with no
    consumer is inert); every consumer class below sits inside the
