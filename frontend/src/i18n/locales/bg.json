@@ -237,7 +237,9 @@
       "loading": "Зареждане на визуализация...",
       "documentPreview": "Преглед на документа",
       "notPreviewable": "Този тип файл не може да се визуализира в браузъра.",
-      "download": "Изтегляне"
+      "download": "Изтегляне",
+      "slideHeading": "Слайд {{number}}",
+      "slideEmpty": "Няма текст на този слайд."
     }
   },
   "documentDetail": {

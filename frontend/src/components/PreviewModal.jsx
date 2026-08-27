@@ -1,18 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { renderAsync as renderDocxAsync } from 'docx-preview'
 import { getDocumentContent } from '../api/documentsClient'
 import { useAuth } from '../context/AuthContext'
+import { extractPptxSlides } from '../utils/pptxOutline'
 
 const HEADING_ID = 'preview-modal-heading'
 
-// File types with a dedicated inline renderer below (an iframe or a raw
-// text dump). Anything else that reaches `status === 'ready'` -- DOCX,
-// PPTX, or any future format this modal hasn't grown a renderer for --
-// falls through to the generic "not previewable, download instead"
-// branch rather than rendering nothing: a browser has no built-in way to
-// display an Office document inline, so pretending otherwise (an iframe
-// pointed at it) would just trigger a download or a blank frame anyway.
-const INLINE_RENDERABLE_TYPES = new Set(['pdf', 'markdown', 'html'])
+// File types with a dedicated inline renderer below. Anything else that
+// reaches `status === 'ready'` -- any future format this modal hasn't
+// grown a renderer for -- falls through to the generic "not previewable,
+// download instead" branch rather than rendering nothing. DOCX and PPTX
+// used to fall through here too; DOCX now renders via docx-preview and
+// PPTX via a client-side text outline (see the docx/pptx branches below
+// and `utils/pptxOutline.js`) because a browser has no built-in way to
+// display either format inline.
+const INLINE_RENDERABLE_TYPES = new Set(['pdf', 'markdown', 'html', 'docx', 'pptx'])
 
 // Same diagonal-hatched backdrop as UploadModal.jsx, per DESIGN.md's Modal
 // spec -- shared visual language across every modal in the app, not
@@ -48,8 +51,11 @@ export default function PreviewModal({ documentId, filename, fileType, onClose }
   const [error, setError] = useState(null)
   const [objectUrl, setObjectUrl] = useState(null)
   const [textContent, setTextContent] = useState(null)
+  const [docxBlob, setDocxBlob] = useState(null)
+  const [slides, setSlides] = useState(null)
   const dialogRef = useRef(null)
   const closeButtonRef = useRef(null)
+  const docxContainerRef = useRef(null)
   const previouslyFocusedRef = useRef(null)
 
   // Fetch once on mount. The created object URL is revoked on unmount (or
@@ -78,6 +84,28 @@ export default function PreviewModal({ documentId, filename, fileType, onClose }
             }
           })
         }
+        if (fileType === 'docx') {
+          // Handed to docx-preview as-is once the container div exists --
+          // see the renderAsync effect below. No object URL: docx-preview
+          // reads the Blob directly, it never becomes an iframe src.
+          setDocxBlob(blob)
+          setStatus('ready')
+          return undefined
+        }
+        if (fileType === 'pptx') {
+          // Same "returned, not fire-and-forget" reasoning as markdown
+          // above: extractPptxSlides can reject (malformed zip, missing
+          // slide XML), and that rejection needs to land in this chain's
+          // .catch, not float away unhandled.
+          return blob.arrayBuffer().then((buffer) =>
+            extractPptxSlides(buffer).then((extractedSlides) => {
+              if (!cancelled) {
+                setSlides(extractedSlides)
+                setStatus('ready')
+              }
+            }),
+          )
+        }
         createdUrl = URL.createObjectURL(blob)
         setObjectUrl(createdUrl)
         setStatus('ready')
@@ -94,6 +122,29 @@ export default function PreviewModal({ documentId, filename, fileType, onClose }
       if (createdUrl) URL.revokeObjectURL(createdUrl)
     }
   }, [authFetch, documentId, fileType])
+
+  // docx-preview renders directly into a DOM node rather than returning
+  // JSX, so it can't run until the container div below has actually
+  // mounted -- which only happens once `status` flips to 'ready' and this
+  // component re-renders. A second effect (rather than calling
+  // renderAsync from inside the fetch .then above) is what lets it run
+  // after that commit instead of racing it.
+  useEffect(() => {
+    if (status !== 'ready' || fileType !== 'docx' || !docxBlob || !docxContainerRef.current) return
+    let cancelled = false
+    renderDocxAsync(docxBlob, docxContainerRef.current, undefined, {
+      ignoreWidth: true,
+      ignoreHeight: true,
+    }).catch((err) => {
+      if (!cancelled) {
+        setError(err.message)
+        setStatus('error')
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [status, fileType, docxBlob])
 
   // Initial focus + return focus.
   useEffect(() => {
@@ -200,6 +251,36 @@ export default function PreviewModal({ documentId, filename, fileType, onClose }
               title={filename}
               className="h-full w-full rounded-md border-0 bg-white"
             />
+          )}
+
+          {status === 'ready' && fileType === 'docx' && (
+            // docx-preview populates this node itself (see the renderAsync
+            // effect above) -- it isn't handed any React children.
+            <div ref={docxContainerRef} className="h-full" />
+          )}
+
+          {status === 'ready' && fileType === 'pptx' && (
+            // No visual slide renderer here -- see utils/pptxOutline.js and
+            // this component's top-of-file note on why. Each slide's
+            // extracted text lines stand in for the slide itself.
+            <div className="flex flex-col gap-6">
+              {slides.map((slide) => (
+                <div key={slide.number}>
+                  <h3 className="mb-2 text-sm font-bold text-text">
+                    {t('documents.previewModal.slideHeading', { number: slide.number })}
+                  </h3>
+                  {slide.lines.length > 0 ? (
+                    <ul className="list-disc space-y-1 pl-5 text-sm text-text2">
+                      {slide.lines.map((line, index) => (
+                        <li key={index}>{line}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-text2">{t('documents.previewModal.slideEmpty')}</p>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
 
           {status === 'ready' && !INLINE_RENDERABLE_TYPES.has(fileType) && (

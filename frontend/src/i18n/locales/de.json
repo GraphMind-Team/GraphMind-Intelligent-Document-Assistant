@@ -237,7 +237,9 @@
       "loading": "Vorschau wird geladen...",
       "documentPreview": "Dokumentvorschau",
       "notPreviewable": "Dieser Dateityp kann im Browser nicht angezeigt werden.",
-      "download": "Herunterladen"
+      "download": "Herunterladen",
+      "slideHeading": "Folie {{number}}",
+      "slideEmpty": "Kein Text auf dieser Folie."
     }
   },
   "documentDetail": {

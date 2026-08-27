@@ -237,7 +237,9 @@
       "loading": "Loading preview...",
       "documentPreview": "Document preview",
       "notPreviewable": "This file type can't be previewed in the browser.",
-      "download": "Download"
+      "download": "Download",
+      "slideHeading": "Slide {{number}}",
+      "slideEmpty": "No text on this slide."
     }
   },
   "documentDetail": {
