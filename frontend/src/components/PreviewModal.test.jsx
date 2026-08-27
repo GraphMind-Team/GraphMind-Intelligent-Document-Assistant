@@ -1,11 +1,42 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import JSZip from 'jszip'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import PreviewModal from './PreviewModal'
 import { useAuth } from '../context/AuthContext'
 import * as documentsClient from '../api/documentsClient'
+import { renderAsync as renderDocxAsync } from 'docx-preview'
 
 vi.mock('../context/AuthContext', () => ({ useAuth: vi.fn() }))
+// docx-preview manipulates real layout/font APIs jsdom doesn't implement,
+// so the actual rendering pipeline is out of scope here -- these tests
+// only assert PreviewModal calls it correctly and handles its outcome.
+vi.mock('docx-preview', () => ({ renderAsync: vi.fn() }))
+
+// Builds a minimal real PPTX-shaped zip (JSZip in, JSZip out -- the same
+// library PreviewModal's pptxOutline helper reads) rather than mocking
+// JSZip: exercises the actual slide-path regex and XML text-run
+// extraction instead of assuming they work.
+async function buildPptxBlob(slideTexts) {
+  const zip = new JSZip()
+  slideTexts.forEach((lines, index) => {
+    const paragraphs = lines
+      .map((line) => `<a:p><a:r><a:t>${line}</a:t></a:r></a:p>`)
+      .join('')
+    zip.file(
+      `ppt/slides/slide${index + 1}.xml`,
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+        `<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" ` +
+        `xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">` +
+        `<p:cSld><p:spTree><p:sp><p:txBody>${paragraphs}</p:txBody></p:sp></p:spTree></p:cSld>` +
+        `</p:sld>`,
+    )
+  })
+  const arrayBuffer = await zip.generateAsync({ type: 'arraybuffer' })
+  return new Blob([arrayBuffer], {
+    type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  })
+}
 
 // jsdom has no real createObjectURL implementation -- stubbed the same way
 // this component itself only ever treats the return value as an opaque
@@ -13,6 +44,7 @@ vi.mock('../context/AuthContext', () => ({ useAuth: vi.fn() }))
 let revokedUrls
 beforeEach(() => {
   revokedUrls = []
+  renderDocxAsync.mockReset().mockResolvedValue(undefined)
   vi.stubGlobal('URL', {
     ...URL,
     createObjectURL: vi.fn(() => 'blob:mock-object-url'),
@@ -180,24 +212,83 @@ describe('PreviewModal content rendering', () => {
     expect(frame).toHaveAttribute('sandbox', '')
   })
 
-  it('shows a download fallback for a file type with no inline renderer (DOCX)', async () => {
+  it('renders a DOCX file through docx-preview', async () => {
     useAuth.mockReturnValue({ authFetch: vi.fn() })
-    vi.spyOn(documentsClient, 'getDocumentContent').mockResolvedValue(
-      new Blob(['docx bytes'], {
-        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      }),
-    )
+    const blob = new Blob(['docx bytes'], {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    })
+    vi.spyOn(documentsClient, 'getDocumentContent').mockResolvedValue(blob)
 
     render(<PreviewModal documentId="doc-1" filename="report.docx" fileType="docx" onClose={vi.fn()} />)
 
+    await waitFor(() => expect(renderDocxAsync).toHaveBeenCalledTimes(1))
+    const [renderedBlob, container] = renderDocxAsync.mock.calls[0]
+    expect(renderedBlob).toBe(blob)
+    expect(container).toBeInstanceOf(HTMLElement)
+    // No object URL and no download fallback -- docx-preview reads the
+    // Blob directly rather than this modal handing it an iframe/link.
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
+    expect(screen.queryByText(/can't be previewed/i)).not.toBeInTheDocument()
+  })
+
+  it('surfaces an error when docx-preview fails to render', async () => {
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    vi.spyOn(documentsClient, 'getDocumentContent').mockResolvedValue(new Blob(['bad docx bytes']))
+    renderDocxAsync.mockRejectedValue(new Error('Could not render this document.'))
+
+    render(<PreviewModal documentId="doc-1" filename="report.docx" fileType="docx" onClose={vi.fn()} />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not render this document.')
+  })
+
+  it('renders a PPTX file as a slide-by-slide text outline', async () => {
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    const blob = await buildPptxBlob([
+      ['Welcome', 'First bullet', 'Second bullet'],
+      [],
+    ])
+    vi.spyOn(documentsClient, 'getDocumentContent').mockResolvedValue(blob)
+
+    render(<PreviewModal documentId="doc-1" filename="deck.pptx" fileType="pptx" onClose={vi.fn()} />)
+
+    expect(await screen.findByText('Slide 1')).toBeInTheDocument()
+    expect(screen.getByText('Welcome')).toBeInTheDocument()
+    expect(screen.getByText('First bullet')).toBeInTheDocument()
+    expect(screen.getByText('Second bullet')).toBeInTheDocument()
+    // Second slide has no text runs at all -- shown as an explicit empty
+    // state rather than a slide heading with nothing underneath it.
+    expect(screen.getByText('Slide 2')).toBeInTheDocument()
+    expect(screen.getByText(/no text on this slide/i)).toBeInTheDocument()
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
+  })
+
+  it('shows an alert if the PPTX cannot be parsed as a zip', async () => {
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    vi.spyOn(documentsClient, 'getDocumentContent').mockResolvedValue(
+      new Blob(['not actually a zip']),
+    )
+
+    render(<PreviewModal documentId="doc-1" filename="deck.pptx" fileType="pptx" onClose={vi.fn()} />)
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+  })
+
+  it('shows a download fallback for a file type with no inline renderer', async () => {
+    useAuth.mockReturnValue({ authFetch: vi.fn() })
+    vi.spyOn(documentsClient, 'getDocumentContent').mockResolvedValue(
+      new Blob(['csv bytes'], { type: 'text/csv' }),
+    )
+
+    render(<PreviewModal documentId="doc-1" filename="report.csv" fileType="csv" onClose={vi.fn()} />)
+
     expect(await screen.findByText(/can't be previewed/i)).toBeInTheDocument()
-    // Regression: the modal used to render nothing at all for docx/pptx --
-    // status flipped to 'ready' with no branch matching the file type, so
-    // it silently showed an empty body.
-    expect(screen.queryByTitle('report.docx')).not.toBeInTheDocument()
+    // Regression: the modal used to render nothing at all for an unhandled
+    // file type -- status flipped to 'ready' with no branch matching it,
+    // so it silently showed an empty body.
+    expect(screen.queryByTitle('report.csv')).not.toBeInTheDocument()
     const downloadLink = screen.getByRole('link', { name: /download/i })
     expect(downloadLink).toHaveAttribute('href', 'blob:mock-object-url')
-    expect(downloadLink).toHaveAttribute('download', 'report.docx')
+    expect(downloadLink).toHaveAttribute('download', 'report.csv')
   })
 
   it('shows an alert with the error message when the fetch fails', async () => {
