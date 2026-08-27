@@ -1132,6 +1132,67 @@ def test_dropping_every_followup_leaves_the_answer_intact(monkeypatch):
     assert result.segments[0].text == "The course runs 63 hours."
 
 
+# ---------------------------------------------------------------------------
+# Follow-up chips must not be offered when the model scrambled them.
+#
+# Observed in production on a Bulgarian answer: the model proposed "Как се
+# разчита genet 다양ността на коалатите в различни региони на Австралия?",
+# with Hangul welded inside a Cyrillic word. Clicking it produced only
+# "GraphMind could not generate an answer for this question" -- a scrambled
+# question retrieves nothing and answers nothing. The dead end was the chip
+# being offered at all, not the answering path.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "scrambled",
+    [
+        "Как се разчита genet 다양ността на коалатите?",  # the observed case
+        "Какво е знач中文ението тук?",  # CJK welded into Cyrillic
+        "What is theديversity of koalas?",  # Arabic welded into Latin
+    ],
+)
+def test_generate_answer_drops_scrambled_followups(monkeypatch, scrambled):
+    content = json.dumps(
+        {
+            "segments": [{"text": "Koalas live in Australia.", "passage_numbers": [1]}],
+            "followup_questions": [scrambled, "Where do koalas live?"],
+        }
+    )
+    monkeypatch.setattr(llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content=content))
+
+    result = generate_answer("Tell me about koalas", [_passage()])
+
+    assert result.followup_questions == ["Where do koalas live?"]
+
+
+@pytest.mark.parametrize(
+    "legitimate",
+    [
+        "Какво е PDF-ът на този документ?",  # Bulgarian inflects Latin in place
+        "Какво пише за iPhone-а?",
+        "What does 다양성 mean in the text?",  # a real quote is its own word
+        "Обясни 中国 в документа",
+    ],
+)
+def test_generate_answer_keeps_followups_mixing_scripts_legitimately(monkeypatch, legitimate):
+    """The guard tests for *welding*, not for the presence of a script.
+    Bulgarian routinely inflects Latin brand names in place ("PDF-ът"), and
+    a document that genuinely quotes Korean or Chinese produces those
+    characters as their own words -- both must survive."""
+    content = json.dumps(
+        {
+            "segments": [{"text": "Koalas live in Australia.", "passage_numbers": [1]}],
+            "followup_questions": [legitimate],
+        }
+    )
+    monkeypatch.setattr(llm_client_module.httpx, "post", lambda *a, **k: _openrouter_response(200, content=content))
+
+    result = generate_answer("Tell me about koalas", [_passage()])
+
+    assert result.followup_questions == [legitimate]
+
+
 def test_both_prompt_templates_forbid_leaking_passage_numbers():
     """The code guard above covers follow-ups, which are safely
     discardable. A segment's own text is not -- dropping it would lose the
