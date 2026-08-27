@@ -20,7 +20,6 @@ export default function ChatSearchPanel({
   value,
   onChange,
   resultCount,
-  totalCount,
   activeMatchNumber,
   onPrevMatch,
   onNextMatch,
@@ -67,7 +66,7 @@ export default function ChatSearchPanel({
           <p aria-live="polite" className="text-[11px] text-text2">
             {resultCount === 0
               ? t('chat.searchPanel.noMatches')
-              : t('chat.searchPanel.matchStatus', { active: activeMatchNumber, result: resultCount, total: totalCount })}
+              : t('chat.searchPanel.matchStatus', { active: activeMatchNumber, result: resultCount })}
           </p>
 
           {resultCount > 0 && (

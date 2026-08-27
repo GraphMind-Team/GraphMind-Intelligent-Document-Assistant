@@ -66,6 +66,24 @@ function messageSearchText(message) {
   return ''
 }
 
+// Counts case-insensitive occurrences of `needle` in `haystack`, the same
+// scan `highlightMatches` uses to place its <mark> tags -- kept in lockstep
+// with that function so the search panel's count always equals the number
+// of highlights actually on screen, not just the number of messages that
+// happen to contain the term.
+function countOccurrences(haystack, needle) {
+  if (!needle) return 0
+  let count = 0
+  let cursor = 0
+  for (;;) {
+    const hit = haystack.indexOf(needle, cursor)
+    if (hit === -1) break
+    count += 1
+    cursor = hit + needle.length
+  }
+  return count
+}
+
 // Chat page (Story 3.1): a three-column grid -- fixed 260px chats panel +
 // flexible chat window (1fr) + fixed 260px documents-in-scope panel, 20px
 // gutter (UX-DR9). Collapses to a single column below 900px so the
@@ -439,9 +457,12 @@ function ChatPageContent({ sessionId }) {
   }
 
   // Steps the active match forward (+1) or backward (-1) through
-  // `matchedIndices`, wrapping around at either end so the arrows never
-  // dead-end -- mirrors the wraparound behavior of a browser's own
-  // find-in-page next/previous.
+  // `matchedIndices` (one entry per occurrence -- see its own comment),
+  // wrapping around at either end so the arrows never dead-end -- mirrors
+  // the wraparound behavior of a browser's own find-in-page next/previous.
+  // Two consecutive occurrences in the same message step the ordinal and
+  // the "N of M" count but land on the same bubble, which is expected:
+  // navigation is message-granular, counting is occurrence-granular.
   function stepMatch(offset) {
     if (matchedIndices.length === 0) return
     setActiveMatchOrdinal((previous) => {
@@ -601,17 +622,21 @@ function ChatPageContent({ sessionId }) {
   }
 
   const chatSearchNeedle = chatSearch.trim().toLowerCase()
-  // Full-thread indices of every message matching the active search --
-  // the thread itself is always rendered in full (see the message-list
-  // map below); this only drives the "N of M" count and the prev/next
-  // match navigation, never what's actually in the DOM.
+  // One entry per occurrence of the active search term, not per message --
+  // a message with the term twice contributes its index twice, in thread
+  // order. This is what drives the "N of M" count and the prev/next match
+  // navigation, so M always equals the number of <mark> highlights actually
+  // on screen (see `highlightMatches`/`countOccurrences`), never a
+  // per-message count that reads as wrong next to them. The thread itself
+  // is always rendered in full (see the message-list map below) -- this
+  // array never changes what's actually in the DOM, only the count and
+  // which bubble prev/next scrolls to.
   const matchedIndices =
     chatSearchNeedle === ''
       ? []
-      : messages
-          .map((message, index) => ({ message, index }))
-          .filter(({ message }) => messageSearchText(message).toLowerCase().includes(chatSearchNeedle))
-          .map(({ index }) => index)
+      : messages.flatMap((message, index) =>
+          Array(countOccurrences(messageSearchText(message).toLowerCase(), chatSearchNeedle)).fill(index),
+        )
 
   // A fresh query (including clearing it) starts over at the first match
   // rather than carrying over whatever ordinal the previous query had
@@ -912,7 +937,6 @@ function ChatPageContent({ sessionId }) {
             value={chatSearch}
             onChange={setChatSearch}
             resultCount={matchedIndices.length}
-            totalCount={messages.length}
             activeMatchNumber={matchedIndices.length === 0 ? 0 : activeMatchOrdinal + 1}
             onPrevMatch={() => stepMatch(-1)}
             onNextMatch={() => stepMatch(1)}
