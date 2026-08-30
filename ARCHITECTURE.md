@@ -161,7 +161,8 @@ production topology; no staging tier. Nothing secret is ever committed.
 | Hosting | Vercel (frontend), Render (backend) |
 
 Every external service runs on a free tier, so the project is reproducible at
-no cost.
+no cost. Exact pinned versions, and the reasoning behind each choice, are in
+the [architecture spine](_bmad-output/planning-artifacts/architecture/architecture-GraphMind-Intelligent-Document-Assistant-2026-08-11/ARCHITECTURE-SPINE.md#stack).
 
 ## Known constraints
 
