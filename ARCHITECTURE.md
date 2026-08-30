@@ -32,7 +32,7 @@ backend/app/
     data_access/   the only path to Weaviate, Neo4j, and Postgres
     llm_client/    the only path to OpenRouter
     email/         verification mail (Brevo HTTP API, or SMTP, or console)
-    i18n/          server-side message catalogues (English / Bulgarian)
+    i18n/          server-side message catalogues (English / Bulgarian / German)
     models.py      SQLAlchemy ORM models
     rate_limiter.py
 frontend/src/
