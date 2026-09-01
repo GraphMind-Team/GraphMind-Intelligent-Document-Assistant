@@ -665,7 +665,7 @@ function ChatPageContent({ sessionId }) {
 
         <div
           className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-card-bg shadow-card"
-          style={{ minHeight: '520px', height: 'calc(100vh - 140px)' }}
+          style={{ minHeight: '520px', height: 'calc(100dvh - 140px)' }}
         >
           {/* aria-atomic="false": only the newly-appended message is
               announced, not a full re-read of the thread every turn

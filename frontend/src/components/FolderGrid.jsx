@@ -325,7 +325,7 @@ export default function FolderGrid({
   }
 
   return (
-    <div className="w-80 shrink-0 rounded-2xl border border-border bg-card-bg p-3.5 shadow-card">
+    <div className="w-full shrink-0 rounded-2xl border border-border bg-card-bg p-3.5 shadow-card sm:w-80">
       {dropError && (
         <p role="alert" className="mb-2 text-xs text-danger">
           {dropError}
