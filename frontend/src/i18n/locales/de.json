@@ -80,7 +80,7 @@
       "password": "Passwort",
       "submit": "Anmelden",
       "resendVerification": "Bestätigungs-E-Mail erneut senden",
-      "resendSent": "Falls dieses Konto existiert und noch nicht bestätigt wurde, haben wir einen neuen Link gesendet.",
+      "resendSent": "Wir haben einen neuen Link gesendet.",
       "noAccount": "Noch kein Konto?",
       "registerLink": "Registrieren"
     },
@@ -94,7 +94,7 @@
       "checkInboxPrefix": "Überprüfe dein Postfach unter",
       "checkInboxSuffix": "auf einen Bestätigungslink, bevor du dich anmeldest.",
       "resendVerification": "Bestätigungs-E-Mail erneut senden",
-      "resendSent": "Falls dieses Konto existiert und noch nicht bestätigt wurde, haben wir einen neuen Link gesendet.",
+      "resendSent": "Wir haben einen neuen Link gesendet.",
       "haveAccount": "Bereits ein Konto?",
       "loginLink": "Anmelden"
     },
@@ -111,7 +111,7 @@
       "failedTitle": "Bestätigung fehlgeschlagen",
       "resendLabel": "Sende mir einen neuen Link",
       "resendButton": "Bestätigungs-E-Mail erneut senden",
-      "resendSent": "Falls dieses Konto existiert und noch nicht bestätigt wurde, haben wir einen neuen Link gesendet.",
+      "resendSent": "Wir haben einen neuen Link gesendet.",
       "backToLogin": "Zurück zur Anmeldung"
     }
   },

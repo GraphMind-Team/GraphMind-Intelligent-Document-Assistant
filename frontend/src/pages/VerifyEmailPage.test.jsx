@@ -55,7 +55,7 @@ describe('VerifyEmailPage', () => {
 
     expect(authClient.resendVerification).toHaveBeenCalledWith({ email: 'maria@example.com' })
     expect(
-      await screen.findByText(/if that account exists and isn't verified yet/i),
+      await screen.findByText(/we've sent a new link/i),
     ).toBeInTheDocument()
   })
 })

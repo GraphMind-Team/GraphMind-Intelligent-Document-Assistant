@@ -47,7 +47,7 @@ describe('RegisterPage (Story 1.6: check-your-inbox state)', () => {
 
     expect(authClient.resendVerification).toHaveBeenCalledWith({ email: 'maria@example.com' })
     expect(
-      await screen.findByText(/if that account exists and isn't verified yet/i),
+      await screen.findByText(/we've sent a new link/i),
     ).toBeInTheDocument()
   })
 
@@ -70,7 +70,7 @@ describe('RegisterPage (Story 1.6: check-your-inbox state)', () => {
     await user.click(await screen.findByRole('button', { name: /resend verification email/i }))
 
     expect(
-      await screen.findByText(/if that account exists and isn't verified yet/i),
+      await screen.findByText(/we've sent a new link/i),
     ).toBeInTheDocument()
   })
 

@@ -80,7 +80,7 @@
       "password": "Password",
       "submit": "Log In",
       "resendVerification": "Resend verification email",
-      "resendSent": "If that account exists and isn't verified yet, we've sent a new link.",
+      "resendSent": "We've sent a new link.",
       "noAccount": "Don't have an account?",
       "registerLink": "Register"
     },
@@ -94,7 +94,7 @@
       "checkInboxPrefix": "Check your inbox at",
       "checkInboxSuffix": "for a verification link before you log in.",
       "resendVerification": "Resend verification email",
-      "resendSent": "If that account exists and isn't verified yet, we've sent a new link.",
+      "resendSent": "We've sent a new link.",
       "haveAccount": "Already have an account?",
       "loginLink": "Log in"
     },
@@ -111,7 +111,7 @@
       "failedTitle": "Verification failed",
       "resendLabel": "Send me a new link",
       "resendButton": "Resend verification email",
-      "resendSent": "If that account exists and isn't verified yet, we've sent a new link.",
+      "resendSent": "We've sent a new link.",
       "backToLogin": "Back to log in"
     }
   },
