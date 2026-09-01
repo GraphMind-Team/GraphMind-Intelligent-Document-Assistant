@@ -52,8 +52,8 @@ export default function VerifyEmailPage() {
   }
 
   return (
-    <main className="app-aurora flex min-h-screen items-center justify-center p-8">
-      <div className="anim-rise w-full max-w-[420px] rounded-2xl border border-border bg-card-bg p-9 shadow-modal">
+    <main className="app-aurora flex min-h-screen items-center justify-center p-4 sm:p-8">
+      <div className="anim-rise w-full max-w-[420px] rounded-2xl border border-border bg-card-bg p-6 shadow-modal sm:p-9">
         <Link to="/" aria-label={t('auth.brandHome')} className="mb-4 inline-flex items-center gap-2.5">
           <span
             aria-hidden="true"

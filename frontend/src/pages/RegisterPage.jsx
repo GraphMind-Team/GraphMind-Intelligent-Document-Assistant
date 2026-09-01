@@ -53,8 +53,8 @@ export default function RegisterPage() {
   }
 
   return (
-    <main className="app-aurora flex min-h-screen items-center justify-center p-8">
-      <div className="anim-rise w-full max-w-[420px] rounded-2xl border border-border bg-card-bg p-9 shadow-modal">
+    <main className="app-aurora flex min-h-screen items-center justify-center p-4 sm:p-8">
+      <div className="anim-rise w-full max-w-[420px] rounded-2xl border border-border bg-card-bg p-6 shadow-modal sm:p-9">
         {/* The brand mark doubles as the way back to the public page --
             an auth form with no exit is a dead end for anyone who
             arrived by mistake. */}

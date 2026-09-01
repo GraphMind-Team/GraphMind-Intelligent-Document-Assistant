@@ -434,7 +434,7 @@ export default function DocumentsPage() {
             aria-pressed={isFoldersOpen}
             onClick={() => setIsFoldersOpen((open) => !open)}
             className={[
-              'shrink-0 rounded-full border px-3.5 py-2 text-[13px] font-medium',
+              'w-full rounded-full border px-3.5 py-2 text-[13px] font-medium sm:w-auto sm:shrink-0',
               isFoldersOpen || folderFilter !== ALL_DOCUMENTS_FILTER
                 ? 'border-accent text-accent'
                 : 'border-border bg-input-bg text-text',
@@ -450,7 +450,7 @@ export default function DocumentsPage() {
             id="documents-sort"
             value={sortBy}
             onChange={(event) => setSortBy(event.target.value)}
-            className="shrink-0 cursor-pointer rounded-full border border-border bg-input-bg px-3.5 py-2 text-[13px] text-text"
+            className="w-full cursor-pointer rounded-full border border-border bg-input-bg px-3.5 py-2 text-[13px] text-text sm:w-auto sm:shrink-0"
           >
             {SORT_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -466,7 +466,7 @@ export default function DocumentsPage() {
             id="documents-type-filter"
             value={typeFilter}
             onChange={(event) => setTypeFilter(event.target.value)}
-            className="shrink-0 cursor-pointer rounded-full border border-border bg-input-bg px-3.5 py-2 text-[13px] text-text"
+            className="w-full cursor-pointer rounded-full border border-border bg-input-bg px-3.5 py-2 text-[13px] text-text sm:w-auto sm:shrink-0"
           >
             {TYPE_FILTER_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -475,7 +475,7 @@ export default function DocumentsPage() {
             ))}
           </select>
 
-          <div className="relative min-w-[180px] max-w-[420px] flex-1">
+          <div className="relative w-full min-w-0 sm:min-w-[180px] sm:max-w-[420px] sm:flex-1">
             <label className="sr-only" htmlFor="documents-search">
               {t('documents.search.label')}
             </label>
@@ -500,7 +500,7 @@ export default function DocumentsPage() {
             min-width shrinks while the panel is open (below) so the same
             document count still lands close to its usual columns-per-row
             instead of silently dropping a column to the panel. */}
-        <div className="flex items-start gap-4">
+        <div className="flex flex-col items-stretch gap-4 sm:flex-row sm:items-start">
           <div className="min-w-0 flex-1">
             {/* Mirrors GraphPage.jsx's own error-banner shape (card, not a
                 bare paragraph) plus the one thing it had that this didn't:

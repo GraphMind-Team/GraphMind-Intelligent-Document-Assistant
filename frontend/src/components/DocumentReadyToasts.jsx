@@ -132,7 +132,7 @@ export default function DocumentReadyToasts() {
     // screen the moment it appears).
     <div
       aria-live="polite"
-      className="fixed bottom-5 right-5 z-20 flex w-[min(340px,calc(100vw-2.5rem))] flex-col-reverse gap-3"
+      className="fixed bottom-24 right-5 z-20 flex w-[min(340px,calc(100vw-2.5rem))] flex-col-reverse gap-3 sm:bottom-5"
     >
       {readyToasts.map((toast) => (
         <div

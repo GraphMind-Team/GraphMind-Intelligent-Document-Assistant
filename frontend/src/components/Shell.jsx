@@ -172,7 +172,10 @@ export default function Shell() {
           </span>
         </div>
 
-        <ul className="flex flex-1 items-center gap-1 overflow-x-auto">
+        {/* Hidden below `sm` -- phone widths get the fixed bottom tab bar
+            instead (rendered further down), since a horizontal-scrolling
+            icon row isn't a real mobile nav pattern. */}
+        <ul className="hidden flex-1 items-center gap-1 overflow-x-auto sm:flex">
           {NAV_ITEMS.map((item) => (
             <li key={item.to}>
               <NavLink to={item.to} className={NAV_LINK_CLASS}>
@@ -182,7 +185,7 @@ export default function Shell() {
                         (position + presence) alongside the tint. */}
                     <span aria-hidden="true" className={NAV_INDICATOR_CLASS(isActive)} />
                     <Icon>{item.icon}</Icon>
-                    <span className="max-[640px]:sr-only">{t(item.labelKey)}</span>
+                    <span>{t(item.labelKey)}</span>
                   </>
                 )}
               </NavLink>
@@ -227,9 +230,51 @@ export default function Shell() {
         </div>
       </nav>
 
-      <main className="min-w-0 flex-1 px-6 pb-4 sm:px-10">
+      <main className="min-w-0 flex-1 px-6 pb-24 sm:px-10 sm:pb-4">
         <Outlet />
       </main>
+
+      {/* Phone-only bottom tab bar, replacing the top bar's nav list below
+          `sm`. Fixed + inset from the edges to match the floating-glass
+          treatment of the top bar; `env(safe-area-inset-bottom)` keeps it
+          clear of the iOS home indicator. Account identity and log out
+          stay in the top bar at every width -- this bar is destinations
+          only. */}
+      <nav
+        aria-label="Mobile navigation"
+        className="glass fixed inset-x-3 bottom-3 z-20 flex items-center justify-around rounded-2xl px-1 py-1.5 shadow-card sm:hidden"
+        style={{ paddingBottom: 'calc(0.375rem + env(safe-area-inset-bottom))' }}
+      >
+        {NAV_ITEMS.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            className={({ isActive }) =>
+              [
+                // Fixed min-height so every tab is the same size regardless
+                // of label length -- some locales (bg "Граф на знанието",
+                // de "Benutzereinstellungen") run much longer than the
+                // English labels and would otherwise wrap to two lines
+                // (or, for a de-style label with no spaces, overflow) while
+                // their neighbors stay one line, making just that one pill
+                // taller than the rest.
+                'flex min-h-[50px] flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-1 py-1.5 text-center text-[10px] leading-tight',
+                isActive
+                  ? 'bg-sidebar-active-bg font-semibold text-sidebar-active-foreground'
+                  : 'text-sidebar-foreground',
+              ].join(' ')
+            }
+          >
+            <Icon>{item.icon}</Icon>
+            {/* break-words: a long single-word label (no spaces) still
+                wraps instead of overflowing past the tab's column.
+                line-clamp-2: caps it at two lines with an ellipsis instead
+                of growing the pill further for a label long enough to want
+                a third. */}
+            <span className="line-clamp-2 break-words">{t(item.labelKey)}</span>
+          </NavLink>
+        ))}
+      </nav>
 
       {/* Session-scoped, not page-scoped -- see its own file comment for
           why this can't live inside DocumentsPage. */}

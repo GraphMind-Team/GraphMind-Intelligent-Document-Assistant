@@ -172,7 +172,7 @@ export default function DocumentDetailPage() {
         return (
           <div className="rounded-xl border border-border bg-card-bg p-[26px]">
             <div className="flex items-start justify-between gap-3">
-              <h1 className="text-[18px] font-bold text-primary">{doc.filename}</h1>
+              <h1 className="min-w-0 break-words text-[18px] font-bold text-primary">{doc.filename}</h1>
 
               {/* Compact icon buttons next to the title, not full pills --
                   the same `rounded-lg p-1.5` icon-button treatment
@@ -292,7 +292,7 @@ export default function DocumentDetailPage() {
               )}
             </p>
 
-            <dl className="my-[18px] grid grid-cols-2 gap-3.5">
+            <dl className="my-[18px] grid grid-cols-1 gap-3.5 sm:grid-cols-2">
               <MetaItem label={t('documentDetail.uploadedLabel')} value={formatUploadedDate(doc.created_at)} />
               <MetaItem
                 label={t('documentDetail.fileType')}
